@@ -622,7 +622,7 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v2.9 · SharePoint Prueba7",
+  version: "Playa Paraíso · App unificada v3.0 · SharePoint Prueba7",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -635,6 +635,7 @@ const APP = {
     fotosFolder: "Fotos"
   },
 };
+if(localStorage.getItem("pp_clientId")==="1a67d6b5-c2e8-4592-8dd0-b3e444d84687"){ localStorage.removeItem("pp_clientId"); }
 APP.ms.clientId = localStorage.getItem("pp_clientId") || APP.ms.clientId;
 APP.ms.tenantId = localStorage.getItem("pp_tenantId") || APP.ms.tenantId;
 
@@ -1778,11 +1779,7 @@ function App(){
     <div className="ltag">Inicia sesión con tu cuenta Microsoft para usar la app. El histórico se guarda en SharePoint (Prueba7).</div>
     <button className="btn ocean block" onClick={()=>msSignIn()}>🔗 Iniciar sesión con Microsoft</button>
     {msErr && <div className="lerr" style={{marginTop:12,whiteSpace:"normal"}}>{msErr}</div>}
-    <details style={{marginTop:16,textAlign:"left"}}>
-      <summary style={{cursor:"pointer",fontWeight:700,color:"var(--ocean-d)",fontSize:14}}>⚙️ App Registration (Client ID)</summary>
-      <ClientIdForm toast={toast}/></details>
     <button className="lback" onClick={()=>{localStorage.setItem("pp_mode","local");location.reload();}}>Usar modo demo local</button>
-    <div className="hint" style={{marginTop:14}}>Client ID actual: <code style={{wordBreak:"break-all"}}>{APP.ms.clientId}</code><br/>Redirect URI a registrar en Azure:<br/><code style={{wordBreak:"break-all"}}>{APP.ms.redirectUri}</code></div>
   </div></div>;
   if(!user) return <Login onLogin={onLogin}/>;
   const rolLbl={desarrollador:"Desarrollador",gerencia:"Gerencia",aprobador:"Aprobador",colaborador:"Colaborador"}[user.rol]||user.rol;
