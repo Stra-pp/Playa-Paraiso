@@ -621,7 +621,7 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v2.5 · SharePoint Prueba7",
+  version: "Playa Paraíso · App unificada v2.6 · SharePoint Prueba7",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "1a67d6b5-c2e8-4592-8dd0-b3e444d84687",
@@ -731,19 +731,31 @@ const GraphStore = {
 const Store = { get be(){ return MODE==="graph"?GraphStore:Local; },
   read:t=>Store.be.read(t), write:(t,a)=>Store.be.write(t,a) };
 
-async function msLogin(){
+let msErr="";
+const MS_SCOPES=["https://graph.microsoft.com/Files.ReadWrite.All","https://graph.microsoft.com/User.Read"];
+async function msInitApp(){
+  if(msalApp) return;
   msalApp=new msal.PublicClientApplication({auth:{clientId:APP.ms.clientId,
     authority:`https://login.microsoftonline.com/${APP.ms.tenantId}`,redirectUri:APP.ms.redirectUri},
     cache:{cacheLocation:"localStorage"}});
   await msalApp.initialize();
-  const scopes=["https://graph.microsoft.com/Files.ReadWrite.All","https://graph.microsoft.com/User.Read"];
-  const accs=msalApp.getAllAccounts();
-  let res; if(accs.length){ try{ res=await msalApp.acquireTokenSilent({scopes,account:accs[0]}); }catch{} }
-  if(!res) res=await msalApp.loginPopup({scopes});
-  graphToken=res.accessToken;
-  graphUser=(res.account&&(res.account.username||res.account.name))||"";
-  try{ const me=await gfetch("/me"); graphUser=me.mail||me.userPrincipalName||graphUser; }catch{}
 }
+async function setGraphUser(acc){ if(acc) graphUser=acc.username||acc.name||graphUser;
+  try{ const me=await gfetch("/me"); graphUser=me.mail||me.userPrincipalName||graphUser; }catch{} }
+// Al cargar: recupera token (de una redirección de vuelta o de sesión previa). No abre nada.
+async function msEnsure(){
+  if(typeof msal==="undefined"){ msErr="No se cargó MSAL (la red bloqueó la CDN)."; return false; }
+  try{ await msInitApp();
+    let resp=null; try{ resp=await msalApp.handleRedirectPromise(); }catch(e){ msErr=e.errorMessage||e.message||String(e); }
+    if(resp && resp.accessToken){ graphToken=resp.accessToken; await setGraphUser(resp.account); return true; }
+    const accs=msalApp.getAllAccounts();
+    if(accs.length){ try{ const r=await msalApp.acquireTokenSilent({scopes:MS_SCOPES,account:accs[0]});
+      graphToken=r.accessToken; await setGraphUser(accs[0]); return true; }catch(e){} }
+  }catch(e){ msErr=e.errorMessage||e.message||String(e); }
+  return false;
+}
+// Inicia sesión por redirección (debe llamarse desde un clic). Navega a Microsoft y vuelve.
+async function msSignIn(){ msErr=""; await msInitApp(); await msalApp.loginRedirect({scopes:MS_SCOPES}); }
 // Código legible por proceso/año a partir del arreglo existente
 function nextCode(prefix, arr){
   const y=yr(); const n=arr.filter(x=>(x.Codigo||"").startsWith(prefix+"-"+y)).length+1;
@@ -1735,15 +1747,13 @@ function App(){
   const [user,setUser]=useState(()=>{ try{return JSON.parse(sessionStorage.getItem("pp_user"))}catch{return null} });
   const [view,setView]=useState("home"); const [toastMsg,setToastMsg]=useState(""); const [counts,setCounts]=useState({});
   const [foto,setFoto]=useState(null); const [gerr,setGerr]=useState(""); const [cfgVer,setCfgVer]=useState(0);
-  const [ready,setReady]=useState(MODE!=="graph");
+  const [connected,setConnected]=useState(MODE!=="graph"); const [checking,setChecking]=useState(MODE==="graph");
   const bump=()=>setCfgVer(v=>v+1);
   useEffect(()=>{ (async()=>{
-    if(user && MODE==="graph" && !graphToken){
-      try{ await msLogin(); try{ applyIldConfig(await cfgRead()); }catch{} bump(); }
-      catch(e){ setGerr("No se pudo conectar a SharePoint. Cierra sesión y vuelve a entrar para reconectar tu cuenta Microsoft."); }
-    }
-    setReady(true);
-  })(); },[user]);
+    if(MODE==="graph"){ const ok=await msEnsure(); setConnected(ok);
+      if(ok){ try{ applyIldConfig(await cfgRead()); }catch{} bump(); } }
+    setChecking(false);
+  })(); },[]);
   const toast=m=>{ setToastMsg(m); setTimeout(()=>setToastMsg(""),2600); };
   async function reloadCounts(u){ const who=u||user; if(!who) return;
     const c=await Store.read("Compras"), s=await Store.read("Sistemas"), m=await Store.read("Mantenimiento"), il=await Store.read("ILD");
@@ -1757,15 +1767,20 @@ function App(){
     });
   }
   useEffect(()=>{ if(user) reloadCounts(); },[user,view]);
-  async function onLogin(u){
-    if(MODE==="graph"){ try{ await msLogin(); try{ applyIldConfig(await cfgRead()); }catch{} }catch(e){ setGerr("No se pudo conectar a Microsoft; se usa modo local."); MODE="local"; } }
-    sessionStorage.setItem("pp_user",JSON.stringify(u)); setUser(u); setView("home");
-  }
+  async function onLogin(u){ sessionStorage.setItem("pp_user",JSON.stringify(u)); setUser(u); setView("home"); }
   function logout(){ sessionStorage.removeItem("pp_user"); setUser(null); setView("home"); }
   if(!user) return <Login onLogin={onLogin}/>;
-  if(!ready) return <div className="login"><div className="sun"></div><div className="lcard">
+  if(MODE==="graph" && checking) return <div className="login"><div className="sun"></div><div className="lcard">
     <div className="lbrand"><span className="dot"></span>Playa Paraíso</div>
     <div className="ltag" style={{marginBottom:0}}>Conectando con SharePoint…</div></div></div>;
+  if(MODE==="graph" && !connected) return <div className="login"><div className="sun"></div><div className="lcard">
+    <div className="lbrand"><span className="dot"></span>Playa Paraíso</div>
+    <div className="ltag">Conecta tu cuenta Microsoft para guardar el histórico en SharePoint (Prueba7).</div>
+    <button className="btn ocean block" onClick={()=>msSignIn()}>🔗 Conectar con Microsoft</button>
+    {msErr && <div className="lerr" style={{marginTop:12,whiteSpace:"normal"}}>{msErr}</div>}
+    <button className="lback" onClick={()=>{localStorage.setItem("pp_mode","local");location.reload();}}>Usar modo demo local</button>
+    <div className="hint" style={{marginTop:14}}>Redirect URI a registrar en Azure:<br/><code style={{wordBreak:"break-all"}}>{APP.ms.redirectUri}</code></div>
+  </div></div>;
   const rolLbl={desarrollador:"Desarrollador",gerencia:"Gerencia",aprobador:"Aprobador",colaborador:"Colaborador"}[user.rol]||user.rol;
   const titles={ild:"ILD",compras:"Compras",sistemas:"Sistemas",mantenimiento:"Mantenimiento",kanban:"Kanban",admin:"Configuración"};
   return <div className="app">
