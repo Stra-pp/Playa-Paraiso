@@ -621,7 +621,7 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v2.4 · SharePoint Prueba7",
+  version: "Playa Paraíso · App unificada v2.5 · SharePoint Prueba7",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "1a67d6b5-c2e8-4592-8dd0-b3e444d84687",
@@ -634,6 +634,8 @@ const APP = {
     fotosFolder: "Fotos"
   },
 };
+APP.ms.clientId = localStorage.getItem("pp_clientId") || APP.ms.clientId;
+APP.ms.tenantId = localStorage.getItem("pp_tenantId") || APP.ms.tenantId;
 
 /* ===== Capacidades por rol ===== */
 const esGD = u => u && ['gerencia','desarrollador'].includes(u.rol);
@@ -1639,6 +1641,20 @@ function Kanban({user,toast}){
 }
 
 /* ===== ADMIN ===== */
+function ClientIdForm({toast}){
+  const [cid,setCid]=useState(localStorage.getItem("pp_clientId")||APP.ms.clientId);
+  const [tid,setTid]=useState(localStorage.getItem("pp_tenantId")||APP.ms.tenantId);
+  function guardar(){ const c=cid.trim(); if(!c){toast("Pega el Client ID");return;}
+    localStorage.setItem("pp_clientId",c); if(tid.trim()) localStorage.setItem("pp_tenantId",tid.trim());
+    if(!confirm("Guardar y reiniciar la app para conectar con tu App Registration?"))return;
+    location.reload(); }
+  function restaurar(){ localStorage.removeItem("pp_clientId"); localStorage.removeItem("pp_tenantId"); location.reload(); }
+  return <div style={{marginTop:8}}>
+    <Field label="Client ID (Application ID)"><input className="inp" value={cid} onChange={e=>setCid(e.target.value)} placeholder="00000000-0000-0000-0000-000000000000"/></Field>
+    <Field label="Tenant ID (opcional)"><input className="inp" value={tid} onChange={e=>setTid(e.target.value)}/></Field>
+    <div className="row"><button className="btn primary" onClick={guardar}>Guardar y reiniciar</button>
+      <button className="btn ghost" onClick={restaurar}>Restaurar por defecto</button></div></div>;
+}
 function DeleteRecords({toast}){
   const [mod,setMod]=useState("ILD"); const [rows,setRows]=useState([]);
   const load=async()=>setRows(await Store.read(mod)); useEffect(()=>{load();},[mod]);
@@ -1698,6 +1714,9 @@ function Admin({user,toast}){
         <button className="btn ghost" onClick={toggleMode}>{MODE==="graph"?"Cambiar a demo local":"Conectar a SharePoint"}</button></div>
       <div className="hint" style={{marginTop:8}}>El histórico se guarda en {MODE==="graph"?"SharePoint y se abre desde cualquier dispositivo al iniciar sesión.":"este navegador (modo demo)."}</div>
     </div>
+    <div className="card"><h3>🪪 App Registration propia</h3>
+      <div className="hint">Pega aquí el <b>Client ID</b> de tu propia App Registration de Azure (queda separada de la del ILD). El Tenant ID es opcional (por defecto usa el mismo).</div>
+      <ClientIdForm toast={toast}/></div>
     <div className="card"><h3>📊 Exportar histórico a Excel</h3>
       <div className="row">{["ILD","Compras","Sistemas","Mantenimiento"].map(t=><button key={t} className="btn green" onClick={()=>exportar(t)}>⬇ {t}</button>)}</div>
       <div className="hint" style={{marginTop:8}}>Cada jefatura también puede exportar sus ILD desde ILD → bandeja.</div></div>
