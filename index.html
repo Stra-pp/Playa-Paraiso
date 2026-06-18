@@ -622,7 +622,7 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v2.7 · SharePoint Prueba7",
+  version: "Playa Paraíso · App unificada v2.8 · SharePoint Prueba7",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "1a67d6b5-c2e8-4592-8dd0-b3e444d84687",
@@ -1770,18 +1770,21 @@ function App(){
   useEffect(()=>{ if(user) reloadCounts(); },[user,view]);
   async function onLogin(u){ sessionStorage.setItem("pp_user",JSON.stringify(u)); setUser(u); setView("home"); }
   function logout(){ sessionStorage.removeItem("pp_user"); setUser(null); setView("home"); }
-  if(!user) return <Login onLogin={onLogin}/>;
   if(MODE==="graph" && checking) return <div className="login"><div className="sun"></div><div className="lcard">
     <div className="lbrand"><span className="dot"></span>Playa Paraíso</div>
     <div className="ltag" style={{marginBottom:0}}>Conectando con SharePoint…</div></div></div>;
   if(MODE==="graph" && !connected) return <div className="login"><div className="sun"></div><div className="lcard">
     <div className="lbrand"><span className="dot"></span>Playa Paraíso</div>
-    <div className="ltag">Conecta tu cuenta Microsoft para guardar el histórico en SharePoint (Prueba7).</div>
-    <button className="btn ocean block" onClick={()=>msSignIn()}>🔗 Conectar con Microsoft</button>
+    <div className="ltag">Inicia sesión con tu cuenta Microsoft para usar la app. El histórico se guarda en SharePoint (Prueba7).</div>
+    <button className="btn ocean block" onClick={()=>msSignIn()}>🔗 Iniciar sesión con Microsoft</button>
     {msErr && <div className="lerr" style={{marginTop:12,whiteSpace:"normal"}}>{msErr}</div>}
+    <details style={{marginTop:16,textAlign:"left"}}>
+      <summary style={{cursor:"pointer",fontWeight:700,color:"var(--ocean-d)",fontSize:14}}>⚙️ App Registration (Client ID)</summary>
+      <ClientIdForm toast={toast}/></details>
     <button className="lback" onClick={()=>{localStorage.setItem("pp_mode","local");location.reload();}}>Usar modo demo local</button>
-    <div className="hint" style={{marginTop:14}}>Redirect URI a registrar en Azure:<br/><code style={{wordBreak:"break-all"}}>{APP.ms.redirectUri}</code></div>
+    <div className="hint" style={{marginTop:14}}>Client ID actual: <code style={{wordBreak:"break-all"}}>{APP.ms.clientId}</code><br/>Redirect URI a registrar en Azure:<br/><code style={{wordBreak:"break-all"}}>{APP.ms.redirectUri}</code></div>
   </div></div>;
+  if(!user) return <Login onLogin={onLogin}/>;
   const rolLbl={desarrollador:"Desarrollador",gerencia:"Gerencia",aprobador:"Aprobador",colaborador:"Colaborador"}[user.rol]||user.rol;
   const titles={ild:"ILD",compras:"Compras",sistemas:"Sistemas",mantenimiento:"Mantenimiento",kanban:"Kanban",admin:"Configuración"};
   return <div className="app">
