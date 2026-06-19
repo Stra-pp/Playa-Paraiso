@@ -623,7 +623,7 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v3.8 · SharePoint Prueba7(Listas)",
+  version: "Playa Paraíso · App unificada v3.9 · SharePoint Prueba7(Listas)",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -1067,7 +1067,7 @@ function ILD({user,toast,setFoto,bump}){
       {showChecklist && <button className={tab==="check"?"on":""} onClick={()=>setTab("check")}>Checklist</button>}
       {esDevv && <button className={tab==="conf"?"on":""} onClick={()=>setTab("conf")}>Configurar</button>}
     </div>}
-    {tab==="nuevo" && showNuevo && <ILDForm user={user} toast={toast} onSaved={load} setFoto={setFoto}/>}
+    {tab==="nuevo" && showNuevo && <ILDForm user={user} toast={toast} onSaved={()=>{load();setTab("mios");}} setFoto={setFoto}/>}
     {tab==="mios" && showNuevo && <ILDMios user={user} regs={regs} setFoto={setFoto}/>}
     {tab==="bandeja" && <ILDPanel user={user} regs={regs} reload={load} toast={toast} setFoto={setFoto}/>}
     {tab==="dash" && <ILDDash user={user} regs={regs}/>}
@@ -1721,7 +1721,7 @@ function Compras({user,toast,setFoto}){
   const load=async()=>setRows(await Store.read("Compras")); useEffect(()=>{load();},[]);
   const vacio={Area:DEPTS[0],TiempoCompra:TIEMPO_COMPRA[1],TipoCompra:TIPO_COMPRA[0],FechaNecesidad:"",
     Presupuesto:"",Justificacion:"",Cantidad:"",Unidad:UNIDADES[0],Modelo:"",Descripcion:"",Proveedores:""};
-  const [f,setF]=useState(vacio); const [fotos,setFotos]=useState([]);
+  const [f,setF]=useState(vacio); const [fotos,setFotos]=useState([]); const [busy,setBusy]=useState(false);
   const ch=(k,v)=>setF(s=>({...s,[k]:v}));
   async function crear(){
     for(const [k,lbl] of [["Area","Área"],["TiempoCompra","Tiempo de compra"],["TipoCompra","Tipo de compra"],
@@ -1729,15 +1729,18 @@ function Compras({user,toast,setFoto}){
       ["Cantidad","Cantidad"],["Unidad","Unidad"],["Modelo","Modelo"],["Descripcion","Descripción"],["Proveedores","Posibles proveedores"]])
       if(!String(f[k]).trim()){ toast("Falta: "+lbl); return; }
     if(!fotos.length){ toast("Falta la foto del producto"); return; }
-    const arr=await Store.read("Compras"); const Codigo=nextCode("COM",arr);
-    const fotosC=await subirFotos(fotos,`COM_${Codigo}`,Codigo);
-    const nuevo={Codigo,id:gid(),FechaSolicitud:nowISO(),Solicitante:user.nombre,...f,
-      Fotos:fotosC,
-      Estado:"Solicitado",FechaTentativa:"",Aprobador:"",FechaAprob:"",Comentario:"",
-      EnviadoGG:"No",AprobadorGG:"",FechaGG:"",ComentarioGG:"",ActaEntrega:"",ComentarioActa:"",
-      FechaEntrega:"",FechaCierre:"",EncuestaCal:"",EncuestaComentario:"",FechaEncuesta:""};
-    await Store.write("Compras",[nuevo,...arr]); toast("Solicitud creada: "+Codigo);
-    setF(vacio); setFotos([]); load();
+    if(busy) return; setBusy(true);
+    try{
+      const arr=await Store.read("Compras"); const Codigo=nextCode("COM",arr);
+      const fotosC=await subirFotos(fotos,`COM_${Codigo}`,Codigo);
+      const nuevo={Codigo,id:gid(),FechaSolicitud:nowISO(),Solicitante:user.nombre,...f,
+        Fotos:fotosC,
+        Estado:"Solicitado",FechaTentativa:"",Aprobador:"",FechaAprob:"",Comentario:"",
+        EnviadoGG:"No",AprobadorGG:"",FechaGG:"",ComentarioGG:"",ActaEntrega:"",ComentarioActa:"",
+        FechaEntrega:"",FechaCierre:"",EncuestaCal:"",EncuestaComentario:"",FechaEncuesta:""};
+      await Store.write("Compras",[nuevo,...arr]); toast("Solicitud creada: "+Codigo);
+      setF(vacio); setFotos([]); load(); setTab("mias");
+    } finally { setBusy(false); }
   }
   async function apply(code,patch){ const arr=await Store.read("Compras");
     await Store.write("Compras",arr.map(x=>x.Codigo===code?{...x,...patch}:x)); load(); }
@@ -1767,7 +1770,7 @@ function Compras({user,toast,setFoto}){
       <Field label="Descripción del requerimiento (marca, serie, proveedor, detalles)" req><textarea className="inp" value={f.Descripcion} onChange={e=>ch("Descripcion",e.target.value)}/></Field>
       <PhotoField fotos={fotos} setFotos={setFotos} label="Foto del producto" req setFoto={setFoto}/>
       <Field label="Posibles proveedores" req><input className="inp" value={f.Proveedores} onChange={e=>ch("Proveedores",e.target.value)} placeholder="Ej. Super Paco"/></Field>
-      <button className="btn primary block" onClick={crear}>Crear solicitud</button></div>}
+      <button className="btn primary block" disabled={busy} onClick={crear}>{busy?"Enviando…":"Crear solicitud"}</button></div>}
     {tab==="mias" && <Listado items={mias} empty="Aún no tienes solicitudes"
       render={r=><ComprasCard r={r} chief={false} canGG={false} onAction={(t)=>setModal({t,item:r})}/>}/>}
     {tab==="gestion" && <Listado items={gestionRows} empty={esChiefCompras?"No hay solicitudes":"No hay solicitudes pendientes de Gerencia"}
@@ -1884,19 +1887,22 @@ function Tickets({tipo,user,toast,setFoto}){
   const hoy=new Date().toISOString().slice(0,10);
   const vacioSis={Departamento:DEPTS_SIS[0],Urgencia:URGENCIA_SIS[1],Titulo:"",Descripcion:""};
   const vacioMto={Departamento:DEPTS[0],FechaSolicitud:hoy,TipoSolicitud:"Normal",Descripcion:""};
-  const [f,setF]=useState(isSis?vacioSis:vacioMto); const [fotos,setFotos]=useState([]);
+  const [f,setF]=useState(isSis?vacioSis:vacioMto); const [fotos,setFotos]=useState([]); const [busy,setBusy]=useState(false);
   const ch=(k,v)=>setF(s=>({...s,[k]:v}));
   async function crear(){
     if(isSis){ if(!f.Titulo.trim()){toast("Falta el título de la tarea");return;} if(!f.Descripcion.trim()){toast("Falta la descripción");return;} }
     else { if(!f.Descripcion.trim()){toast("Falta la descripción de la novedad");return;} }
-    const arr=await Store.read(tipo); const Codigo=nextCode(isSis?"SIS":"MTO",arr);
-    const fotosT=await subirFotos(fotos,`${isSis?'SIS':'MTO'}_${Codigo}`,Codigo);
-    const base={Codigo,id:gid(),FechaCreacion:nowISO(),Solicitante:user.nombre,...f,
-      Fotos:fotosT,
-      Estado:"Nuevo",FechaTentativa:"",Asignado:"",ComentarioSoporte:"",FechaConcluido:"",
-      EncuestaCal:"",EncuestaComentario:"",FechaEncuesta:""};
-    await Store.write(tipo,[base,...arr]); toast("Ticket creado: "+Codigo);
-    setF(isSis?vacioSis:vacioMto); setFotos([]); load();
+    if(busy) return; setBusy(true);
+    try{
+      const arr=await Store.read(tipo); const Codigo=nextCode(isSis?"SIS":"MTO",arr);
+      const fotosT=await subirFotos(fotos,`${isSis?'SIS':'MTO'}_${Codigo}`,Codigo);
+      const base={Codigo,id:gid(),FechaCreacion:nowISO(),Solicitante:user.nombre,...f,
+        Fotos:fotosT,
+        Estado:"Nuevo",FechaTentativa:"",Asignado:"",ComentarioSoporte:"",FechaConcluido:"",
+        EncuestaCal:"",EncuestaComentario:"",FechaEncuesta:""};
+      await Store.write(tipo,[base,...arr]); toast("Ticket creado: "+Codigo);
+      setF(isSis?vacioSis:vacioMto); setFotos([]); load(); setTab("mios");
+    } finally { setBusy(false); }
   }
   async function apply(code,patch){ const arr=await Store.read(tipo);
     await Store.write(tipo,arr.map(x=>x.Codigo===code?{...x,...patch}:x)); load(); }
@@ -1934,7 +1940,7 @@ function Tickets({tipo,user,toast,setFoto}){
         <Field label="Descripción de la novedad" req><textarea className="inp" value={f.Descripcion} onChange={e=>ch("Descripcion",e.target.value)} placeholder="Describe la novedad…"/></Field>
         <PhotoField fotos={fotos} setFotos={setFotos} label="Imagen de la novedad (opcional)" setFoto={setFoto}/>
       </>}
-      <button className="btn primary block" onClick={crear}>Crear ticket</button></div>}
+      <button className="btn primary block" disabled={busy} onClick={crear}>{busy?"Enviando…":"Crear ticket"}</button></div>}
     {tab==="mios" && <Listado items={mios} empty="Aún no tienes tickets" render={r=><TicketCard r={r} isSis={isSis} chief={false} onAction={(t)=>setModal({t,item:r})}/>}/>}
     {tab==="equipo" && <Listado items={delEquipo} empty="Tu equipo aún no ha subido tickets" render={r=><TicketCard r={r} isSis={isSis} chief={false} onAction={(t)=>setModal({t,item:r})}/>}/>}
     {tab==="tareas" && <div>
