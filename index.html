@@ -623,7 +623,7 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v3.4 · SharePoint Prueba7",
+  version: "Playa Paraíso · App unificada v3.5 · SharePoint Prueba7",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -646,7 +646,28 @@ const esGD = u => u && ['gerencia','desarrollador'].includes(u.rol);
 const esDev = u => u && u.rol==='desarrollador';
 const ildAreasDe = u => esGD(u) ? Object.keys(AC) : (u.areas||[]);
 const puedeAprobarArea = (u,area) => esGD(u) || (u.rol==='aprobador' && (u.areas||[]).includes(area));
-const gestionaModulo = (u,m) => esGD(u) || (u.gestiona||[]).includes(m);
+const gestionaModulo = (u,m) => esDev(u) || (u.gestiona||[]).includes(m);
+let ACCESOS = null;     // {rol:{cap:bool}} configurable por el desarrollador
+let AMODO = {};         // {area:'normal'|'lista'} modo del ILD por área
+function defaultPuede(u,cap){
+  if(!u) return false;
+  const [mod,sub]=cap.split(".");
+  if(!sub){
+    if(cap==='compras') return u.rol!=='colaborador';
+    if(cap==='sistemas'||cap==='mantenimiento') return true;
+    if(cap==='ild') return ildAreasDe(u).length>0 || esGD(u);
+    if(cap==='kanban') return esGD(u) || ["compras","sistemas","mantenimiento"].some(m=>(u.gestiona||[]).includes(m));
+    return true;
+  }
+  if(sub==='gestion') return gestionaModulo(u,mod);
+  if(sub==='tablero') return gestionaModulo(u,mod) || esGD(u);
+  if(cap==='kanban.editar') return esDev(u) || (u.gestiona||[]).length>0;
+  return false;
+}
+function puede(u,cap){ if(esDev(u)) return true;
+  if(ACCESOS && ACCESOS[u.rol] && (cap in ACCESOS[u.rol])) return !!ACCESOS[u.rol][cap];
+  return defaultPuede(u,cap); }
+const areaModo = a => AMODO[a] || (a==='Áreas Públicas'?'lista':'normal');
 const equipoDe = u => { const a=new Set(u.areas||[]); return USERS.filter(x=>x.rol==='colaborador' && (x.areas||[]).some(ar=>a.has(ar))).map(x=>x.nombre); };
 
 /* ===== Helpers ===== */
@@ -801,8 +822,10 @@ function applyIldConfig(cfg){ if(!cfg) return;
   if(cfg.checklist) Object.assign(CL, cfg.checklist);
   if(cfg.aprobadores) Object.assign(APR, cfg.aprobadores);
   if(cfg.diasCfg){ DIAS_CFG.feriados=cfg.diasCfg.feriados||[]; DIAS_CFG.areas=cfg.diasCfg.areas||{}; }
-  if(Array.isArray(cfg.usuarios) && cfg.usuarios.length){ USERS.length=0; cfg.usuarios.forEach(u=>USERS.push(u)); applyGestiona(); } }
-async function cfgSave(){ await Store.write("ILD_Config",{checklist:CL,areas:AC,aprobadores:APR,usuarios:USERS,diasCfg:DIAS_CFG}); }
+  if(Array.isArray(cfg.usuarios) && cfg.usuarios.length){ USERS.length=0; cfg.usuarios.forEach(u=>USERS.push(u)); applyGestiona(); }
+  if(cfg.accesos) ACCESOS=cfg.accesos;
+  if(cfg.amodo) AMODO=cfg.amodo; }
+async function cfgSave(){ await Store.write("ILD_Config",{checklist:CL,areas:AC,aprobadores:APR,usuarios:USERS,diasCfg:DIAS_CFG,accesos:ACCESOS,amodo:AMODO}); }
 // Aplica configuración guardada en modo local (demo) al cargar
 try{ const raw=localStorage.getItem("pp_ILD_Config");
   if(raw){ const c=JSON.parse(raw); if(c && !Array.isArray(c)) applyIldConfig(c); } }catch{}
@@ -927,12 +950,11 @@ function Login({onLogin}){
 /* ===== HOME ===== */
 function Home({user,go,counts}){
   const tiles=[];
-  if(ildAreasDe(user).length || esGD(user)) tiles.push({id:"ild",t:"ILD",d:"Inspección de lista diaria",ico:"📋",col:"--ocean"});
-  if(user.rol!=='colaborador') tiles.push({id:"compras",t:"Compras",d:"Solicitar bienes o insumos",ico:"🛒",col:"--coral"});
-  tiles.push({id:"sistemas",t:"Sistemas",d:"Soporte de TI",ico:"💻",col:"--blue"});
-  tiles.push({id:"mantenimiento",t:"Mantenimiento",d:"Reportar una avería",ico:"🔧",col:"--amber"});
-  const ownsKanban = esGD(user) || ["compras","sistemas","mantenimiento"].some(m=>gestionaModulo(user,m));
-  if(ownsKanban) tiles.push({id:"kanban",t:"Tablero Kanban",d:"Avance de los procesos",ico:"🗂️",col:"--ocean-d"});
+  if(puede(user,'ild')) tiles.push({id:"ild",t:"ILD",d:"Inspección de lista diaria",ico:"📋",col:"--ocean"});
+  if(puede(user,'compras')) tiles.push({id:"compras",t:"Compras",d:"Solicitar bienes o insumos",ico:"🛒",col:"--coral"});
+  if(puede(user,'sistemas')) tiles.push({id:"sistemas",t:"Sistemas",d:"Soporte de TI",ico:"💻",col:"--blue"});
+  if(puede(user,'mantenimiento')) tiles.push({id:"mantenimiento",t:"Mantenimiento",d:"Reportar una avería",ico:"🔧",col:"--amber"});
+  if(puede(user,'kanban')) tiles.push({id:"kanban",t:"Tablero Kanban",d:"Avance de los procesos",ico:"🗂️",col:"--ocean-d"});
   if(esDev(user)) tiles.push({id:"admin",t:"Configuración",d:"Usuarios y conexión",ico:"⚙️",col:"--muted"});
   return <div>
     <h1 className="h1">Hola, {user.nombre.split(" ")[0]} 👋</h1>
@@ -985,9 +1007,11 @@ function ILDForm({user,toast,onSaved,setFoto}){
   const [area,setArea]=useState(""); const [turno,setTurno]=useState("");
   const [checks,setChecks]=useState({}); const [sel,setSel]=useState({}); const [txt,setTxt]=useState({});
   const [fotos,setFotos]=useState([]); const [obs,setObs]=useState(""); const [busy,setBusy]=useState(false);
-  const needsTurno=area && AC[area]?.turno;
+  const [zona,setZona]=useState("");
+  const modo=area?areaModo(area):'normal';
+  const needsTurno=area && AC[area]?.turno && modo!=='lista';
   const items=area?(CL[area]||[]):[];
-  function resetCampos(){ setChecks({});setSel({});setTxt({});setFotos([]);setObs(""); }
+  function resetCampos(){ setChecks({});setSel({});setTxt({});setFotos([]);setObs("");setZona(""); }
   useEffect(()=>{ resetCampos(); setTurno(""); },[area]);
   const req=fotosReq(area);
   // progreso
@@ -1005,6 +1029,19 @@ function ILDForm({user,toast,onSaved,setFoto}){
   }
   async function enviar(){
     if(!area){toast("Selecciona un área");return;}
+    if(modo==='lista'){
+      if(!zona){toast("Elige una zona de la lista");return;}
+      if(fotos.length<3){toast("Adjunta al menos 3 fotos");return;}
+      if(fotos.length>5){toast("Máximo 5 fotos");return;}
+      setBusy(true); const id=gid();
+      const fotosData=await subirFotos(fotos,`ILD_${id}`,`ILD${id}`);
+      const arr=await Store.read("ILD"); const Codigo=nextCode("ILD",arr);
+      const nuevo={id,Codigo,area,turno:"",zona,selecciones:{},usuario:user.nombre,fecha:nowISO(),
+        checks:{},textos:{},fotos:fotosData,obs,estado:"Pendiente",notaJef:"",aprobador:"",fechaAprobacion:"",
+        notaGerencia:"",totalItems:1,completados:1,aprobadorEsperado:APR[area]||"—"};
+      await Store.write("ILD",[nuevo,...arr]);
+      setBusy(false); toast("ILD enviado: "+Codigo+" · "+zona); resetCampos(); setArea(""); onSaved(); return;
+    }
     if(needsTurno && !turno){toast("Selecciona el turno");return;}
     const selFaltan=items.map((it,i)=>({it,i})).filter(o=>(itemTipo(o.it)==='apertura_cierre'||itemTipo(o.it)==='comida')&&!sel[o.i]);
     if(selFaltan.length){toast("Elige una opción en: "+itemText(selFaltan[0].it));return;}
@@ -1035,7 +1072,26 @@ function ILDForm({user,toast,onSaved,setFoto}){
         <button className={"opt"+(turno==="Apertura"?" on":"")} onClick={()=>{setTurno("Apertura");resetCampos();}}>🌅 Apertura</button>
         <button className={"opt"+(turno==="Cierre"?" on":"")} onClick={()=>{setTurno("Cierre");resetCampos();}}>🌙 Cierre</button>
       </div></div>}
-    {area && (!needsTurno||turno) && <>
+    {area && modo==='lista' && <>
+      <div className="card"><h3>🧹 Zona limpiada</h3>
+        <div className="hint">Elige la zona que acabas de limpiar y adjunta de 3 a 5 fotos. Puedes registrar varias a lo largo del día.</div>
+        <div className="opts" style={{flexDirection:"column",alignItems:"stretch",gap:6,marginTop:8}}>
+          {items.map((it,i)=>{ const tx=itemText(it);
+            return <button key={i} className={"opt"+(zona===tx?" on":"")} style={{textAlign:"left"}} onClick={()=>setZona(tx)}>{zona===tx?"🔘":"⚪"} {tx}</button>; })}
+        </div></div>
+      <div className="card"><h3>📷 Fotos — {fotos.length}/3–5</h3>
+        <input id="ild-file-l" type="file" accept="image/*" capture="environment" multiple style={{display:"none"}} onChange={onFiles}/>
+        <button className="btn ghost block" onClick={()=>document.getElementById("ild-file-l").click()}>
+          {fotos.length>=3?(fotos.length>=5?"📸 Máximo (5) ✓":"📸 Agregar más (hasta 5)"):`📸 Subir (faltan ${3-fotos.length})`}</button>
+        <div className="fgrid">{fotos.map((s,i)=><div key={i} className="fthumb">
+          <img src={s} onClick={()=>setFoto(s)}/>
+          <button className="fdel" onClick={()=>setFotos(f=>f.filter((_,j)=>j!==i))}>✕</button>
+          <span className="fnum">{i+1}</span></div>)}</div></div>
+      <div className="card"><Field label="Observaciones (opcional)">
+        <textarea className="inp" value={obs} onChange={e=>setObs(e.target.value)} placeholder="Novedades de la zona…"/></Field>
+        <button className="btn primary block" disabled={busy} onClick={enviar}>{busy?"Enviando…":"Enviar ILD de zona"}</button></div>
+    </>}
+    {area && modo!=='lista' && (!needsTurno||turno) && <>
       <div className="card">
         <h3>Checklist — {done}/{total}</h3>
         <div className="pbar"><i style={{width:pct+"%",background:pct===100?"var(--green)":"var(--ocean)"}}/></div>
@@ -1295,12 +1351,19 @@ function ChecklistEditor({user,toast,onSave}){
       await addNotif("Desarrollador", `${user.nombre} cambió el checklist de "${area}" (${det.join("; ")}).`, "", area);
     }
   }
+  const [modo,setModo]=useState(()=>areaModo(area));
+  useEffect(()=>{ setModo(areaModo(area)); },[area]);
+  function cambiarModo(v){ setModo(v); AMODO[area]=v; }
   if(!areas.length) return <div className="empty"><div className="e">🔒</div>No tienes áreas asignadas para personalizar.</div>;
   const nFotos=items.filter(it=>it.tipo==='foto').length;
   return <div>
     <div className="card"><Field label="Área a personalizar">
       <select className="inp" value={area} onChange={e=>setArea(e.target.value)}>{areas.map(a=><option key={a}>{a}</option>)}</select></Field>
-      <div className="hint">{items.length} ítems · Fotos requeridas = {nFotos} (ítems tipo "Foto").</div></div>
+      <Field label="Modo del ILD" hint="'Lista' = el usuario elige UNA opción de la lista y sube de 3 a 5 fotos (ideal Áreas Públicas). 'Normal' = checklist completo.">
+        <select className="inp" value={modo} onChange={e=>cambiarModo(e.target.value)}>
+          <option value="normal">Checklist normal</option>
+          <option value="lista">Lista (elegir una opción + 3 a 5 fotos)</option></select></Field>
+      <div className="hint">{items.length} {modo==='lista'?"opciones de la lista":"ítems"} · {modo==='lista'?"el usuario elige una opción":`Fotos requeridas = ${nFotos}`}.</div></div>
     {items.map((it,i)=><div key={i} className="card" style={{padding:12}}>
       <div className="row" style={{gap:8,alignItems:"flex-start"}}>
         <div style={{flex:"0 0 20px",color:"var(--muted)",fontWeight:700,paddingTop:11}}>{i+1}</div>
@@ -1327,11 +1390,34 @@ function ILDConfig({user,toast,onSave}){
       <button className={sec==="aprob"?"on":""} onClick={()=>setSec("aprob")}>Aprobadores</button>
       <button className={sec==="dias"?"on":""} onClick={()=>setSec("dias")}>Días esperados</button>
       <button className={sec==="nuevo"?"on":""} onClick={()=>setSec("nuevo")}>Nuevo ILD</button>
+      <button className={sec==="accesos"?"on":""} onClick={()=>setSec("accesos")}>Accesos</button>
     </div>
     {sec==="usuarios" && <UsuariosEditor toast={toast} onSave={onSave}/>}
     {sec==="aprob" && <AprobadoresEditor toast={toast} onSave={onSave}/>}
     {sec==="dias" && <DiasEsperadosEditor user={user} toast={toast} onSave={onSave}/>}
     {sec==="nuevo" && <NuevoILD toast={toast} onSave={onSave}/>}
+    {sec==="accesos" && <AccesosEditor toast={toast} onSave={onSave}/>}
+  </div>;
+}
+function AccesosEditor({toast,onSave}){
+  const roles=[["gerencia","Gerencia General"],["aprobador","Jefaturas / Aprobadores"],["colaborador","Colaboradores"]];
+  const caps=[["compras","Ver módulo Compras"],["sistemas","Ver módulo Sistemas"],["mantenimiento","Ver módulo Mantenimiento"],
+    ["kanban","Ver Tablero Kanban"],["kanban.editar","Editar (mover) en Kanban"],
+    ["compras.tablero","Compras · Tablero"],["sistemas.tablero","Sistemas · Tablero"],["mantenimiento.tablero","Mantenimiento · Tablero"]];
+  const [rol,setRol]=useState("gerencia"); const [,force]=useState(0);
+  const fake={rol,areas:[],gestiona:[]};
+  const valor=cap=>(ACCESOS&&ACCESOS[rol]&&(cap in ACCESOS[rol]))?!!ACCESOS[rol][cap]:defaultPuede(fake,cap);
+  const overridden=cap=>!!(ACCESOS&&ACCESOS[rol]&&(cap in ACCESOS[rol]));
+  function set(cap,v){ ACCESOS=ACCESOS||{}; ACCESOS[rol]=ACCESOS[rol]||{}; ACCESOS[rol][cap]=v; force(x=>x+1); }
+  function reset(cap){ if(ACCESOS&&ACCESOS[rol]) delete ACCESOS[rol][cap]; force(x=>x+1); }
+  async function guardar(){ onSave(); toast("Accesos guardados"); }
+  return <div>
+    <div className="card"><Field label="Rol a configurar"><select className="inp" value={rol} onChange={e=>setRol(e.target.value)}>{roles.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></Field>
+      <div className="hint">Activa o desactiva qué pantallas y tableros ve cada rol, sin actualizar la app. El Desarrollador siempre tiene acceso total. La "Gestión" de cada módulo se mantiene para el jefe responsable de ese módulo.</div></div>
+    {caps.map(([cap,l])=><div key={cap} className="card" style={{padding:12,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+      <div><div style={{fontWeight:700}}>{l}</div>{overridden(cap)&&<div className="meta">Personalizado · <span style={{cursor:"pointer",color:"var(--ocean-d)"}} onClick={()=>reset(cap)}>volver a predeterminado</span></div>}</div>
+      <button className={"btn "+(valor(cap)?"green":"ghost")} style={{flex:"0 0 auto"}} onClick={()=>set(cap,!valor(cap))}>{valor(cap)?"Sí ✓":"No"}</button></div>)}
+    <button className="btn primary block" onClick={guardar}>💾 Guardar accesos</button>
   </div>;
 }
 function DiasEsperadosEditor({user,toast,onSave}){
@@ -1541,13 +1627,16 @@ function Compras({user,toast,setFoto}){
   async function apply(code,patch){ const arr=await Store.read("Compras");
     await Store.write("Compras",arr.map(x=>x.Codigo===code?{...x,...patch}:x)); load(); }
   const mias=rows.filter(r=>r.Solicitante===user.nombre);
+  const verGestion=puede(user,'compras.gestion')||canGG;
+  const esChiefCompras=puede(user,'compras.gestion');
+  const gestionRows=esChiefCompras?rows:rows.filter(r=>r.Estado==="En Gerencia");
   return <div>
     <h1 className="h1">Compras</h1><p className="sub">Requerimiento de compra no operacional.</p>
     <div className="seg">
       <button className={tab==="nueva"?"on":""} onClick={()=>setTab("nueva")}>Nueva</button>
       <button className={tab==="mias"?"on":""} onClick={()=>{setTab("mias");load();}}>Mis solicitudes</button>
-      {(chief||canGG)&&<button className={tab==="gestion"?"on":""} onClick={()=>{setTab("gestion");load();}}>Gestión {esDev(user)?"(todo)":""}</button>}
-      {(chief||canGG)&&<button className={tab==="tablero"?"on":""} onClick={()=>{setTab("tablero");load();}}>📊 Tablero</button>}
+      {verGestion&&<button className={tab==="gestion"?"on":""} onClick={()=>{setTab("gestion");load();}}>Gestión {esDev(user)?"(todo)":esChiefCompras?"":"(Gerencia)"}</button>}
+      {puede(user,'compras.tablero')&&<button className={tab==="tablero"?"on":""} onClick={()=>{setTab("tablero");load();}}>📊 Tablero</button>}
     </div>
     {tab==="nueva" && <div className="card">
       <Field label="Nombres y apellidos"><input className="inp" value={user.nombre} disabled/></Field>
@@ -1566,7 +1655,7 @@ function Compras({user,toast,setFoto}){
       <button className="btn primary block" onClick={crear}>Crear solicitud</button></div>}
     {tab==="mias" && <Listado items={mias} empty="Aún no tienes solicitudes"
       render={r=><ComprasCard r={r} chief={false} canGG={false} onAction={(t)=>setModal({t,item:r})}/>}/>}
-    {tab==="gestion" && <Listado items={rows} empty="No hay solicitudes"
+    {tab==="gestion" && <Listado items={gestionRows} empty={esChiefCompras?"No hay solicitudes":"No hay solicitudes pendientes de Gerencia"}
       render={r=><ComprasCard r={r} chief={chief} canGG={canGG} onAction={(t)=>setModal({t,item:r})}/>}/>}
     {tab==="tablero" && <Tablero tipo="Compras" rows={rows}/>}
     {modal && <ComprasModal modal={modal} user={user} onClose={()=>setModal(null)} apply={apply} toast={toast} setFoto={setFoto}/>}
@@ -1713,8 +1802,8 @@ function Tickets({tipo,user,toast,setFoto}){
       <button className={tab==="mios"?"on":""} onClick={()=>{setTab("mios");load();}}>Mis tickets</button>
       {verTareas&&<button className={tab==="tareas"?"on":""} onClick={()=>{setTab("tareas");load();}}>Mis tareas{asignadas.length?` (${asignadas.length})`:""}</button>}
       {verEquipo&&<button className={tab==="equipo"?"on":""} onClick={()=>{setTab("equipo");load();}}>Mi equipo</button>}
-      {chief&&<button className={tab==="gestion"?"on":""} onClick={()=>{setTab("gestion");load();}}>Gestión {esDev(user)?"(todo)":""}</button>}
-      {chief&&<button className={tab==="tablero"?"on":""} onClick={()=>{setTab("tablero");load();}}>📊 Tablero</button>}
+      {puede(user,`${tipo.toLowerCase()}.gestion`)&&<button className={tab==="gestion"?"on":""} onClick={()=>{setTab("gestion");load();}}>Gestión {esDev(user)?"(todo)":""}</button>}
+      {puede(user,`${tipo.toLowerCase()}.tablero`)&&<button className={tab==="tablero"?"on":""} onClick={()=>{setTab("tablero");load();}}>📊 Tablero</button>}
     </div>
     {tab==="nuevo" && <div className="card">
       <Field label={isSis?"Nombre del solicitante":"Solicitante"}><input className="inp" value={user.nombre} disabled/></Field>
@@ -1841,7 +1930,8 @@ function Listado({items,render,empty}){
 
 /* ===== KANBAN ===== */
 function Kanban({user,toast}){
-  const mods=["compras","sistemas","mantenimiento"].filter(m=>gestionaModulo(user,m));
+  const editable=puede(user,'kanban.editar');
+  const mods=editable?["compras","sistemas","mantenimiento"].filter(m=>gestionaModulo(user,m)):["compras","sistemas","mantenimiento"];
   const [proc,setProc]=useState(mods[0]||"compras");
   const tabla={compras:"Compras",sistemas:"Sistemas",mantenimiento:"Mantenimiento"}[proc];
   const [rows,setRows]=useState([]); const [over,setOver]=useState(null); const drag=useRef(null);
@@ -1855,10 +1945,10 @@ function Kanban({user,toast}){
   const areas=[...new Set(rows.map(areaOf).filter(Boolean))].sort();
   const solics=[...new Set(rows.map(r=>r.Solicitante).filter(Boolean))].sort();
   const visibles=rows.filter(r=>(!fArea||areaOf(r)===fArea)&&(!fSolic||r.Solicitante===fSolic));
-  async function move(code,estado){ const arr=await Store.read(tabla);
+  async function move(code,estado){ if(!editable) return; const arr=await Store.read(tabla);
     await Store.write(tabla,arr.map(x=>x.Codigo===code?{...x,Estado:estado}:x)); load(); toast("Movido a "+estado); }
   return <div>
-    <h1 className="h1">Tablero Kanban</h1><p className="sub">Arrastra una tarjeta o usa su menú para moverla.</p>
+    <h1 className="h1">Tablero Kanban</h1><p className="sub">{editable?"Arrastra una tarjeta o usa su menú para moverla.":"Vista de solo lectura del avance."}</p>
     {mods.length>1 && <div className="seg">{mods.map(m=><button key={m} className={proc===m?"on":""} onClick={()=>setProc(m)}>{({compras:"Compras",sistemas:"Sistemas",mantenimiento:"Mantenimiento"})[m]}</button>)}</div>}
     <div className="kfilters">
       <select value={fArea} onChange={e=>setFArea(e.target.value)}><option value="">Todas las áreas</option>{areas.map(a=><option key={a}>{a}</option>)}</select>
@@ -1870,16 +1960,18 @@ function Kanban({user,toast}){
       return <div key={col} className={"kcol"+(over===col?" over":"")} onDragOver={e=>{e.preventDefault();setOver(col);}}
         onDragLeave={()=>setOver(null)} onDrop={e=>{e.preventDefault();setOver(null); if(drag.current) move(drag.current,col);}}>
         <h4><span><span className="dotc" style={{background:colorOf(col)}}></span>{col}</span><span className="cnt">{cards.length}</span></h4>
-        {cards.map(r=><div key={r.Codigo} className="kcard" draggable
+        {cards.map(r=><div key={r.Codigo} className="kcard" draggable={editable}
           style={{borderLeft:`4px solid ${isOverdue(r)?cssVar("--red"):colorOf(r.Estado)}`}}
-          onDragStart={()=>drag.current=r.Codigo} onDragEnd={()=>drag.current=null}>
+          onDragStart={()=>{ if(editable) drag.current=r.Codigo; }} onDragEnd={()=>drag.current=null}>
           <div className="kc">{r.Codigo}{isOverdue(r)?" · ⚠ vencido":""}</div>
           <div className="kt">{titleOf(r)}</div>
           <div style={{display:"flex",gap:6,flexWrap:"wrap",margin:"6px 0 2px"}}>
             <span className="kchip">{areaOf(r)||"—"}</span>
             {prioOf(r) && <span className={"kchip"+(isUrg(r)?" urg":"")}>{prioOf(r).split(" ")[0]}</span>}</div>
           <div className="km">👤 {r.Solicitante}{r.FechaTentativa?` · 📅 ${fmtDate(r.FechaTentativa)}`:""}</div>
-          <select value={r.Estado} onChange={e=>move(r.Codigo,e.target.value)}>{cols.map(c=><option key={c}>{c}</option>)}</select></div>)}
+          {editable
+            ? <select value={r.Estado} onChange={e=>move(r.Codigo,e.target.value)}>{cols.map(c=><option key={c}>{c}</option>)}</select>
+            : <div className="kchip" style={{marginTop:6,display:"inline-block"}}>{r.Estado}</div>}</div>)}
         {!cards.length && <div style={{color:"#aab2b3",fontSize:12,textAlign:"center",padding:"14px 0"}}>—</div>}
       </div>;})}</div>
   </div>;
