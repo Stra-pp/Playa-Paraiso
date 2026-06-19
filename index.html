@@ -623,7 +623,7 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v3.9 · SharePoint Prueba7(Listas)",
+  version: "Playa Paraíso · App unificada v4.0 · SharePoint Prueba7(Listas)",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -749,10 +749,12 @@ const GraphStore = {
     const buf=new TextEncoder().encode(JSON.stringify(arr));
     await gfetch(`/drives/${APP.ms.driveId}/root:/${this.fileName(t)}:/content`,"PUT",buf.buffer); },
   async uploadFoto(dataUrl,nombre,carpetaId){
-    const carpeta=`${APP.ms.base}/${APP.ms.fotosFolder}/${carpetaId}`;
+    const folder=`${APP.ms.base}/${APP.ms.fotosFolder}`;
+    try{ await gfetch(`/drives/${APP.ms.driveId}/root:/${folder}/${carpetaId}`); }
+    catch{ try{ await gfetch(`/drives/${APP.ms.driveId}/root:/${folder}:/children`,"POST",{name:carpetaId,folder:{},"@microsoft.graph.conflictBehavior":"replace"}); }catch(e){} }
     const blob=await (await fetch(dataUrl)).arrayBuffer();
-    await gfetch(`/drives/${APP.ms.driveId}/root:/${carpeta}/${nombre}:/content`,"PUT",blob);
-    return {nombre,path:`${carpeta}/${nombre}`};
+    await gfetch(`/drives/${APP.ms.driveId}/root:/${folder}/${carpetaId}/${nombre}:/content`,"PUT",blob);
+    return {nombre,path:`${folder}/${carpetaId}/${nombre}`};
   },
   async getImg(path){
     const buf=await gfetch(`/drives/${APP.ms.driveId}/root:/${path}:/content`,"GET",null,true);
@@ -832,8 +834,9 @@ const Store = {
 
 async function subirFotos(fotos,carpetaId,prefijo){
   if(MODE==="graph"){ const out=[];
-    for(let i=0;i<fotos.length;i++){ try{ out.push(await GraphStore.uploadFoto(fotos[i],`${prefijo}_${i+1}.jpg`,carpetaId)); }
-      catch(e){ out.push({nombre:`${prefijo}_${i+1}.jpg`,data:fotos[i]}); } }
+    for(let i=0;i<fotos.length;i++){ const nombre=`${prefijo}_${i+1}.jpg`;
+      try{ out.push(await GraphStore.uploadFoto(fotos[i],nombre,carpetaId)); }
+      catch(e){ out.push({nombre,error:true}); } }   // sin base64: el registro queda liviano
     return out; }
   return fotos.map((d,i)=>({nombre:`${prefijo}_${i+1}.jpg`,data:d}));
 }
@@ -1107,31 +1110,38 @@ function ILDForm({user,toast,onSaved,setFoto}){
       if(!zona){toast("Elige una zona de la lista");return;}
       if(fotos.length<3){toast("Adjunta al menos 3 fotos");return;}
       if(fotos.length>5){toast("Máximo 5 fotos");return;}
-      setBusy(true); const id=gid();
-      const fotosData=await subirFotos(fotos,`ILD_${id}`,`ILD${id}`);
-      const arr=await Store.read("ILD"); const Codigo=nextCode("ILD",arr);
-      const nuevo={id,Codigo,area,turno:"",zona,selecciones:{},usuario:user.nombre,fecha:nowISO(),
-        checks:{},textos:{},fotos:fotosData,obs,estado:"Pendiente",notaJef:"",aprobador:"",fechaAprobacion:"",
-        notaGerencia:"",totalItems:1,completados:1,aprobadorEsperado:APR[area]||"—"};
-      await Store.write("ILD",[nuevo,...arr]);
-      setBusy(false); toast("ILD enviado: "+Codigo+" · "+zona); resetCampos(); setArea(""); onSaved(); return;
+      if(busy) return; setBusy(true);
+      try{ const id=gid();
+        const fotosData=await subirFotos(fotos,`ILD_${id}`,`ILD${id}`);
+        const arr=await Store.read("ILD"); const Codigo=nextCode("ILD",arr);
+        const nuevo={id,Codigo,area,turno:"",zona,selecciones:{},usuario:user.nombre,fecha:nowISO(),
+          checks:{},textos:{},fotos:fotosData,obs,estado:"Pendiente",notaJef:"",aprobador:"",fechaAprobacion:"",
+          notaGerencia:"",totalItems:1,completados:1,aprobadorEsperado:APR[area]||"—"};
+        await Store.write("ILD",[nuevo,...arr]);
+        toast("ILD enviado: "+Codigo+" · "+zona); resetCampos(); setArea(""); onSaved();
+      }catch(e){ toast("No se pudo enviar: "+(e.message||"error")); }
+      finally{ setBusy(false); }
+      return;
     }
     if(needsTurno && !turno){toast("Selecciona el turno");return;}
     const selFaltan=items.map((it,i)=>({it,i})).filter(o=>(itemTipo(o.it)==='apertura_cierre'||itemTipo(o.it)==='comida')&&!sel[o.i]);
     if(selFaltan.length){toast("Elige una opción en: "+itemText(selFaltan[0].it));return;}
     if(done<total && !confirm(`${total-done} ítems sin responder. ¿Enviar igual?`)) return;
     if(fotos.length<req && !confirm(`Solo ${fotos.length}/${req} fotos. ¿Continuar?`)) return;
-    setBusy(true);
-    const id=gid();
-    const fotosData=await subirFotos(fotos,`ILD_${id}`,`ILD${id}`);
-    const arr=await Store.read("ILD");
-    const Codigo=nextCode("ILD",arr);
-    const nuevo={id,Codigo,area,turno:turno||AC[area]?.t||"",selecciones:{...sel},usuario:user.nombre,
-      fecha:nowISO(),checks:{...checks},textos:{...txt},fotos:fotosData,obs,estado:"Pendiente",
-      notaJef:"",aprobador:"",fechaAprobacion:"",notaGerencia:"",totalItems:items.length,
-      completados:done,aprobadorEsperado:APR[area]||"—"};
-    await Store.write("ILD",[nuevo,...arr]);
-    setBusy(false); toast("ILD enviado: "+Codigo); resetCampos(); setArea(""); onSaved();
+    if(busy) return; setBusy(true);
+    try{
+      const id=gid();
+      const fotosData=await subirFotos(fotos,`ILD_${id}`,`ILD${id}`);
+      const arr=await Store.read("ILD");
+      const Codigo=nextCode("ILD",arr);
+      const nuevo={id,Codigo,area,turno:turno||AC[area]?.t||"",selecciones:{...sel},usuario:user.nombre,
+        fecha:nowISO(),checks:{...checks},textos:{...txt},fotos:fotosData,obs,estado:"Pendiente",
+        notaJef:"",aprobador:"",fechaAprobacion:"",notaGerencia:"",totalItems:items.length,
+        completados:done,aprobadorEsperado:APR[area]||"—"};
+      await Store.write("ILD",[nuevo,...arr]);
+      toast("ILD enviado: "+Codigo); resetCampos(); setArea(""); onSaved();
+    }catch(e){ toast("No se pudo enviar: "+(e.message||"error")); }
+    finally{ setBusy(false); }
   }
   return <div>
     <div className="card">
@@ -1264,6 +1274,8 @@ function SpImg({foto,idx,onClick}){
   },[]);
   if(src) return <div className="fthumb"><img src={src} onClick={()=>onClick&&onClick(src)}/><span className="fnum">{idx}</span></div>;
   if(foto.spUrl) return <a className="fthumb" href={foto.spUrl} target="_blank" rel="noreferrer" style={{display:"grid",placeItems:"center",background:"#eef3f6",color:"var(--ocean-d)",fontSize:11,fontWeight:700,textDecoration:"none",textAlign:"center"}}>🔗<br/>Foto {idx}</a>;
+  if(foto.error) return <div className="fthumb" style={{display:"grid",placeItems:"center",background:"#f6efe9",fontSize:11,color:"#b06a4a",textAlign:"center"}}>⚠️<br/>No subió</div>;
+  if(!foto.data && !foto.path) return <div className="fthumb" style={{display:"grid",placeItems:"center",background:"#f3efe6",fontSize:11,color:"#999"}}>—</div>;
   return <div className="fthumb" style={{display:"grid",placeItems:"center",background:"#f3efe6",fontSize:18}}>⏳</div>;
 }
 function actaILD(r){
