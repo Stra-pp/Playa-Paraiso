@@ -623,7 +623,7 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v3.7 · SharePoint Prueba7(Listas)",
+  version: "Playa Paraíso · App unificada v3.8 · SharePoint Prueba7(Listas)",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -1651,9 +1651,12 @@ function dCuenta(rows,campo){ const m={}; rows.forEach(r=>{ const k=(r[campo]||"
 function dPromDias(rows,ini,fin){ const ds=rows.map(r=>{ if(!r[ini]||!r[fin])return null; const a=new Date(r[ini]),b=new Date(r[fin]);
     if(isNaN(a)||isNaN(b))return null; return (b-a)/86400000; }).filter(x=>x!=null);
   return ds.length?(ds.reduce((s,x)=>s+x,0)/ds.length).toFixed(1):"—"; }
+function fmtDur(min){ if(min==null||isNaN(min)) return "—"; let m=Math.round(min);
+  const d=Math.floor(m/1440); m-=d*1440; const h=Math.floor(m/60); m-=h*60;
+  const p=[]; if(d) p.push(d+"d"); if(h) p.push(h+"h"); p.push(m+"min"); return p.join(" "); }
 function dPromMin(rows,ini,fin){ const ds=rows.map(r=>{ if(!r[ini]||!r[fin])return null; const a=new Date(r[ini]),b=new Date(r[fin]);
     if(isNaN(a)||isNaN(b))return null; return (b-a)/60000; }).filter(x=>x!=null);
-  return ds.length?Math.round(ds.reduce((s,x)=>s+x,0)/ds.length).toLocaleString('es-EC'):"—"; }
+  return ds.length?fmtDur(ds.reduce((s,x)=>s+x,0)/ds.length):"—"; }
 function dPromCal(rows){ const cs=rows.map(r=>Number(r.EncuestaCal)).filter(x=>x>0);
   return cs.length?(cs.reduce((s,x)=>s+x,0)/cs.length).toFixed(2):"—"; }
 function KpiBox({label,value,color}){ return <div className="kpi" style={{borderTop:"3px solid "+(color||"var(--ocean)")}}>
@@ -1683,7 +1686,7 @@ function Tablero({tipo}){
     const pend=f.filter(r=>["Solicitado","En Gerencia"].includes(r.Estado)).length;
     const entr=f.filter(r=>["Entregado","Cerrada"].includes(r.Estado)).length;
     kpis=[["Recibidas",f.length,"--ocean"],["Aprobadas",aprob,"--green"],["Rechazadas",rech,"--coral"],["Pendientes",pend,"--amber"],
-      ["Entregadas",entr,"--blue"],["T. prom. aprob. (min)",dPromMin(f,"FechaSolicitud","FechaAprob"),"--purple"],
+      ["Entregadas",entr,"--blue"],["T. prom. aprobación",dPromMin(f,"FechaSolicitud","FechaAprob"),"--purple"],
       ["Calificación",dPromCal(f),"--green"],["Encuestas",f.filter(r=>r.EncuestaCal).length,"--blue"]];
     extra=<div className="card"><h3>Solicitudes por departamento</h3><BarsH data={dCuenta(f,"Area")} color="var(--ocean)"/></div>;
   } else {
@@ -1691,7 +1694,7 @@ function Tablero({tipo}){
     const validas=f.filter(r=>r.Estado!=="Rechazado");
     const cumpl=validas.length?Math.round(concl/validas.length*100):0;
     kpis=[["Recibidas",f.length,"--ocean"],["Concluidas",concl,"--green"],["Cumplimiento",cumpl+"%",cumpl>=100?"--green":"--amber"],
-      ["T. prom. (min)",dPromMin(f,"FechaCreacion","FechaConcluido"),"--purple"],
+      ["T. prom. respuesta",dPromMin(f,"FechaCreacion","FechaConcluido"),"--purple"],
       ["Calificación",dPromCal(f),"--green"],["Encuestas",f.filter(r=>r.EncuestaCal).length,"--blue"]];
     const prioCampo=isSis?"Urgencia":"TipoSolicitud";
     extra=<>
