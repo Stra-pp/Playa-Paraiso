@@ -623,7 +623,7 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v3.3 · SharePoint Prueba7",
+  version: "Playa Paraíso · App unificada v3.4 · SharePoint Prueba7",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -721,8 +721,8 @@ const GraphStore = {
   async write(t,arr){
     const buf=new TextEncoder().encode(JSON.stringify(arr));
     await gfetch(`/drives/${APP.ms.driveId}/root:/${this.fileName(t)}:/content`,"PUT",buf.buffer); },
-  async uploadFoto(dataUrl,nombre,ildId){
-    const carpeta=`${APP.ms.base}/${APP.ms.fotosFolder}/ILD_${ildId}`;
+  async uploadFoto(dataUrl,nombre,carpetaId){
+    const carpeta=`${APP.ms.base}/${APP.ms.fotosFolder}/${carpetaId}`;
     const blob=await (await fetch(dataUrl)).arrayBuffer();
     await gfetch(`/drives/${APP.ms.driveId}/root:/${carpeta}/${nombre}:/content`,"PUT",blob);
     return {nombre,path:`${carpeta}/${nombre}`};
@@ -735,6 +735,13 @@ const GraphStore = {
 const Store = { get be(){ return MODE==="graph"?GraphStore:Local; },
   read:t=>Store.be.read(t), write:(t,a)=>Store.be.write(t,a) };
 
+async function subirFotos(fotos,carpetaId,prefijo){
+  if(MODE==="graph"){ const out=[];
+    for(let i=0;i<fotos.length;i++){ try{ out.push(await GraphStore.uploadFoto(fotos[i],`${prefijo}_${i+1}.jpg`,carpetaId)); }
+      catch(e){ out.push({nombre:`${prefijo}_${i+1}.jpg`,data:fotos[i]}); } }
+    return out; }
+  return fotos.map((d,i)=>({nombre:`${prefijo}_${i+1}.jpg`,data:d}));
+}
 async function addNotif(para,texto,ildId,codigo){
   if(!para) return;
   try{ const arr=await Store.read("Notif");
@@ -1005,11 +1012,7 @@ function ILDForm({user,toast,onSaved,setFoto}){
     if(fotos.length<req && !confirm(`Solo ${fotos.length}/${req} fotos. ¿Continuar?`)) return;
     setBusy(true);
     const id=gid();
-    let fotosData;
-    if(MODE==="graph"){ fotosData=[];
-      for(let i=0;i<fotos.length;i++){ try{ fotosData.push(await GraphStore.uploadFoto(fotos[i],`ILD${id}_${i+1}.jpg`,id)); }
-        catch(e){ fotosData.push({nombre:`ILD${id}_${i+1}.jpg`,data:fotos[i]}); } } }
-    else fotosData=fotos.map((d,i)=>({nombre:`ILD${id}_${i+1}.jpg`,data:d}));
+    const fotosData=await subirFotos(fotos,`ILD_${id}`,`ILD${id}`);
     const arr=await Store.read("ILD");
     const Codigo=nextCode("ILD",arr);
     const nuevo={id,Codigo,area,turno:turno||AC[area]?.t||"",selecciones:{...sel},usuario:user.nombre,
@@ -1526,8 +1529,9 @@ function Compras({user,toast,setFoto}){
       if(!String(f[k]).trim()){ toast("Falta: "+lbl); return; }
     if(!fotos.length){ toast("Falta la foto del producto"); return; }
     const arr=await Store.read("Compras"); const Codigo=nextCode("COM",arr);
+    const fotosC=await subirFotos(fotos,`COM_${Codigo}`,Codigo);
     const nuevo={Codigo,id:gid(),FechaSolicitud:nowISO(),Solicitante:user.nombre,...f,
-      Fotos:fotos.map((d,i)=>({nombre:`${Codigo}_${i+1}.jpg`,data:d})),
+      Fotos:fotosC,
       Estado:"Solicitado",FechaTentativa:"",Aprobador:"",FechaAprob:"",Comentario:"",
       EnviadoGG:"No",AprobadorGG:"",FechaGG:"",ComentarioGG:"",ActaEntrega:"",ComentarioActa:"",
       FechaEntrega:"",FechaCierre:"",EncuestaCal:"",EncuestaComentario:"",FechaEncuesta:""};
@@ -1682,8 +1686,9 @@ function Tickets({tipo,user,toast,setFoto}){
     if(isSis){ if(!f.Titulo.trim()){toast("Falta el título de la tarea");return;} if(!f.Descripcion.trim()){toast("Falta la descripción");return;} }
     else { if(!f.Descripcion.trim()){toast("Falta la descripción de la novedad");return;} }
     const arr=await Store.read(tipo); const Codigo=nextCode(isSis?"SIS":"MTO",arr);
+    const fotosT=await subirFotos(fotos,`${isSis?'SIS':'MTO'}_${Codigo}`,Codigo);
     const base={Codigo,id:gid(),FechaCreacion:nowISO(),Solicitante:user.nombre,...f,
-      Fotos:fotos.map((d,i)=>({nombre:`${Codigo}_${i+1}.jpg`,data:d})),
+      Fotos:fotosT,
       Estado:"Nuevo",FechaTentativa:"",Asignado:"",ComentarioSoporte:"",FechaConcluido:"",
       EncuestaCal:"",EncuestaComentario:"",FechaEncuesta:""};
     await Store.write(tipo,[base,...arr]); toast("Ticket creado: "+Codigo);
@@ -1695,10 +1700,11 @@ function Tickets({tipo,user,toast,setFoto}){
   const equipo=equipoDe(user); const verEquipo=user.rol==='aprobador' && equipo.length>0;
   const delEquipo=rows.filter(r=>equipo.includes(r.Solicitante));
   const asignadas=rows.filter(r=>r.Asignado===user.nombre && !isSis && !["Cerrado","Rechazado"].includes(r.Estado));
-  const verTareas=!isSis && (user.rol==='colaborador' || asignadas.length>0);
-  const [soloHoy,setSoloHoy]=useState(false);
+  const verTareas=!isSis && ildAreasDe(user).includes('Mantenimiento') && user.rol==='colaborador';
+  const [soloHoy,setSoloHoy]=useState(false); const [gHoy,setGHoy]=useState(false);
   const hoyStr=new Date().toISOString().slice(0,10);
   const tareasMostrar=soloHoy?asignadas.filter(r=>(r.FechaTentativa||"").slice(0,10)===hoyStr):asignadas;
+  const gestionRows=gHoy?rows.filter(r=>(r.FechaTentativa||"").slice(0,10)===hoyStr):rows;
   return <div>
     <h1 className="h1">{isSis?"Soporte de Sistemas":"Mantenimiento"}</h1>
     <p className="sub">{isSis?"Requerimiento de TI.":"Requerimiento de mantenimiento."}</p>
@@ -1733,7 +1739,12 @@ function Tickets({tipo,user,toast,setFoto}){
         <button className={"btn "+(soloHoy?"primary":"ghost")} onClick={()=>setSoloHoy(true)}>📅 Hoy ({asignadas.filter(r=>(r.FechaTentativa||"").slice(0,10)===hoyStr).length})</button></div>
       <Listado items={tareasMostrar} empty={soloHoy?"No tienes tareas para hoy":"No tienes tareas asignadas"}
         render={r=><TareaCard r={r} onAction={(t)=>setModal({t,item:r})}/>}/></div>}
-    {tab==="gestion" && <Listado items={rows} empty="No hay tickets" render={r=><TicketCard r={r} isSis={isSis} chief={chief} equipo={equipo} onAction={(t)=>setModal({t,item:r})}/>}/>}
+    {tab==="gestion" && <div>
+      <div className="row" style={{margin:"0 0 12px",gap:8,flexWrap:"wrap"}}>
+        <button className={"btn "+(gHoy?"ghost":"primary")} onClick={()=>setGHoy(false)}>Todas ({rows.length})</button>
+        <button className={"btn "+(gHoy?"primary":"ghost")} onClick={()=>setGHoy(true)}>📅 Hoy ({rows.filter(r=>(r.FechaTentativa||"").slice(0,10)===hoyStr).length})</button>
+        <button className="btn ocean" onClick={()=>{ if(!exportXLSX(gestionRows,tipo,`${tipo}_${gHoy?"Hoy_":""}PlayaParaiso`)) toast("No hay datos para exportar"); else toast("Exportando…"); }}>⬇️ Exportar</button></div>
+      <Listado items={gestionRows} empty="No hay tickets" render={r=><TicketCard r={r} isSis={isSis} chief={chief} equipo={equipo} onAction={(t)=>setModal({t,item:r})}/>}/></div>}
     {tab==="tablero" && <Tablero tipo={tipo} rows={rows}/>}
     {modal && <TicketModal tipo={tipo} isSis={isSis} modal={modal} user={user} equipo={equipo} onClose={()=>setModal(null)} apply={apply} toast={toast} setFoto={setFoto}/>}
   </div>;
@@ -1773,7 +1784,7 @@ function TicketModal({tipo,isSis,modal,user,equipo,onClose,apply,toast,setFoto})
   const {t,item}=modal;
   const opciones=(equipo&&equipo.length)?equipo:[];
   const [com,setCom]=useState(""); const [fecha,setFecha]=useState(item.FechaTentativa||""); const [cal,setCal]=useState(0);
-  const [tecnico,setTecnico]=useState(item.Asignado||opciones[0]||"");
+  const [tecnico,setTecnico]=useState(item.Asignado||opciones[0]||""); const [fotos,setFotos]=useState([]); const [busy,setBusy]=useState(false);
   function cumplimiento(){ if(!item.FechaTentativa) return "Concluida"; const lim=(item.FechaTentativa||"").slice(0,10);
     return (new Date().toISOString().slice(0,10) <= lim) ? "Concluida a tiempo" : "Concluida con atraso"; }
   async function go(){
@@ -1782,9 +1793,13 @@ function TicketModal({tipo,isSis,modal,user,equipo,onClose,apply,toast,setFoto})
       await apply(item.Codigo,{Estado:"Asignada",Asignado:tecnico,FechaTentativa:fecha,ComentarioJefe:com});
       await addNotif(tecnico,`Se te asignó la tarea de mantenimiento ${item.Codigo} (para el ${fmtDate(fecha)}).`,"",item.Codigo);
       toast("Tarea asignada a "+tecnico); }
-    else if(t==="concluir"){ if(!com.trim()){toast("El comentario de cierre es obligatorio");return;} await apply(item.Codigo,{Estado:"Concluido",ComentarioSoporte:com,FechaConcluido:nowISO(),CierreCumplimiento:cumplimiento()}); toast("Concluido"); }
-    else if(t==="concluirTarea"){ if(!com.trim()){toast("Escribe un comentario de la tarea");return;} const cmp=cumplimiento();
-      await apply(item.Codigo,{Estado:"Concluido",ComentarioSoporte:com,FechaConcluido:nowISO(),CierreCumplimiento:cmp});
+    else if(t==="concluir"){ if(!com.trim()){toast("El comentario de cierre es obligatorio");return;} setBusy(true);
+      const fc=fotos.length?await subirFotos(fotos,`MTO_${item.Codigo}`,item.Codigo+"_cierre"):(item.FotosCierre||[]);
+      await apply(item.Codigo,{Estado:"Concluido",ComentarioSoporte:com,FechaConcluido:nowISO(),CierreCumplimiento:cumplimiento(),FotosCierre:fc}); toast("Concluido"); }
+    else if(t==="concluirTarea"){ if(!com.trim()){toast("Escribe un comentario de la tarea");return;}
+      if(!fotos.length){toast("Adjunta al menos una foto de la tarea concluida");return;} setBusy(true);
+      const fc=await subirFotos(fotos,`MTO_${item.Codigo}`,item.Codigo+"_cierre"); const cmp=cumplimiento();
+      await apply(item.Codigo,{Estado:"Concluido",ComentarioSoporte:com,FechaConcluido:nowISO(),CierreCumplimiento:cmp,FotosCierre:fc});
       toast(cmp); }
     else if(t==="rechazar"){ if(!com.trim()){toast("El motivo es obligatorio");return;} await apply(item.Codigo,{Estado:"Rechazado",ComentarioSoporte:com,Asignado:user.nombre,FechaConcluido:nowISO()}); toast("Rechazado"); }
     else if(t==="encuesta"){ if(!cal){toast("Selecciona calificación");return;} await apply(item.Codigo,{Estado:"Cerrado",EncuestaCal:cal,EncuestaComentario:com,FechaEncuesta:nowISO()}); toast("¡Gracias por calificar!"); }
@@ -1801,6 +1816,8 @@ function TicketModal({tipo,isSis,modal,user,equipo,onClose,apply,toast,setFoto})
         <div className="kv" key={k}><b>{k}</b><span style={{textAlign:"right",maxWidth:"62%"}}>{v}</span></div>)}
       {(item.Fotos||[]).length>0 && <><h3 style={{margin:"12px 0 6px"}}>📷 Adjuntos</h3>
         <div className="fgrid">{item.Fotos.map((f,i)=><SpImg key={i} foto={f} idx={i+1} onClick={setFoto}/>)}</div></>}
+      {(item.FotosCierre||[]).length>0 && <><h3 style={{margin:"12px 0 6px"}}>📷 Fotos de cierre</h3>
+        <div className="fgrid">{item.FotosCierre.map((f,i)=><SpImg key={i} foto={f} idx={i+1} onClick={setFoto}/>)}</div></>}
     </div> : <div>
       {t==="asignar" && <><Field label="Técnico responsable" req><select className="inp" value={tecnico} onChange={e=>setTecnico(e.target.value)}>
         {!opciones.length && <option value="">(sin miembros de equipo)</option>}
@@ -1810,8 +1827,9 @@ function TicketModal({tipo,isSis,modal,user,equipo,onClose,apply,toast,setFoto})
       {t==="encuesta" && <Field label="Calificación (1-10)"><Stars value={cal} onChange={setCal}/></Field>}
       {["rechazar","concluir","concluirTarea","encuesta","asignar"].includes(t) && <Field label={t==="rechazar"?"Motivo del rechazo":t==="concluir"||t==="concluirTarea"?"Comentario de la tarea / soporte":t==="asignar"?"Indicaciones para el técnico (opcional)":"Comentario (opcional)"} req={["rechazar","concluir","concluirTarea"].includes(t)}>
         <textarea className="inp" value={com} onChange={e=>setCom(e.target.value)}/></Field>}
+      {(t==="concluirTarea"||t==="concluir") && <PhotoField fotos={fotos} setFotos={setFotos} label={t==="concluirTarea"?"Foto de la tarea concluida":"Foto de cierre (opcional)"} req={t==="concluirTarea"} setFoto={setFoto}/>}
       <div className="row end"><button className="btn ghost" onClick={onClose}>Cancelar</button>
-        <button className={"btn "+(t==="rechazar"?"red":"primary")} onClick={go}>Confirmar</button></div></div>}
+        <button className={"btn "+(t==="rechazar"?"red":"primary")} disabled={busy} onClick={go}>{busy?"Guardando…":"Confirmar"}</button></div></div>}
   </Modal>;
 }
 
