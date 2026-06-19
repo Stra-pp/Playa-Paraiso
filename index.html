@@ -623,13 +623,16 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v3.5 · SharePoint Prueba7",
+  version: "Playa Paraíso · App unificada v3.7 · SharePoint Prueba7(Listas)",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
     tenantId: "36db945a-4d81-4bf8-ae41-c98438dc888c",
     redirectUri: window.location.origin + window.location.pathname,
     site: "https://playaparaiso.sharepoint.com/sites/Prueba7",
+    siteHost: "playaparaiso.sharepoint.com",
+    sitePath: "/sites/Prueba7",
+    lists: { ILD:"PP_ILD", Compras:"PP_Compras", Sistemas:"PP_Sistemas", Mantenimiento:"PP_Mantenimiento", Notif:"PP_Notif" },
     base: "ILDS",
     driveId: "b!O2-zgnw6nkyHGSME4wNWNvzktKvfz2RCve_Yy1z3ygbC7N4D__mdSLQmbhqhPa0o",
     files: { ILD:"NEXO_ILD.json", Compras:"NEXO_Compras.json",
@@ -709,6 +712,8 @@ const STATUS = {
   "Concluido":{c:"--green"},"Cerrado":{c:"--green"},"Rechazado":{c:"--red"}
 };
 const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const CERRADAS=["Cerrada","Cerrado","Rechazada","Rechazado","Baja por presupuesto"];
+const esCerrada=r=>CERRADAS.includes(r.Estado||r.estado);
 const colorOf = e => cssVar((STATUS[e]||{c:"--gray"}).c);
 const KANBAN = {
   compras:["Solicitado","En Gerencia","En compra","Listo para entregar","Entregado","Cerrada","Rechazada","Baja por presupuesto"],
@@ -725,8 +730,9 @@ const Local = {
   write:(t,arr)=>localStorage.setItem("pp_"+t,JSON.stringify(arr))
 };
 const GBASE="https://graph.microsoft.com/v1.0";
-async function gfetch(path,method="GET",body=null,raw=false){
+async function gfetch(path,method="GET",body=null,raw=false,headers=null){
   const h={Authorization:`Bearer ${graphToken}`};
+  if(headers) Object.assign(h,headers);
   if(body && !(body instanceof ArrayBuffer)) h["Content-Type"]="application/json";
   else if(body instanceof ArrayBuffer) h["Content-Type"]="application/octet-stream";
   const r=await fetch(GBASE+path,{method,headers:h,body:body?(body instanceof ArrayBuffer?body:JSON.stringify(body)):null});
@@ -753,8 +759,76 @@ const GraphStore = {
     return URL.createObjectURL(new Blob([buf]));
   }
 };
-const Store = { get be(){ return MODE==="graph"?GraphStore:Local; },
-  read:t=>Store.be.read(t), write:(t,a)=>Store.be.write(t,a) };
+// ===== Backend de LISTAS de SharePoint (un elemento por solicitud) =====
+const LIST_TABLES=["ILD","Compras","Sistemas","Mantenimiento","Notif"];
+let SP_SITE=null; const SP_LIST={}; const SP_MAP={}; const SP_COLS={};
+const PREFER_NX={Prefer:"HonorNonIndexedQueriesWarningMayFailRandomly"};
+const recFecha=r=>String(r.fecha||r.FechaSolicitud||r.FechaCreacion||"").slice(0,10);
+const recEstado=r=>String(r.estado||r.Estado||"");
+async function spSite(){ if(SP_SITE) return SP_SITE;
+  const s=await gfetch(`/sites/${APP.ms.siteHost}:${APP.ms.sitePath}`); SP_SITE=s.id; return SP_SITE; }
+async function spEnsureCols(site,lid,t){ if(SP_COLS[t]) return;
+  try{ const cols=await gfetch(`/sites/${site}/lists/${lid}/columns?$select=name`);
+    const have=new Set((cols.value||[]).map(c=>c.name));
+    for(const c of ["Fecha","Estado"]) if(!have.has(c)){ try{ await gfetch(`/sites/${site}/lists/${lid}/columns`,"POST",{name:c,text:{}}); }catch(e){} }
+  }catch(e){} SP_COLS[t]=true; }
+async function spEnsureList(t){ const site=await spSite();
+  if(SP_LIST[t]){ await spEnsureCols(site,SP_LIST[t],t); return SP_LIST[t]; }
+  const name=APP.ms.lists[t];
+  const all=await gfetch(`/sites/${site}/lists?$select=id,displayName&$top=200`);
+  let lid=(all.value||[]).find(l=>l.displayName===name)?.id;
+  if(!lid){ const created=await gfetch(`/sites/${site}/lists`,"POST",{displayName:name,
+    columns:[{name:"Data",text:{allowMultipleLines:true}},{name:"Fecha",text:{}},{name:"Estado",text:{}}],
+    list:{template:"genericList"}}); lid=created.id; }
+  SP_LIST[t]=lid; await spEnsureCols(site,lid,t); return lid; }
+function spMerge(t,items){ const map=SP_MAP[t]||new Map();
+  items.forEach(it=>{ const d=it.fields&&it.fields.Data; if(!d) return; let rec; try{rec=JSON.parse(d);}catch{return;}
+    map.set(rec.id,{spId:it.id,hash:d}); }); SP_MAP[t]=map; }
+async function spPages(t,query){ const site=await spSite(); const lid=await spEnsureList(t);
+  let url=`/sites/${site}/lists/${lid}/items?$expand=fields($select=Data)&$top=500${query?("&"+query):""}`;
+  const items=[]; while(url){ const page=await gfetch(url.replace(GBASE,""),"GET",null,false,PREFER_NX);
+    (page.value||[]).forEach(x=>items.push(x)); url=page["@odata.nextLink"]||null; } return items; }
+const ListStore={
+  async read(t){ const items=await spPages(t,""); spMerge(t,items);
+    return items.map(it=>{try{return JSON.parse(it.fields.Data);}catch{return null;}}).filter(Boolean); },
+  async readDesde(t,since){ try{ const items=await spPages(t,`$filter=fields/Fecha ge '${since}'`); spMerge(t,items);
+      return items.map(it=>{try{return JSON.parse(it.fields.Data);}catch{return null;}}).filter(Boolean);
+    }catch(e){ return (await this.read(t)).filter(r=>recFecha(r)>=since); } },
+  async readRango(t,desde,hasta){ try{ const items=await spPages(t,`$filter=fields/Fecha ge '${desde}' and fields/Fecha lt '${hasta}'`); spMerge(t,items);
+      return items.map(it=>{try{return JSON.parse(it.fields.Data);}catch{return null;}}).filter(Boolean);
+    }catch(e){ return (await this.read(t)).filter(r=>recFecha(r)>=desde&&recFecha(r)<hasta); } },
+  async write(t,arr){ const site=await spSite(); const lid=await spEnsureList(t);
+    if(!SP_MAP[t]) await this.read(t); const map=SP_MAP[t]||new Map();
+    for(const rec of arr){ const j=JSON.stringify(rec); const m=map.get(rec.id);
+      const fields={Title:String(rec.Codigo||rec.id||"").slice(0,255),Data:j,Fecha:recFecha(rec),Estado:recEstado(rec)};
+      if(!m){ const c=await gfetch(`/sites/${site}/lists/${lid}/items`,"POST",{fields}); map.set(rec.id,{spId:c.id,hash:j}); }
+      else if(m.hash!==j){ await gfetch(`/sites/${site}/lists/${lid}/items/${m.spId}/fields`,"PATCH",fields); m.hash=j; } }
+    SP_MAP[t]=map; },
+  async remove(t,id){ const site=await spSite(); const lid=await spEnsureList(t);
+    if(!SP_MAP[t]) await this.read(t); const m=(SP_MAP[t]||new Map()).get(id);
+    if(m){ try{ await gfetch(`/sites/${site}/lists/${lid}/items/${m.spId}`,"DELETE"); }catch(e){} SP_MAP[t].delete(id); } }
+};
+async function migrarAListas(){ if(localStorage.getItem("pp_lists_migrated")) return;
+  for(const t of LIST_TABLES){ try{ await spEnsureList(t); const cur=await ListStore.read(t);
+    if(!cur.length){ let old=[]; try{ old=await GraphStore.read(t); }catch{} if(Array.isArray(old)&&old.length) await ListStore.write(t,old); }
+  }catch(e){} } localStorage.setItem("pp_lists_migrated","1"); }
+const hoyISO=()=>new Date().toISOString().slice(0,10);
+const desdeDias=n=>{ const d=new Date(); d.setDate(d.getDate()-n); return d.toISOString().slice(0,10); };
+const Store = {
+  read(t){ if(MODE!=="graph") return Local.read(t); return LIST_TABLES.includes(t)?ListStore.read(t):GraphStore.read(t); },
+  write(t,a){ if(MODE!=="graph") return Local.write(t,a); return LIST_TABLES.includes(t)?ListStore.write(t,a):GraphStore.write(t,a); },
+  async remove(t,id){ if(MODE!=="graph"){ const a=Local.read(t); Local.write(t,a.filter(x=>(x.id||x.Codigo)!==id)); return; }
+    if(LIST_TABLES.includes(t)) return ListStore.remove(t,id);
+    const a=await GraphStore.read(t); await GraphStore.write(t,a.filter(x=>(x.id||x.Codigo)!==id)); },
+  async readDesde(t,since){ if(MODE!=="graph") return Local.read(t).filter(r=>recFecha(r)>=since);
+    return LIST_TABLES.includes(t)?ListStore.readDesde(t,since):(await GraphStore.read(t)).filter(r=>recFecha(r)>=since); },
+  async readMes(t,y,m){ const s=`${y}-${String(m+1).padStart(2,'0')}-01`; const e=m===11?`${y+1}-01-01`:`${y}-${String(m+2).padStart(2,'0')}-01`;
+    if(MODE!=="graph") return Local.read(t).filter(r=>recFecha(r)>=s&&recFecha(r)<e);
+    return LIST_TABLES.includes(t)?ListStore.readRango(t,s,e):(await GraphStore.read(t)).filter(r=>recFecha(r)>=s&&recFecha(r)<e); },
+  async readAnio(t,y){ const s=`${y}-01-01`,e=`${y+1}-01-01`;
+    if(MODE!=="graph") return Local.read(t).filter(r=>recFecha(r)>=s&&recFecha(r)<e);
+    return LIST_TABLES.includes(t)?ListStore.readRango(t,s,e):(await GraphStore.read(t)).filter(r=>recFecha(r)>=s&&recFecha(r)<e); }
+};
 
 async function subirFotos(fotos,carpetaId,prefijo){
   if(MODE==="graph"){ const out=[];
@@ -771,7 +845,7 @@ async function addNotif(para,texto,ildId,codigo){
 }
 
 let msErr="";
-const MS_SCOPES=["https://graph.microsoft.com/Files.ReadWrite.All","https://graph.microsoft.com/User.Read"];
+const MS_SCOPES=["https://graph.microsoft.com/Files.ReadWrite.All","https://graph.microsoft.com/Sites.ReadWrite.All","https://graph.microsoft.com/User.Read"];
 async function msInitApp(){
   if(msalApp) return;
   msalApp=new msal.PublicClientApplication({auth:{clientId:APP.ms.clientId,
@@ -979,7 +1053,7 @@ function ILD({user,toast,setFoto,bump}){
   const showChecklist = (user.rol==='aprobador' || esDevv);  // Gerencia no edita checklist
   const [tab,setTab]=useState(esGer?"bandeja":"nuevo");
   const [regs,setRegs]=useState([]);
-  const load=async()=>setRegs(await Store.read("ILD"));
+  const load=async()=>setRegs(await Store.readDesde("ILD", desdeDias(150)));
   useEffect(()=>{load();},[]);
   const guardarCfg=()=>{ cfgSave(); bump&&bump(); };
   return <div>
@@ -1192,6 +1266,39 @@ function SpImg({foto,idx,onClick}){
   if(foto.spUrl) return <a className="fthumb" href={foto.spUrl} target="_blank" rel="noreferrer" style={{display:"grid",placeItems:"center",background:"#eef3f6",color:"var(--ocean-d)",fontSize:11,fontWeight:700,textDecoration:"none",textAlign:"center"}}>🔗<br/>Foto {idx}</a>;
   return <div className="fthumb" style={{display:"grid",placeItems:"center",background:"#f3efe6",fontSize:18}}>⏳</div>;
 }
+function actaILD(r){
+  const esc=s=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const f=d=>d?new Date(d).toLocaleString('es-EC'):'—';
+  const items=CL[r.area]||[];
+  const filas=items.map((it,i)=>{ const tx=itemText(it),tp=itemTipo(it); let val="—";
+    if(tp==='sino'){ const v=(r.checks&&r.checks['yn-'+i])||""; val=v==='si'?'Sí':v==='no'?'No':'—'; }
+    else if(tp==='texto'){ val=(r.textos&&r.textos[i])||'—'; }
+    else if(tp==='apertura_cierre'||tp==='comida'){ val=(r.selecciones&&r.selecciones[i])||'—'; }
+    else { val=(r.checks&&r.checks[i])?'✓':'○'; }
+    return `<tr><td>${i+1}. ${esc(tx)}</td><td style="text-align:center;font-weight:700">${esc(val)}</td></tr>`; }).join("");
+  const cod=r.Codigo||("ILD-"+r.id);
+  const html=`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>ILD ${esc(cod)}</title>
+  <style>body{font-family:'Segoe UI',Arial,sans-serif;color:#1b2a32;max-width:760px;margin:26px auto;padding:0 26px;line-height:1.5}
+  h1{font-size:21px;margin:6px 0 4px}.tag{display:inline-block;background:#dff3e6;color:#1c7a4a;padding:4px 12px;border-radius:7px;font-weight:700;font-size:13px}
+  .kv{display:flex;justify-content:space-between;border-bottom:1px solid #eee;padding:4px 0;font-size:14px}.kv b{color:#0b3b46}
+  table{width:100%;border-collapse:collapse;margin-top:10px}td{border-bottom:1px solid #f0f0f0;padding:6px 4px;font-size:13px}
+  th{text-align:left;border-bottom:2px solid #0b6b7a;padding:6px 4px;font-size:13px}
+  .note{margin-top:12px;padding:10px;border-radius:8px;background:#f6f4ee;font-size:13px}</style></head><body>
+  <div class="tag">${esc(r.estado)}</div>
+  <h1>ILD No. ${esc(cod)} — ${esc(r.area)}${r.turno?` · ${esc(r.turno)}`:""}</h1>
+  <div class="kv"><b>Responsable</b><span>${esc(r.usuario)}</span></div>
+  <div class="kv"><b>Fecha</b><span>${f(r.fecha)}</span></div>
+  <div class="kv"><b>Aprobado por</b><span>${esc(r.aprobador||'—')}</span></div>
+  <div class="kv"><b>Fecha de aprobación</b><span>${f(r.fechaAprobacion)}</span></div>
+  <div class="kv"><b>Ítems completados</b><span>${esc((r.completados||0)+"/"+(r.totalItems||0))}</span></div>
+  <table><tr><th>Ítem del checklist</th><th style="text-align:center">Resultado</th></tr>${filas}</table>
+  ${r.obs?`<div class="note"><b>Nota del colaborador:</b> ${esc(r.obs)}</div>`:""}
+  ${r.notaJef?`<div class="note"><b>Comentario de ${esc(r.aprobador)}:</b> ${esc(r.notaJef)}</div>`:""}
+  ${r.notaGerencia?`<div class="note"><b>Gerencia:</b> ${esc(r.notaGerencia)}</div>`:""}
+  </body></html>`;
+  const w=window.open("","_blank"); if(!w){ alert("Permite ventanas emergentes para exportar el PDF."); return; }
+  w.document.write(html); w.document.close(); w.focus(); setTimeout(function(){ try{ w.print(); }catch(e){} },350);
+}
 function ILDDetail({user,r,onClose,reload,toast,setFoto}){
   const items=CL[r.area]||[];
   const esApro=user.rol==='aprobador'&&(user.areas||[]).includes(r.area);
@@ -1222,6 +1329,7 @@ function ILDDetail({user,r,onClose,reload,toast,setFoto}){
     {[["Área",r.area+(r.turno?` · ${r.turno}`:"")],["Responsable",r.usuario],["Fecha",fmtDT(r.fecha)],
       ["Aprobador esperado",r.aprobadorEsperado||"—"],["Ítems",`${r.completados}/${r.totalItems}`],
       ["Estado",r.estado]].map(([k,v])=><div className="kv" key={k}><b>{k}</b><span>{v}</span></div>)}
+    {r.estado==='Aprobado' && <button className="btn ocean block" style={{margin:"10px 0"}} onClick={()=>actaILD(r)}>📄 Descargar PDF del ILD</button>}
     <h3 style={{margin:"14px 0 6px"}}>Checklist</h3>
     {items.map((it,i)=>{ const tx=itemText(it),tp=itemTipo(it);
       let val;
@@ -1543,6 +1651,9 @@ function dCuenta(rows,campo){ const m={}; rows.forEach(r=>{ const k=(r[campo]||"
 function dPromDias(rows,ini,fin){ const ds=rows.map(r=>{ if(!r[ini]||!r[fin])return null; const a=new Date(r[ini]),b=new Date(r[fin]);
     if(isNaN(a)||isNaN(b))return null; return (b-a)/86400000; }).filter(x=>x!=null);
   return ds.length?(ds.reduce((s,x)=>s+x,0)/ds.length).toFixed(1):"—"; }
+function dPromMin(rows,ini,fin){ const ds=rows.map(r=>{ if(!r[ini]||!r[fin])return null; const a=new Date(r[ini]),b=new Date(r[fin]);
+    if(isNaN(a)||isNaN(b))return null; return (b-a)/60000; }).filter(x=>x!=null);
+  return ds.length?Math.round(ds.reduce((s,x)=>s+x,0)/ds.length).toLocaleString('es-EC'):"—"; }
 function dPromCal(rows){ const cs=rows.map(r=>Number(r.EncuestaCal)).filter(x=>x>0);
   return cs.length?(cs.reduce((s,x)=>s+x,0)/cs.length).toFixed(2):"—"; }
 function KpiBox({label,value,color}){ return <div className="kpi" style={{borderTop:"3px solid "+(color||"var(--ocean)")}}>
@@ -1555,16 +1666,16 @@ function BarsH({data,color}){ const max=Math.max(1,...data.map(d=>d.value));
       <div style={{flex:1,background:"#eef1f3",borderRadius:6,height:18}}><div style={{width:(d.value/max*100)+"%",background:color||"var(--ocean)",height:"100%",borderRadius:6,minWidth:d.value?4:0}}></div></div>
       <div style={{flex:"0 0 30px",fontWeight:800,fontSize:13}}>{d.value}</div></div>)}</div>;
 }
-function Tablero({tipo,rows}){
+function Tablero({tipo}){
   const isCom=tipo==="Compras"; const isSis=tipo==="Sistemas";
-  const campo=isCom?"FechaSolicitud":"FechaCreacion";
   const now=new Date();
-  const anios=Array.from(new Set(rows.map(r=>r[campo]?new Date(r[campo]).getFullYear():null).filter(Boolean)));
-  if(!anios.includes(now.getFullYear())) anios.push(now.getFullYear()); anios.sort();
-  const [anio,setAnio]=useState(now.getFullYear());
-  const [mes,setMes]=useState(null);
+  const [anio,setAnio]=useState(now.getFullYear()); const [mes,setMes]=useState(null);
+  const [f,setF]=useState([]); const [cargando,setCargando]=useState(true);
+  const anios=[now.getFullYear()-2,now.getFullYear()-1,now.getFullYear()];
   const MESES=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
-  const f=dFiltro(rows,campo,anio,mes);
+  useEffect(()=>{ let vivo=true; (async()=>{ setCargando(true);
+    try{ const data=mes==null?await Store.readAnio(tipo,anio):await Store.readMes(tipo,anio,mes); if(vivo) setF(data); }
+    catch(e){ if(vivo) setF([]); } finally{ if(vivo) setCargando(false); } })(); return ()=>{vivo=false;}; },[anio,mes]);
   let kpis=[], extra=null;
   if(isCom){
     const aprob=f.filter(r=>["En compra","Listo para entregar","Entregado","Cerrada"].includes(r.Estado)).length;
@@ -1572,14 +1683,15 @@ function Tablero({tipo,rows}){
     const pend=f.filter(r=>["Solicitado","En Gerencia"].includes(r.Estado)).length;
     const entr=f.filter(r=>["Entregado","Cerrada"].includes(r.Estado)).length;
     kpis=[["Recibidas",f.length,"--ocean"],["Aprobadas",aprob,"--green"],["Rechazadas",rech,"--coral"],["Pendientes",pend,"--amber"],
-      ["Entregadas",entr,"--blue"],["T. prom. aprob. (días)",dPromDias(f,"FechaSolicitud","FechaAprob"),"--purple"],
+      ["Entregadas",entr,"--blue"],["T. prom. aprob. (min)",dPromMin(f,"FechaSolicitud","FechaAprob"),"--purple"],
       ["Calificación",dPromCal(f),"--green"],["Encuestas",f.filter(r=>r.EncuestaCal).length,"--blue"]];
     extra=<div className="card"><h3>Solicitudes por departamento</h3><BarsH data={dCuenta(f,"Area")} color="var(--ocean)"/></div>;
   } else {
     const concl=f.filter(r=>["Concluido","Cerrado"].includes(r.Estado)).length;
-    const cumpl=f.length?Math.round(concl/f.length*100):0;
+    const validas=f.filter(r=>r.Estado!=="Rechazado");
+    const cumpl=validas.length?Math.round(concl/validas.length*100):0;
     kpis=[["Recibidas",f.length,"--ocean"],["Concluidas",concl,"--green"],["Cumplimiento",cumpl+"%",cumpl>=100?"--green":"--amber"],
-      ["T. prom. (días)",dPromDias(f,"FechaCreacion","FechaConcluido"),"--purple"],
+      ["T. prom. (min)",dPromMin(f,"FechaCreacion","FechaConcluido"),"--purple"],
       ["Calificación",dPromCal(f),"--green"],["Encuestas",f.filter(r=>r.EncuestaCal).length,"--blue"]];
     const prioCampo=isSis?"Urgencia":"TipoSolicitud";
     extra=<>
@@ -1593,8 +1705,8 @@ function Tablero({tipo,rows}){
     <div className="seg" style={{flexWrap:"wrap"}}>
       <button className={mes==null?"on":""} onClick={()=>setMes(null)}>Año</button>
       {MESES.map((m,i)=><button key={m} className={mes===i?"on":""} onClick={()=>setMes(i)}>{m}</button>)}</div>
-    <div className="kpis">{kpis.map(([l,v,c])=><KpiBox key={l} label={l} value={v} color={cssVar(c)}/>)}</div>
-    {extra}
+    {cargando ? <div className="hint" style={{padding:"20px 0"}}>Cargando datos del período…</div>
+      : <><div className="kpis">{kpis.map(([l,v,c])=><KpiBox key={l} label={l} value={v} color={cssVar(c)}/>)}</div>{extra}</>}
   </div>;
 }
 
@@ -1657,7 +1769,7 @@ function Compras({user,toast,setFoto}){
       render={r=><ComprasCard r={r} chief={false} canGG={false} onAction={(t)=>setModal({t,item:r})}/>}/>}
     {tab==="gestion" && <Listado items={gestionRows} empty={esChiefCompras?"No hay solicitudes":"No hay solicitudes pendientes de Gerencia"}
       render={r=><ComprasCard r={r} chief={chief} canGG={canGG} onAction={(t)=>setModal({t,item:r})}/>}/>}
-    {tab==="tablero" && <Tablero tipo="Compras" rows={rows}/>}
+    {tab==="tablero" && <Tablero tipo="Compras"/>}
     {modal && <ComprasModal modal={modal} user={user} onClose={()=>setModal(null)} apply={apply} toast={toast} setFoto={setFoto}/>}
   </div>;
 }
@@ -1834,7 +1946,7 @@ function Tickets({tipo,user,toast,setFoto}){
         <button className={"btn "+(gHoy?"primary":"ghost")} onClick={()=>setGHoy(true)}>📅 Hoy ({rows.filter(r=>(r.FechaTentativa||"").slice(0,10)===hoyStr).length})</button>
         <button className="btn ocean" onClick={()=>{ if(!exportXLSX(gestionRows,tipo,`${tipo}_${gHoy?"Hoy_":""}PlayaParaiso`)) toast("No hay datos para exportar"); else toast("Exportando…"); }}>⬇️ Exportar</button></div>
       <Listado items={gestionRows} empty="No hay tickets" render={r=><TicketCard r={r} isSis={isSis} chief={chief} equipo={equipo} onAction={(t)=>setModal({t,item:r})}/>}/></div>}
-    {tab==="tablero" && <Tablero tipo={tipo} rows={rows}/>}
+    {tab==="tablero" && <Tablero tipo={tipo}/>}
     {modal && <TicketModal tipo={tipo} isSis={isSis} modal={modal} user={user} equipo={equipo} onClose={()=>setModal(null)} apply={apply} toast={toast} setFoto={setFoto}/>}
   </div>;
 }
@@ -1929,13 +2041,41 @@ function Listado({items,render,empty}){
 }
 
 /* ===== KANBAN ===== */
-function Kanban({user,toast}){
-  const editable=puede(user,'kanban.editar');
-  const mods=editable?["compras","sistemas","mantenimiento"].filter(m=>gestionaModulo(user,m)):["compras","sistemas","mantenimiento"];
-  const [proc,setProc]=useState(mods[0]||"compras");
+function KanModal({proc,tabla,r,canEdit,cols,onClose,onSaved,toast,setFoto}){
+  const isCom=tabla==="Compras", isSis=tabla==="Sistemas";
+  const titulo=isCom?r.Modelo:isSis?r.Titulo:r.Descripcion;
+  const area=isCom?r.Area:r.Departamento;
+  const [estado,setEstado]=useState(r.Estado); const [com,setCom]=useState(""); const [fecha,setFecha]=useState(r.FechaTentativa||"");
+  async function guardar(){ const arr=await Store.read(tabla);
+    const upd=arr.map(x=>{ if(x.Codigo!==r.Codigo) return x; const o={...x,Estado:estado};
+      if(com.trim()){ o.ComentarioKanban=com; if(isCom)o.ComentarioGG=com; else o.ComentarioSoporte=com; }
+      if(fecha) o.FechaTentativa=fecha; return o; });
+    await Store.write(tabla,upd); toast("Solicitud actualizada"); onSaved(); onClose();
+  }
+  return <Modal title={r.Codigo} onClose={onClose}>
+    {[["Solicitante",r.Solicitante],["Área/Depto",area||"—"],["Detalle",titulo||"—"],
+      isCom?["Tipo",r.TipoCompra||"—"]:["Prioridad",(isSis?r.Urgencia:r.TipoSolicitud)||"—"],
+      ["Descripción",r.Descripcion||r.Justificacion||"—"],["Estado",r.Estado],
+      ["Asignado",r.Asignado||"—"],["Fecha",fmtDate(r.FechaTentativa)]].map(([k,v])=>
+      <div className="kv" key={k}><b>{k}</b><span style={{textAlign:"right",maxWidth:"62%"}}>{v}</span></div>)}
+    {(r.Fotos||[]).length>0 && <><h3 style={{margin:"12px 0 6px"}}>📷 Adjuntos</h3>
+      <div className="fgrid">{r.Fotos.map((f,i)=><SpImg key={i} foto={f} idx={i+1} onClick={setFoto}/>)}</div></>}
+    {["Entregado","Cerrada","Cerrado"].includes(r.Estado) && <button className="btn ocean block" style={{marginTop:10}} onClick={()=>isCom?actaCompra(r):null} disabled={!isCom}>{isCom?"📄 Acta (PDF)":""}</button>}
+    {canEdit ? <div className="card" style={{marginTop:12}}>
+      <h3>✎ Gestionar</h3>
+      <Field label="Estado"><select className="inp" value={estado} onChange={e=>setEstado(e.target.value)}>{cols.map(c=><option key={c}>{c}</option>)}</select></Field>
+      <Field label="Fecha"><input type="date" className="inp" value={fecha} onChange={e=>setFecha(e.target.value)}/></Field>
+      <Field label="Comentario"><textarea className="inp" value={com} onChange={e=>setCom(e.target.value)}/></Field>
+      <button className="btn primary block" onClick={guardar}>Guardar</button>
+    </div> : <div className="hint" style={{marginTop:12}}>Solo lectura.</div>}
+  </Modal>;
+}
+function Kanban({user,toast,setFoto}){
+  const mods=["compras","sistemas","mantenimiento"];
+  const [proc,setProc]=useState(mods[0]);
   const tabla={compras:"Compras",sistemas:"Sistemas",mantenimiento:"Mantenimiento"}[proc];
   const [rows,setRows]=useState([]); const [over,setOver]=useState(null); const drag=useRef(null);
-  const [fArea,setFArea]=useState(""); const [fSolic,setFSolic]=useState("");
+  const [fArea,setFArea]=useState(""); const [fSolic,setFSolic]=useState(""); const [det,setDet]=useState(null);
   const load=async()=>setRows(await Store.read(tabla)); useEffect(()=>{load();setFArea("");setFSolic("");},[proc]);
   const cols=KANBAN[proc];
   const areaOf=r=>tabla==="Compras"?r.Area:r.Departamento;
@@ -1945,11 +2085,16 @@ function Kanban({user,toast}){
   const areas=[...new Set(rows.map(areaOf).filter(Boolean))].sort();
   const solics=[...new Set(rows.map(r=>r.Solicitante).filter(Boolean))].sort();
   const visibles=rows.filter(r=>(!fArea||areaOf(r)===fArea)&&(!fSolic||r.Solicitante===fSolic));
-  async function move(code,estado){ if(!editable) return; const arr=await Store.read(tabla);
+  function canEditCard(r){ if(esCerrada(r)) return false; if(esDev(user)) return true;
+    if(gestionaModulo(user,proc)) return true;
+    if(user.rol==='gerencia' && proc==='compras' && r.Estado==='En Gerencia') return true;
+    return false; }
+  async function move(code,estado){ const r=rows.find(x=>x.Codigo===code); if(!r||!canEditCard(r)) return;
+    const arr=await Store.read(tabla);
     await Store.write(tabla,arr.map(x=>x.Codigo===code?{...x,Estado:estado}:x)); load(); toast("Movido a "+estado); }
   return <div>
-    <h1 className="h1">Tablero Kanban</h1><p className="sub">{editable?"Arrastra una tarjeta o usa su menú para moverla.":"Vista de solo lectura del avance."}</p>
-    {mods.length>1 && <div className="seg">{mods.map(m=><button key={m} className={proc===m?"on":""} onClick={()=>setProc(m)}>{({compras:"Compras",sistemas:"Sistemas",mantenimiento:"Mantenimiento"})[m]}</button>)}</div>}
+    <h1 className="h1">Tablero Kanban</h1><p className="sub">Toca una tarjeta para abrirla. Podrás editar solo las que te corresponden.</p>
+    <div className="seg">{mods.map(m=><button key={m} className={proc===m?"on":""} onClick={()=>setProc(m)}>{({compras:"Compras",sistemas:"Sistemas",mantenimiento:"Mantenimiento"})[m]}</button>)}</div>
     <div className="kfilters">
       <select value={fArea} onChange={e=>setFArea(e.target.value)}><option value="">Todas las áreas</option>{areas.map(a=><option key={a}>{a}</option>)}</select>
       <select value={fSolic} onChange={e=>setFSolic(e.target.value)}><option value="">Todos los solicitantes</option>{solics.map(s=><option key={s}>{s}</option>)}</select>
@@ -1960,20 +2105,21 @@ function Kanban({user,toast}){
       return <div key={col} className={"kcol"+(over===col?" over":"")} onDragOver={e=>{e.preventDefault();setOver(col);}}
         onDragLeave={()=>setOver(null)} onDrop={e=>{e.preventDefault();setOver(null); if(drag.current) move(drag.current,col);}}>
         <h4><span><span className="dotc" style={{background:colorOf(col)}}></span>{col}</span><span className="cnt">{cards.length}</span></h4>
-        {cards.map(r=><div key={r.Codigo} className="kcard" draggable={editable}
-          style={{borderLeft:`4px solid ${isOverdue(r)?cssVar("--red"):colorOf(r.Estado)}`}}
-          onDragStart={()=>{ if(editable) drag.current=r.Codigo; }} onDragEnd={()=>drag.current=null}>
-          <div className="kc">{r.Codigo}{isOverdue(r)?" · ⚠ vencido":""}</div>
+        {cards.map(r=>{ const ed=canEditCard(r);
+          return <div key={r.Codigo} className="kcard" draggable={ed}
+          style={{borderLeft:`4px solid ${isOverdue(r)?cssVar("--red"):colorOf(r.Estado)}`,cursor:"pointer"}}
+          onClick={()=>setDet(r)} onDragStart={()=>{ if(ed) drag.current=r.Codigo; }} onDragEnd={()=>drag.current=null}>
+          <div className="kc">{r.Codigo}{isOverdue(r)?" · ⚠ vencido":""}{esCerrada(r)?" · 🔒":""}</div>
           <div className="kt">{titleOf(r)}</div>
           <div style={{display:"flex",gap:6,flexWrap:"wrap",margin:"6px 0 2px"}}>
             <span className="kchip">{areaOf(r)||"—"}</span>
             {prioOf(r) && <span className={"kchip"+(isUrg(r)?" urg":"")}>{prioOf(r).split(" ")[0]}</span>}</div>
           <div className="km">👤 {r.Solicitante}{r.FechaTentativa?` · 📅 ${fmtDate(r.FechaTentativa)}`:""}</div>
-          {editable
-            ? <select value={r.Estado} onChange={e=>move(r.Codigo,e.target.value)}>{cols.map(c=><option key={c}>{c}</option>)}</select>
-            : <div className="kchip" style={{marginTop:6,display:"inline-block"}}>{r.Estado}</div>}</div>)}
+          <div className="kchip" style={{marginTop:6,display:"inline-block"}}>{ed?"✎ Abrir / editar":"👁 Abrir"}</div></div>;})}
         {!cards.length && <div style={{color:"#aab2b3",fontSize:12,textAlign:"center",padding:"14px 0"}}>—</div>}
       </div>;})}</div>
+    {det && <KanModal proc={proc} tabla={tabla} r={det} canEdit={canEditCard(det)} cols={cols}
+      onClose={()=>setDet(null)} onSaved={load} toast={toast} setFoto={setFoto}/>}
   </div>;
 }
 
@@ -1999,7 +2145,7 @@ function DeleteRecords({toast}){
   const codeOf=r=>r.Codigo||("#"+r.id);
   const titleOf=r=> mod==="ILD"?`${r.area} · ${r.usuario}` : mod==="Compras"?r.Modelo : mod==="Sistemas"?r.Titulo : r.Descripcion;
   async function del(id){ if(!confirm("¿Eliminar este registro de prueba? Es permanente y no afectará los índices del resto."))return;
-    const arr=await Store.read(mod); await Store.write(mod, arr.filter(x=>idOf(x)!==id)); load(); toast("Registro eliminado"); }
+    await Store.remove(mod, id); load(); toast("Registro eliminado"); }
   return <div className="card"><h3>🗑 Borrar registros de prueba</h3>
     <div className="hint">Elimina registros de prueba para que no afecten los indicadores. Acción permanente.</div>
     <select className="inp" style={{margin:"10px 0"}} value={mod} onChange={e=>setMod(e.target.value)}>
@@ -2071,13 +2217,14 @@ function App(){
   async function loadNotifs(u){ const who=u||user; if(!who) return;
     try{ const all=await Store.read("Notif"); setNotifs(all.filter(n=>n.para===who.nombre)); }catch{} }
   async function abrirNotif(n){
-    try{ const arr=await Store.read("Notif"); await Store.write("Notif", arr.filter(x=>x.id!==n.id)); }catch{}
+    try{ await Store.remove("Notif", n.id); }catch{}
     try{ const ilds=await Store.read("ILD"); const rec=ilds.find(r=>r.id===n.ildId); if(rec) setDetailIld(rec); }catch{}
     setNotifOpen(false); loadNotifs();
   }
   useEffect(()=>{ (async()=>{
     if(MODE==="graph"){ const ok=await msEnsure(); setConnected(ok);
       if(ok){ try{ applyIldConfig(await cfgRead()); }catch{}
+        try{ await migrarAListas(); }catch(e){}
         try{ if(!localStorage.getItem("pp_seeded_ild")){ const ild=await Store.read("ILD");
           if(!ild.length){ await Store.write("ILD",ILD_SEED); } localStorage.setItem("pp_seeded_ild","1"); } }catch{}
         bump(); } }
@@ -2126,7 +2273,7 @@ function App(){
       {view==="compras" && <Compras user={user} toast={toast} setFoto={setFoto}/>}
       {view==="sistemas" && <Tickets tipo="Sistemas" user={user} toast={toast} setFoto={setFoto}/>}
       {view==="mantenimiento" && <Tickets tipo="Mantenimiento" user={user} toast={toast} setFoto={setFoto}/>}
-      {view==="kanban" && <Kanban user={user} toast={toast}/>}
+      {view==="kanban" && <Kanban user={user} toast={toast} setFoto={setFoto}/>}
       {view==="admin" && <Admin user={user} toast={toast}/>}
     </div>
     {toastMsg && <div className="toast">{toastMsg}</div>}
