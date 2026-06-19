@@ -623,13 +623,14 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v3.1 · SharePoint Prueba7",
+  version: "Playa Paraíso · App unificada v3.2 · SharePoint Prueba7",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
     tenantId: "36db945a-4d81-4bf8-ae41-c98438dc888c",
     redirectUri: window.location.origin + window.location.pathname,
     site: "https://playaparaiso.sharepoint.com/sites/Prueba7",
+    base: "ILDS",
     driveId: "b!O2-zgnw6nkyHGSME4wNWNvzktKvfz2RCve_Yy1z3ygbC7N4D__mdSLQmbhqhPa0o",
     files: { ILD:"NEXO_ILD.json", Compras:"NEXO_Compras.json",
              Sistemas:"NEXO_Sistemas.json", Mantenimiento:"NEXO_Mantenimiento.json", ILD_Config:"NEXO_Config.json", Notif:"NEXO_Notif.json" },
@@ -646,6 +647,7 @@ const esDev = u => u && u.rol==='desarrollador';
 const ildAreasDe = u => esGD(u) ? Object.keys(AC) : (u.areas||[]);
 const puedeAprobarArea = (u,area) => esGD(u) || (u.rol==='aprobador' && (u.areas||[]).includes(area));
 const gestionaModulo = (u,m) => esGD(u) || (u.gestiona||[]).includes(m);
+const equipoDe = u => { const a=new Set(u.areas||[]); return USERS.filter(x=>x.rol==='colaborador' && (x.areas||[]).some(ar=>a.has(ar))).map(x=>x.nombre); };
 
 /* ===== Helpers ===== */
 const nowISO = () => new Date().toISOString();
@@ -712,7 +714,7 @@ async function gfetch(path,method="GET",body=null,raw=false){
   return raw?r.arrayBuffer():r.json();
 }
 const GraphStore = {
-  fileName:t=>APP.ms.files[t],
+  fileName:t=>`${APP.ms.base}/${APP.ms.files[t]}`,
   async read(t){ try{
       const buf=await gfetch(`/drives/${APP.ms.driveId}/root:/${this.fileName(t)}:/content`,"GET",null,true);
       return JSON.parse(new TextDecoder().decode(buf)); }catch{ return []; } },
@@ -720,15 +722,14 @@ const GraphStore = {
     const buf=new TextEncoder().encode(JSON.stringify(arr));
     await gfetch(`/drives/${APP.ms.driveId}/root:/${this.fileName(t)}:/content`,"PUT",buf.buffer); },
   async uploadFoto(dataUrl,nombre,ildId){
-    try{
-      let fid; try{ const f=await gfetch(`/drives/${APP.ms.driveId}/root:/${APP.ms.fotosFolder}/ILD_${ildId}`); fid=f.id; }
-      catch{ const root=await gfetch(`/drives/${APP.ms.driveId}/root/children`,"POST",
-              {name:`${APP.ms.fotosFolder}/ILD_${ildId}`,folder:{},"@microsoft.graph.conflictBehavior":"replace"}); fid=root.id; }
-      const blob=await (await fetch(dataUrl)).arrayBuffer();
-      const up=await gfetch(`/drives/${APP.ms.driveId}/items/${fid}:/${nombre}:/content`,"PUT",blob);
-      let url=""; try{ const lk=await gfetch(`/drives/${APP.ms.driveId}/items/${up.id}/createLink`,"POST",{type:"view",scope:"organization"}); url=lk.link.webUrl; }catch{}
-      return {nombre,spUrl:url,data:""};
-    }catch(e){ return {nombre,spUrl:"",data:dataUrl}; }
+    const carpeta=`${APP.ms.base}/${APP.ms.fotosFolder}/ILD_${ildId}`;
+    const blob=await (await fetch(dataUrl)).arrayBuffer();
+    await gfetch(`/drives/${APP.ms.driveId}/root:/${carpeta}/${nombre}:/content`,"PUT",blob);
+    return {nombre,path:`${carpeta}/${nombre}`};
+  },
+  async getImg(path){
+    const buf=await gfetch(`/drives/${APP.ms.driveId}/root:/${path}:/content`,"GET",null,true);
+    return URL.createObjectURL(new Blob([buf]));
   }
 };
 const Store = { get be(){ return MODE==="graph"?GraphStore:Local; },
@@ -920,7 +921,7 @@ function Login({onLogin}){
 function Home({user,go,counts}){
   const tiles=[];
   if(ildAreasDe(user).length || esGD(user)) tiles.push({id:"ild",t:"ILD",d:"Inspección de lista diaria",ico:"📋",col:"--ocean"});
-  tiles.push({id:"compras",t:"Compras",d:"Solicitar bienes o insumos",ico:"🛒",col:"--coral"});
+  if(user.rol!=='colaborador') tiles.push({id:"compras",t:"Compras",d:"Solicitar bienes o insumos",ico:"🛒",col:"--coral"});
   tiles.push({id:"sistemas",t:"Sistemas",d:"Soporte de TI",ico:"💻",col:"--blue"});
   tiles.push({id:"mantenimiento",t:"Mantenimiento",d:"Reportar una avería",ico:"🔧",col:"--amber"});
   const ownsKanban = esGD(user) || ["compras","sistemas","mantenimiento"].some(m=>gestionaModulo(user,m));
@@ -957,12 +958,14 @@ function ILD({user,toast,setFoto,bump}){
     <p className="sub">Lista de verificación por área y turno.</p>
     {(showNuevo||puedeRevisar||showChecklist||esDevv) && <div className="seg">
       {showNuevo && <button className={tab==="nuevo"?"on":""} onClick={()=>setTab("nuevo")}>Nuevo</button>}
+      {showNuevo && <button className={tab==="mios"?"on":""} onClick={()=>{setTab("mios");load();}}>Mis ILD</button>}
       {puedeRevisar && <button className={tab==="bandeja"?"on":""} onClick={()=>{setTab("bandeja");load();}}>{esGD(user)?"Todos":"Por aprobar"}</button>}
       {puedeRevisar && <button className={tab==="dash"?"on":""} onClick={()=>{setTab("dash");load();}}>Dashboard</button>}
       {showChecklist && <button className={tab==="check"?"on":""} onClick={()=>setTab("check")}>Checklist</button>}
       {esDevv && <button className={tab==="conf"?"on":""} onClick={()=>setTab("conf")}>Configurar</button>}
     </div>}
     {tab==="nuevo" && showNuevo && <ILDForm user={user} toast={toast} onSaved={load} setFoto={setFoto}/>}
+    {tab==="mios" && showNuevo && <ILDMios user={user} regs={regs} setFoto={setFoto}/>}
     {tab==="bandeja" && <ILDPanel user={user} regs={regs} reload={load} toast={toast} setFoto={setFoto}/>}
     {tab==="dash" && <ILDDash user={user} regs={regs}/>}
     {tab==="check" && showChecklist && <ChecklistEditor user={user} toast={toast} onSave={guardarCfg}/>}
@@ -1002,7 +1005,11 @@ function ILDForm({user,toast,onSaved,setFoto}){
     if(fotos.length<req && !confirm(`Solo ${fotos.length}/${req} fotos. ¿Continuar?`)) return;
     setBusy(true);
     const id=gid();
-    const fotosData=fotos.map((d,i)=>({nombre:`ILD${id}_${i+1}.jpg`,data:d}));
+    let fotosData;
+    if(MODE==="graph"){ fotosData=[];
+      for(let i=0;i<fotos.length;i++){ try{ fotosData.push(await GraphStore.uploadFoto(fotos[i],`ILD${id}_${i+1}.jpg`,id)); }
+        catch(e){ fotosData.push({nombre:`ILD${id}_${i+1}.jpg`,data:fotos[i]}); } } }
+    else fotosData=fotos.map((d,i)=>({nombre:`ILD${id}_${i+1}.jpg`,data:d}));
     const arr=await Store.read("ILD");
     const Codigo=nextCode("ILD",arr);
     const nuevo={id,Codigo,area,turno:turno||AC[area]?.t||"",selecciones:{...sel},usuario:user.nombre,
@@ -1095,6 +1102,37 @@ function ILDPanel({user,regs,reload,toast,setFoto}){
   </div>;
 }
 
+function ILDMios({user,regs,setFoto}){
+  const [det,setDet]=useState(null);
+  const mios=regs.filter(r=>r.usuario===user.nombre).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+  const ap=mios.filter(r=>r.estado==='Aprobado').length, ob=mios.filter(r=>r.estado==='Con observaciones').length, pe=mios.filter(r=>r.estado==='Pendiente').length;
+  return <div>
+    <div className="kpis">
+      {[["Total",mios.length,"--blue"],["Aprobados",ap,"--green"],["Con obs.",ob,"--purple"],["Pendientes",pe,"--amber"]].map(([l,v,c])=>
+        <div className="kpi" key={l} style={{borderTop:"3px solid "+cssVar(c)}}><div className="kn" style={{color:cssVar(c)}}>{v}</div><div className="kl">{l}</div></div>)}
+    </div>
+    {!mios.length && <div className="empty"><div className="e">📋</div>Aún no has subido ILD</div>}
+    {mios.map(r=><div key={r.id} className="item" onClick={()=>setDet(r)} style={{cursor:"pointer"}}>
+      <div className="top"><div>
+        <div className="code">{r.Codigo||("ILD-"+r.id)}</div>
+        <div className="ttl">{r.area}{r.turno?` · ${r.turno}`:""}</div>
+        <div className="meta">{fmtDT(r.fecha)}{r.aprobador?` · revisó: ${r.aprobador}`:""}</div></div>
+        <Pill estado={r.estado==="Con observaciones"?"Con observaciones":r.estado==="Aprobado"?"Aprobado":"Solicitado"}/></div>
+      {(r.notaJef||r.notaGerencia) && <div className="meta" style={{marginTop:6}}>💬 Toca para ver el comentario</div>}</div>)}
+    {det && <ILDDetail user={user} r={det} onClose={()=>setDet(null)} reload={()=>{}} toast={()=>{}} setFoto={setFoto}/>}
+  </div>;
+}
+function SpImg({foto,idx,onClick}){
+  const [src,setSrc]=useState(foto.data||"");
+  useEffect(()=>{ let url; let vivo=true;
+    if(!foto.data && foto.path && MODE==="graph"){
+      (async()=>{ try{ url=await GraphStore.getImg(foto.path); if(vivo) setSrc(url); }catch(e){} })(); }
+    return ()=>{ vivo=false; if(url) URL.revokeObjectURL(url); };
+  },[]);
+  if(src) return <div className="fthumb"><img src={src} onClick={()=>onClick&&onClick(src)}/><span className="fnum">{idx}</span></div>;
+  if(foto.spUrl) return <a className="fthumb" href={foto.spUrl} target="_blank" rel="noreferrer" style={{display:"grid",placeItems:"center",background:"#eef3f6",color:"var(--ocean-d)",fontSize:11,fontWeight:700,textDecoration:"none",textAlign:"center"}}>🔗<br/>Foto {idx}</a>;
+  return <div className="fthumb" style={{display:"grid",placeItems:"center",background:"#f3efe6",fontSize:18}}>⏳</div>;
+}
 function ILDDetail({user,r,onClose,reload,toast,setFoto}){
   const items=CL[r.area]||[];
   const esApro=user.rol==='aprobador'&&(user.areas||[]).includes(r.area);
@@ -1136,10 +1174,7 @@ function ILDDetail({user,r,onClose,reload,toast,setFoto}){
         <span style={{flex:1}}>{i+1}. {tx}</span>{val}</div>;
     })}
     {(r.fotos||[]).length>0 && <><h3 style={{margin:"14px 0 6px"}}>📷 Fotos ({r.fotos.length})</h3>
-      <div className="fgrid">{r.fotos.map((f,i)=>{ if(f.data)
-        return <div key={i} className="fthumb"><img src={f.data} onClick={()=>setFoto(f.data)}/><span className="fnum">{i+1}</span></div>;
-        if(f.spUrl) return <a key={i} className="fthumb" href={f.spUrl} target="_blank" rel="noreferrer" style={{display:"grid",placeItems:"center",background:"#eef3f6",color:"var(--ocean-d)",fontSize:11,fontWeight:700,textDecoration:"none",textAlign:"center"}}>🔗<br/>Foto {i+1}</a>;
-        return <div key={i} className="fthumb" style={{display:"grid",placeItems:"center",background:"#f3efe6"}}>🖼️</div>; })}</div></>}
+      <div className="fgrid">{r.fotos.map((f,i)=><SpImg key={i} foto={f} idx={i+1} onClick={setFoto}/>)}</div></>}
     {r.obs && <div className="note obs"><b>📝 Nota del colaborador</b><div>{r.obs}</div></div>}
     {r.notaJef && <div className="note jef"><b>💬 {r.aprobador} · {fmtDT(r.fechaAprobacion)}</b><div>{r.notaJef}</div></div>}
     {r.notaGerencia && <div className="note ger"><b>🏢 Gerencia</b><div>{r.notaGerencia}</div></div>}
@@ -1456,6 +1491,38 @@ function Compras({user,toast,setFoto}){
     {modal && <ComprasModal modal={modal} user={user} onClose={()=>setModal(null)} apply={apply} toast={toast} setFoto={setFoto}/>}
   </div>;
 }
+function actaCompra(item){
+  const f=(d)=>d?new Date(d).toLocaleString('es-EC'):'—';
+  const conf=item.ActaEntrega||'Recibido conforme';
+  const esc=s=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const html=`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Acta ${esc(item.Codigo)}</title>
+  <style>body{font-family:'Segoe UI',Arial,sans-serif;color:#1b2a32;max-width:720px;margin:28px auto;padding:0 26px;line-height:1.55}
+  h1{font-size:21px;margin:8px 0 16px}.tag{display:inline-block;background:#fbeec4;color:#7a5b00;padding:4px 12px;border-radius:7px;font-weight:700;font-size:13px}
+  .r{margin:3px 0}b{color:#0b3b46}.firmas{margin-top:22px}.firma{margin:10px 0;padding-left:12px;border-left:3px solid #0b6b7a}
+  .meta{color:#5b6b72;font-size:13px}p{margin:12px 0}</style></head><body>
+  <div class="tag">${esc(conf)}</div>
+  <h1>Solicitud de compras No. ${esc(item.Codigo)} - Acta de Entrega</h1>
+  <p>Con la presente acta HOTELERA PARAISO S.A. hace la entrega de lo siguiente:</p>
+  <div class="r"><b>Tipo de Compra:</b> ${esc(item.TipoCompra)}</div>
+  <div class="r"><b>Justificación del requerimiento:</b> ${esc(item.Justificacion)}</div>
+  <div class="r"><b>Cantidad:</b> ${esc(item.Cantidad)}</div>
+  <div class="r"><b>Medida:</b> ${esc(item.Unidad)}</div>
+  <div class="r"><b>Modelo:</b> ${esc(item.Modelo)}</div>
+  <div class="r"><b>Descripción del requerimiento:</b> ${esc(item.Descripcion)}</div>
+  <p>El colaborador manifiesta que se entregó el requerimiento en perfectas condiciones, y será utilizada dentro de la jornada laboral establecidos por la empresa.</p>
+  <p>En caso de daño o pérdida o falta de devolución del equipo, el colaborador autoriza el descuento de valores de reposición en sus haberes pendientes.</p>
+  ${item.ComentarioActa?`<p class="meta"><b>Observaciones:</b> ${esc(item.ComentarioActa)}</p>`:''}
+  <div class="firmas"><b>Estado final: ${esc(conf)}</b>
+    <div class="firma"><b>Recibido por (área solicitante):</b> ${esc(item.Receptor||item.Solicitante)}<br><span class="meta">${f(item.FechaCierre)}</span></div>
+    ${item.Aprobador?`<div class="firma"><b>Aprobó / entregó:</b> ${esc(item.Aprobador)}<br><span class="meta">${f(item.FechaAprob)}</span></div>`:''}
+    <div class="firma"><b>Solicitado por:</b> ${esc(item.Solicitante)}<br><span class="meta">${f(item.FechaSolicitud)}</span></div>
+  </div>
+  </body></html>`;
+  const w=window.open("","_blank");
+  if(!w){ alert("Permite ventanas emergentes para exportar el acta en PDF."); return; }
+  w.document.write(html); w.document.close(); w.focus();
+  setTimeout(function(){ try{ w.print(); }catch(e){} },350);
+}
 function ComprasCard({r,chief,canGG,onAction}){
   return <div className="item">
     <div className="top"><div><div className="code">{r.Codigo}</div><div className="ttl">{r.Modelo}</div>
@@ -1472,10 +1539,11 @@ function ComprasCard({r,chief,canGG,onAction}){
         <button className="btn green" onClick={()=>onAction("aprobarGG")}>Aprobar (GG)</button>
         <button className="btn red" onClick={()=>onAction("rechazarGG")}>Rechazar (GG)</button></>}
       {chief && r.Estado==="En compra" && <button className="btn ocean" onClick={()=>onAction("listo")}>Marcar listo</button>}
-      {chief && r.Estado==="Listo para entregar" && <button className="btn primary" onClick={()=>onAction("acta")}>Acta de entrega</button>}
+      {!chief && r.Estado==="Listo para entregar" && <button className="btn primary" onClick={()=>onAction("recibir")}>Confirmar recibido</button>}
       {chief && ["En compra","Listo para entregar"].includes(r.Estado) && <>
         <button className="btn amber" onClick={()=>onAction("reprogramar")}>Reprogramar fecha</button>
         <button className="btn red" onClick={()=>onAction("baja")}>Dar de baja</button></>}
+      {["Entregado","Cerrada"].includes(r.Estado) && <button className="btn ocean" onClick={()=>actaCompra(r)}>📄 Acta (PDF)</button>}
       {!chief && r.Estado==="Entregado" && !r.EncuestaCal && <button className="btn primary" onClick={()=>onAction("encuesta")}>Calificar</button>}
     </div></div>;
 }
@@ -1492,11 +1560,11 @@ function ComprasModal({modal,user,onClose,apply,toast,setFoto}){
     else if(t==="reprogramar"){ if(!fecha){toast("Indica la nueva fecha de entrega");return;} await apply(item.Codigo,{FechaTentativa:fecha,Comentario:com?("Reprogramada — "+com):item.Comentario,Reprogramada:"Si"}); toast("Fecha reprogramada"); }
     else if(t==="baja"){ if(!com.trim()){toast("Indica el motivo de la baja");return;} await apply(item.Codigo,{Estado:"Baja por presupuesto",Comentario:com,FechaCierre:nowISO()}); toast("Solicitud dada de baja"); }
     else if(t==="listo"){ await apply(item.Codigo,{Estado:"Listo para entregar",FechaEntrega:nowISO()}); toast("Listo para entregar"); }
-    else if(t==="acta"){ await apply(item.Codigo,{Estado:"Entregado",ActaEntrega:acta,ComentarioActa:com,FechaCierre:nowISO()}); toast("Acta registrada"); }
+    else if(t==="recibir"){ await apply(item.Codigo,{Estado:"Entregado",ActaEntrega:acta,ComentarioActa:com,Receptor:user.nombre,FechaCierre:nowISO()}); toast("Recibido registrado · acta generada"); }
     else if(t==="encuesta"){ if(!cal){toast("Selecciona calificación");return;} await apply(item.Codigo,{Estado:"Cerrada",EncuestaCal:cal,EncuestaComentario:com,FechaEncuesta:nowISO()}); toast("¡Gracias por calificar!"); }
     onClose();
   }
-  const titles={ver:"Detalle de la solicitud",aprobar:"Aprobar (Compras)",enviarGG:"Enviar a Gerencia General",aprobarGG:"Aprobar (Gerencia)",rechazar:"Rechazar",rechazarGG:"Rechazar (Gerencia)",reprogramar:"Reprogramar fecha de entrega",baja:"Dar de baja por presupuesto",listo:"Marcar listo",acta:"Acta de entrega",encuesta:"Calificar el servicio"};
+  const titles={ver:"Detalle de la solicitud",aprobar:"Aprobar (Compras)",enviarGG:"Enviar a Gerencia General",aprobarGG:"Aprobar (Gerencia)",rechazar:"Rechazar",rechazarGG:"Rechazar (Gerencia)",reprogramar:"Reprogramar fecha de entrega",baja:"Dar de baja por presupuesto",listo:"Marcar listo",recibir:"Confirmar recibido · Acta de entrega",encuesta:"Calificar el servicio"};
   const needCom = t.startsWith("rechazar")||t==="baja";
   return <Modal title={titles[t]} onClose={onClose}>
     {t==="ver" ? <div>
@@ -1506,13 +1574,15 @@ function ComprasModal({modal,user,onClose,apply,toast,setFoto}){
         ["Justificación",item.Justificacion],["Proveedores",item.Proveedores],["Estado",item.Estado],
         ["Tentativa entrega",fmtDate(item.FechaTentativa)],["Aprobó Compras",item.Aprobador||"—"],["Comentario",item.Comentario||"—"],
         ["Decisión Gerencia",item.AprobadorGG?`${item.AprobadorGG} · ${item.ComentarioGG||""}`:"—"],
-        ["Acta",item.ActaEntrega||"—"],["Calificación",item.EncuestaCal?item.EncuestaCal+"/10":"—"]].map(([k,v])=>
+        ["Acta",item.ActaEntrega||"—"],["Recibió",item.Receptor||"—"],["Calificación",item.EncuestaCal?item.EncuestaCal+"/10":"—"]].map(([k,v])=>
         <div className="kv" key={k}><b>{k}</b><span style={{textAlign:"right",maxWidth:"62%"}}>{v}</span></div>)}
       {(item.Fotos||[]).length>0 && <><h3 style={{margin:"12px 0 6px"}}>📷 Foto</h3>
-        <div className="fgrid">{item.Fotos.map((f,i)=><div key={i} className="fthumb"><img src={f.data} onClick={()=>setFoto&&setFoto(f.data)}/></div>)}</div></>}
+        <div className="fgrid">{item.Fotos.map((f,i)=><SpImg key={i} foto={f} idx={i+1} onClick={setFoto}/>)}</div></>}
+      {["Entregado","Cerrada"].includes(item.Estado) && <button className="btn ocean block" style={{marginTop:12}} onClick={()=>actaCompra(item)}>📄 Exportar Acta de Entrega (PDF)</button>}
     </div> : <div>
       {(t==="aprobar"||t==="reprogramar") && <Field label="Fecha tentativa de entrega" req={t==="reprogramar"} hint="La asigna el Coordinador de Compras. Vacía = no se marca como vencida."><input type="date" className="inp" value={fecha} onChange={e=>setFecha(e.target.value)}/></Field>}
-      {t==="acta" && <Field label="Resultado"><select className="inp" value={acta} onChange={e=>setActa(e.target.value)}><option>Recibido conforme</option><option>Recibido con observaciones</option></select></Field>}
+      {t==="recibir" && <><Field label="Resultado de la entrega"><select className="inp" value={acta} onChange={e=>setActa(e.target.value)}><option>Recibido conforme</option><option>Recibido con observaciones</option></select></Field>
+        <div className="hint">Al confirmar, el ítem queda como <b>Entregado</b> y podrás exportar el Acta en PDF.</div></>}
       {t==="encuesta" && <Field label="Calificación (1-10)"><Stars value={cal} onChange={setCal}/></Field>}
       <Field label={t.startsWith("rechazar")?"Motivo del rechazo":t==="baja"?"Motivo de la baja (p. ej. falta de presupuesto)":t==="reprogramar"?"Motivo de la reprogramación (opcional)":"Comentario"} req={needCom}><textarea className="inp" value={com} onChange={e=>setCom(e.target.value)}/></Field>
       <div className="row end"><button className="btn ghost" onClick={onClose}>Cancelar</button>
@@ -1545,12 +1615,15 @@ function Tickets({tipo,user,toast,setFoto}){
   async function apply(code,patch){ const arr=await Store.read(tipo);
     await Store.write(tipo,arr.map(x=>x.Codigo===code?{...x,...patch}:x)); load(); }
   const mios=rows.filter(r=>r.Solicitante===user.nombre);
+  const equipo=equipoDe(user); const verEquipo=user.rol==='aprobador' && equipo.length>0;
+  const delEquipo=rows.filter(r=>equipo.includes(r.Solicitante));
   return <div>
     <h1 className="h1">{isSis?"Soporte de Sistemas":"Mantenimiento"}</h1>
     <p className="sub">{isSis?"Requerimiento de TI.":"Requerimiento de mantenimiento."}</p>
     <div className="seg">
       <button className={tab==="nuevo"?"on":""} onClick={()=>setTab("nuevo")}>Nuevo</button>
       <button className={tab==="mios"?"on":""} onClick={()=>{setTab("mios");load();}}>Mis tickets</button>
+      {verEquipo&&<button className={tab==="equipo"?"on":""} onClick={()=>{setTab("equipo");load();}}>Mi equipo</button>}
       {chief&&<button className={tab==="gestion"?"on":""} onClick={()=>{setTab("gestion");load();}}>Gestión {esDev(user)?"(todo)":""}</button>}
     </div>
     {tab==="nuevo" && <div className="card">
@@ -1569,6 +1642,7 @@ function Tickets({tipo,user,toast,setFoto}){
       </>}
       <button className="btn primary block" onClick={crear}>Crear ticket</button></div>}
     {tab==="mios" && <Listado items={mios} empty="Aún no tienes tickets" render={r=><TicketCard r={r} isSis={isSis} chief={false} onAction={(t)=>setModal({t,item:r})}/>}/>}
+    {tab==="equipo" && <Listado items={delEquipo} empty="Tu equipo aún no ha subido tickets" render={r=><TicketCard r={r} isSis={isSis} chief={false} onAction={(t)=>setModal({t,item:r})}/>}/>}
     {tab==="gestion" && <Listado items={rows} empty="No hay tickets" render={r=><TicketCard r={r} isSis={isSis} chief={chief} onAction={(t)=>setModal({t,item:r})}/>}/>}
     {modal && <TicketModal tipo={tipo} isSis={isSis} modal={modal} user={user} onClose={()=>setModal(null)} apply={apply} toast={toast} setFoto={setFoto}/>}
   </div>;
@@ -1771,7 +1845,10 @@ function App(){
   }
   useEffect(()=>{ (async()=>{
     if(MODE==="graph"){ const ok=await msEnsure(); setConnected(ok);
-      if(ok){ try{ applyIldConfig(await cfgRead()); }catch{} bump(); } }
+      if(ok){ try{ applyIldConfig(await cfgRead()); }catch{}
+        try{ if(!localStorage.getItem("pp_seeded_ild")){ const ild=await Store.read("ILD");
+          if(!ild.length){ await Store.write("ILD",ILD_SEED); } localStorage.setItem("pp_seeded_ild","1"); } }catch{}
+        bump(); } }
     setChecking(false);
   })(); },[]);
   const toast=m=>{ setToastMsg(m); setTimeout(()=>setToastMsg(""),2600); };
