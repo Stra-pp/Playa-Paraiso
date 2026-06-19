@@ -623,7 +623,7 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v3.2 · SharePoint Prueba7",
+  version: "Playa Paraíso · App unificada v3.3 · SharePoint Prueba7",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -1280,8 +1280,18 @@ function ChecklistEditor({user,toast,onSave}){
   const del=i=>setItems(arr=>arr.filter((_,j)=>j!==i));
   const mover=(i,d)=>setItems(arr=>{ const j=i+d; if(j<0||j>=arr.length)return arr; const c=[...arr]; [c[i],c[j]]=[c[j],c[i]]; return c; });
   const add=()=>setItems(arr=>[...arr,{t:"",tipo:"foto"}]);
-  function guardar(){ const clean=items.filter(it=>String(it.t).trim()).map(it=>({t:it.t.trim(),tipo:it.tipo}));
-    CL[area]=clean; onSave(); toast("Checklist actualizado: "+area); }
+  async function guardar(){ const prev=(CL[area]||[]).map(norm);
+    const clean=items.filter(it=>String(it.t).trim()).map(it=>({t:it.t.trim(),tipo:it.tipo}));
+    const pT=prev.map(x=>x.t), nT=clean.map(x=>x.t);
+    const agreg=nT.filter(t=>!pT.includes(t)), elim=pT.filter(t=>!nT.includes(t));
+    CL[area]=clean; onSave(); toast("Checklist actualizado: "+area);
+    if(user.rol!=='desarrollador'){
+      let det=[]; if(agreg.length) det.push(`agregó ${agreg.length} ítem(s): ${agreg.slice(0,3).join(", ")}${agreg.length>3?"…":""}`);
+      if(elim.length) det.push(`eliminó ${elim.length} ítem(s): ${elim.slice(0,3).join(", ")}${elim.length>3?"…":""}`);
+      if(!det.length) det.push("modificó ítems o tipos");
+      await addNotif("Desarrollador", `${user.nombre} cambió el checklist de "${area}" (${det.join("; ")}).`, "", area);
+    }
+  }
   if(!areas.length) return <div className="empty"><div className="e">🔒</div>No tienes áreas asignadas para personalizar.</div>;
   const nFotos=items.filter(it=>it.tipo==='foto').length;
   return <div>
@@ -1433,6 +1443,71 @@ function NuevoILD({toast,onSave}){
     <button className="btn primary block" onClick={crear}>➕ Crear ILD</button>
   </div>;
 }
+/* ===== TABLEROS EN TIEMPO REAL (Compras / Sistemas / Mantenimiento) ===== */
+function dFiltro(rows,campo,anio,mes){
+  return rows.filter(r=>{ const d=r[campo]?new Date(r[campo]):null; if(!d||isNaN(d)) return false;
+    if(anio && d.getFullYear()!==anio) return false;
+    if(mes!=null && d.getMonth()!==mes) return false; return true; });
+}
+function dCuenta(rows,campo){ const m={}; rows.forEach(r=>{ const k=(r[campo]||"—"); m[k]=(m[k]||0)+1; });
+  return Object.entries(m).map(([label,value])=>({label,value})).sort((a,b)=>b.value-a.value); }
+function dPromDias(rows,ini,fin){ const ds=rows.map(r=>{ if(!r[ini]||!r[fin])return null; const a=new Date(r[ini]),b=new Date(r[fin]);
+    if(isNaN(a)||isNaN(b))return null; return (b-a)/86400000; }).filter(x=>x!=null);
+  return ds.length?(ds.reduce((s,x)=>s+x,0)/ds.length).toFixed(1):"—"; }
+function dPromCal(rows){ const cs=rows.map(r=>Number(r.EncuestaCal)).filter(x=>x>0);
+  return cs.length?(cs.reduce((s,x)=>s+x,0)/cs.length).toFixed(2):"—"; }
+function KpiBox({label,value,color}){ return <div className="kpi" style={{borderTop:"3px solid "+(color||"var(--ocean)")}}>
+  <div className="kn" style={{color:color||"var(--ocean)"}}>{value}</div><div className="kl">{label}</div></div>; }
+function BarsH({data,color}){ const max=Math.max(1,...data.map(d=>d.value));
+  if(!data.length) return <div className="hint">Sin datos en el período</div>;
+  return <div style={{display:"flex",flexDirection:"column",gap:8}}>{data.map(d=>
+    <div key={d.label} style={{display:"flex",alignItems:"center",gap:8}}>
+      <div style={{flex:"0 0 40%",fontSize:12,textAlign:"right",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={d.label}>{d.label}</div>
+      <div style={{flex:1,background:"#eef1f3",borderRadius:6,height:18}}><div style={{width:(d.value/max*100)+"%",background:color||"var(--ocean)",height:"100%",borderRadius:6,minWidth:d.value?4:0}}></div></div>
+      <div style={{flex:"0 0 30px",fontWeight:800,fontSize:13}}>{d.value}</div></div>)}</div>;
+}
+function Tablero({tipo,rows}){
+  const isCom=tipo==="Compras"; const isSis=tipo==="Sistemas";
+  const campo=isCom?"FechaSolicitud":"FechaCreacion";
+  const now=new Date();
+  const anios=Array.from(new Set(rows.map(r=>r[campo]?new Date(r[campo]).getFullYear():null).filter(Boolean)));
+  if(!anios.includes(now.getFullYear())) anios.push(now.getFullYear()); anios.sort();
+  const [anio,setAnio]=useState(now.getFullYear());
+  const [mes,setMes]=useState(null);
+  const MESES=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+  const f=dFiltro(rows,campo,anio,mes);
+  let kpis=[], extra=null;
+  if(isCom){
+    const aprob=f.filter(r=>["En compra","Listo para entregar","Entregado","Cerrada"].includes(r.Estado)).length;
+    const rech=f.filter(r=>r.Estado==="Rechazada").length;
+    const pend=f.filter(r=>["Solicitado","En Gerencia"].includes(r.Estado)).length;
+    const entr=f.filter(r=>["Entregado","Cerrada"].includes(r.Estado)).length;
+    kpis=[["Recibidas",f.length,"--ocean"],["Aprobadas",aprob,"--green"],["Rechazadas",rech,"--coral"],["Pendientes",pend,"--amber"],
+      ["Entregadas",entr,"--blue"],["T. prom. aprob. (días)",dPromDias(f,"FechaSolicitud","FechaAprob"),"--purple"],
+      ["Calificación",dPromCal(f),"--green"],["Encuestas",f.filter(r=>r.EncuestaCal).length,"--blue"]];
+    extra=<div className="card"><h3>Solicitudes por departamento</h3><BarsH data={dCuenta(f,"Area")} color="var(--ocean)"/></div>;
+  } else {
+    const concl=f.filter(r=>["Concluido","Cerrado"].includes(r.Estado)).length;
+    const cumpl=f.length?Math.round(concl/f.length*100):0;
+    kpis=[["Recibidas",f.length,"--ocean"],["Concluidas",concl,"--green"],["Cumplimiento",cumpl+"%",cumpl>=100?"--green":"--amber"],
+      ["T. prom. (días)",dPromDias(f,"FechaCreacion","FechaConcluido"),"--purple"],
+      ["Calificación",dPromCal(f),"--green"],["Encuestas",f.filter(r=>r.EncuestaCal).length,"--blue"]];
+    const prioCampo=isSis?"Urgencia":"TipoSolicitud";
+    extra=<>
+      <div className="card"><h3>Solicitudes por departamento</h3><BarsH data={dCuenta(f,"Departamento")} color="var(--ocean)"/></div>
+      <div className="card"><h3>Por prioridad</h3><BarsH data={dCuenta(f,prioCampo)} color="var(--blue)"/></div>
+      {!isSis && <div className="card"><h3>Cumplimiento de cierre</h3><BarsH data={dCuenta(f.filter(r=>r.CierreCumplimiento),"CierreCumplimiento")} color="var(--green)"/></div>}
+    </>;
+  }
+  return <div>
+    <div className="seg" style={{flexWrap:"wrap"}}>{anios.map(a=><button key={a} className={anio===a?"on":""} onClick={()=>setAnio(a)}>{a}</button>)}</div>
+    <div className="seg" style={{flexWrap:"wrap"}}>
+      <button className={mes==null?"on":""} onClick={()=>setMes(null)}>Año</button>
+      {MESES.map((m,i)=><button key={m} className={mes===i?"on":""} onClick={()=>setMes(i)}>{m}</button>)}</div>
+    <div className="kpis">{kpis.map(([l,v,c])=><KpiBox key={l} label={l} value={v} color={cssVar(c)}/>)}</div>
+    {extra}
+  </div>;
+}
 
 /* ===== COMPRAS (campos exactos del Form de Requerimiento de Compra No Operacional) ===== */
 function Compras({user,toast,setFoto}){
@@ -1468,6 +1543,7 @@ function Compras({user,toast,setFoto}){
       <button className={tab==="nueva"?"on":""} onClick={()=>setTab("nueva")}>Nueva</button>
       <button className={tab==="mias"?"on":""} onClick={()=>{setTab("mias");load();}}>Mis solicitudes</button>
       {(chief||canGG)&&<button className={tab==="gestion"?"on":""} onClick={()=>{setTab("gestion");load();}}>Gestión {esDev(user)?"(todo)":""}</button>}
+      {(chief||canGG)&&<button className={tab==="tablero"?"on":""} onClick={()=>{setTab("tablero");load();}}>📊 Tablero</button>}
     </div>
     {tab==="nueva" && <div className="card">
       <Field label="Nombres y apellidos"><input className="inp" value={user.nombre} disabled/></Field>
@@ -1488,6 +1564,7 @@ function Compras({user,toast,setFoto}){
       render={r=><ComprasCard r={r} chief={false} canGG={false} onAction={(t)=>setModal({t,item:r})}/>}/>}
     {tab==="gestion" && <Listado items={rows} empty="No hay solicitudes"
       render={r=><ComprasCard r={r} chief={chief} canGG={canGG} onAction={(t)=>setModal({t,item:r})}/>}/>}
+    {tab==="tablero" && <Tablero tipo="Compras" rows={rows}/>}
     {modal && <ComprasModal modal={modal} user={user} onClose={()=>setModal(null)} apply={apply} toast={toast} setFoto={setFoto}/>}
   </div>;
 }
@@ -1617,14 +1694,21 @@ function Tickets({tipo,user,toast,setFoto}){
   const mios=rows.filter(r=>r.Solicitante===user.nombre);
   const equipo=equipoDe(user); const verEquipo=user.rol==='aprobador' && equipo.length>0;
   const delEquipo=rows.filter(r=>equipo.includes(r.Solicitante));
+  const asignadas=rows.filter(r=>r.Asignado===user.nombre && !isSis && !["Cerrado","Rechazado"].includes(r.Estado));
+  const verTareas=!isSis && (user.rol==='colaborador' || asignadas.length>0);
+  const [soloHoy,setSoloHoy]=useState(false);
+  const hoyStr=new Date().toISOString().slice(0,10);
+  const tareasMostrar=soloHoy?asignadas.filter(r=>(r.FechaTentativa||"").slice(0,10)===hoyStr):asignadas;
   return <div>
     <h1 className="h1">{isSis?"Soporte de Sistemas":"Mantenimiento"}</h1>
     <p className="sub">{isSis?"Requerimiento de TI.":"Requerimiento de mantenimiento."}</p>
-    <div className="seg">
+    <div className="seg" style={{flexWrap:"wrap"}}>
       <button className={tab==="nuevo"?"on":""} onClick={()=>setTab("nuevo")}>Nuevo</button>
       <button className={tab==="mios"?"on":""} onClick={()=>{setTab("mios");load();}}>Mis tickets</button>
+      {verTareas&&<button className={tab==="tareas"?"on":""} onClick={()=>{setTab("tareas");load();}}>Mis tareas{asignadas.length?` (${asignadas.length})`:""}</button>}
       {verEquipo&&<button className={tab==="equipo"?"on":""} onClick={()=>{setTab("equipo");load();}}>Mi equipo</button>}
       {chief&&<button className={tab==="gestion"?"on":""} onClick={()=>{setTab("gestion");load();}}>Gestión {esDev(user)?"(todo)":""}</button>}
+      {chief&&<button className={tab==="tablero"?"on":""} onClick={()=>{setTab("tablero");load();}}>📊 Tablero</button>}
     </div>
     {tab==="nuevo" && <div className="card">
       <Field label={isSis?"Nombre del solicitante":"Solicitante"}><input className="inp" value={user.nombre} disabled/></Field>
@@ -1643,50 +1727,88 @@ function Tickets({tipo,user,toast,setFoto}){
       <button className="btn primary block" onClick={crear}>Crear ticket</button></div>}
     {tab==="mios" && <Listado items={mios} empty="Aún no tienes tickets" render={r=><TicketCard r={r} isSis={isSis} chief={false} onAction={(t)=>setModal({t,item:r})}/>}/>}
     {tab==="equipo" && <Listado items={delEquipo} empty="Tu equipo aún no ha subido tickets" render={r=><TicketCard r={r} isSis={isSis} chief={false} onAction={(t)=>setModal({t,item:r})}/>}/>}
-    {tab==="gestion" && <Listado items={rows} empty="No hay tickets" render={r=><TicketCard r={r} isSis={isSis} chief={chief} onAction={(t)=>setModal({t,item:r})}/>}/>}
-    {modal && <TicketModal tipo={tipo} isSis={isSis} modal={modal} user={user} onClose={()=>setModal(null)} apply={apply} toast={toast} setFoto={setFoto}/>}
+    {tab==="tareas" && <div>
+      <div className="row" style={{margin:"0 0 12px",gap:8}}>
+        <button className={"btn "+(soloHoy?"ghost":"primary")} onClick={()=>setSoloHoy(false)}>Todas ({asignadas.length})</button>
+        <button className={"btn "+(soloHoy?"primary":"ghost")} onClick={()=>setSoloHoy(true)}>📅 Hoy ({asignadas.filter(r=>(r.FechaTentativa||"").slice(0,10)===hoyStr).length})</button></div>
+      <Listado items={tareasMostrar} empty={soloHoy?"No tienes tareas para hoy":"No tienes tareas asignadas"}
+        render={r=><TareaCard r={r} onAction={(t)=>setModal({t,item:r})}/>}/></div>}
+    {tab==="gestion" && <Listado items={rows} empty="No hay tickets" render={r=><TicketCard r={r} isSis={isSis} chief={chief} equipo={equipo} onAction={(t)=>setModal({t,item:r})}/>}/>}
+    {tab==="tablero" && <Tablero tipo={tipo} rows={rows}/>}
+    {modal && <TicketModal tipo={tipo} isSis={isSis} modal={modal} user={user} equipo={equipo} onClose={()=>setModal(null)} apply={apply} toast={toast} setFoto={setFoto}/>}
   </div>;
 }
-function TicketCard({r,isSis,chief,onAction}){
+function TareaCard({r,onAction}){
+  const venc = r.FechaTentativa && (r.FechaTentativa||"").slice(0,10) < new Date().toISOString().slice(0,10) && !["Concluido","Cerrado"].includes(r.Estado);
+  return <div className="item">
+    <div className="top"><div><div className="code">{r.Codigo}</div><div className="ttl">{r.Descripcion}</div>
+      <div className="meta">{r.Departamento} · {r.TipoSolicitud} · solicitó: {r.Solicitante}</div></div>
+      <Pill estado={r.Estado} overdue={venc}/></div>
+    {r.FechaTentativa && <div className="meta" style={{marginTop:6}}>📅 Para: {fmtDate(r.FechaTentativa)}{venc?" · ⚠️ vencida":""}</div>}
+    {r.CierreCumplimiento && <div className="meta" style={{marginTop:4,fontWeight:700,color:r.CierreCumplimiento.includes("atraso")?"var(--coral)":"var(--green)"}}>{r.CierreCumplimiento}</div>}
+    <div className="acts">
+      <button className="btn ghost" onClick={()=>onAction("ver")}>Ver</button>
+      {!["Concluido","Cerrado"].includes(r.Estado) && <button className="btn green" onClick={()=>onAction("concluirTarea")}>✅ Concluir tarea</button>}
+    </div></div>;
+}
+function TicketCard({r,isSis,chief,equipo,onAction}){
   const titulo=isSis?r.Titulo:r.Descripcion;
   return <div className="item">
     <div className="top"><div><div className="code">{r.Codigo}</div><div className="ttl">{titulo}</div>
       <div className="meta">{r.Solicitante} · {r.Departamento} · {isSis?(r.Urgencia||"").split(" ")[0]:r.TipoSolicitud}</div></div>
       <Pill estado={r.Estado} overdue={isOverdue(r)}/></div>
     {r.FechaTentativa && <div className="meta" style={{marginTop:6}}>📅 {fmtDate(r.FechaTentativa)}</div>}
+    {r.Asignado && <div className="meta" style={{marginTop:4}}>👤 Asignado a: {r.Asignado}</div>}
+    {r.CierreCumplimiento && <div className="meta" style={{marginTop:4,fontWeight:700,color:r.CierreCumplimiento.includes("atraso")?"var(--coral)":"var(--green)"}}>{r.CierreCumplimiento}</div>}
     <div className="acts">
       <button className="btn ghost" onClick={()=>onAction("ver")}>Ver</button>
-      {chief && ["Nuevo","Sin fecha asignada"].includes(r.Estado) && <button className="btn ocean" onClick={()=>onAction("tomar")}>Asignar fecha</button>}
+      {chief && !isSis && !["Concluido","Cerrado","Rechazado"].includes(r.Estado) && <button className="btn ocean" onClick={()=>onAction("asignar")}>👤 Asignar tarea</button>}
+      {chief && isSis && ["Nuevo","Sin fecha asignada"].includes(r.Estado) && <button className="btn ocean" onClick={()=>onAction("tomar")}>Asignar fecha</button>}
       {chief && r.Estado==="En proceso" && <button className="btn green" onClick={()=>onAction("concluir")}>Concluir</button>}
       {chief && !["Concluido","Cerrado","Rechazado"].includes(r.Estado) && <button className="btn red" onClick={()=>onAction("rechazar")}>Rechazar</button>}
       {!chief && r.Estado==="Concluido" && !r.EncuestaCal && <button className="btn primary" onClick={()=>onAction("encuesta")}>Calificar</button>}
     </div></div>;
 }
-function TicketModal({tipo,isSis,modal,user,onClose,apply,toast,setFoto}){
+function TicketModal({tipo,isSis,modal,user,equipo,onClose,apply,toast,setFoto}){
   const {t,item}=modal;
+  const opciones=(equipo&&equipo.length)?equipo:[];
   const [com,setCom]=useState(""); const [fecha,setFecha]=useState(item.FechaTentativa||""); const [cal,setCal]=useState(0);
+  const [tecnico,setTecnico]=useState(item.Asignado||opciones[0]||"");
+  function cumplimiento(){ if(!item.FechaTentativa) return "Concluida"; const lim=(item.FechaTentativa||"").slice(0,10);
+    return (new Date().toISOString().slice(0,10) <= lim) ? "Concluida a tiempo" : "Concluida con atraso"; }
   async function go(){
     if(t==="tomar"){ await apply(item.Codigo,{Estado:fecha?"En proceso":"Sin fecha asignada",Asignado:user.nombre,FechaTentativa:fecha}); toast(fecha?"En proceso":"Guardado sin fecha"); }
-    else if(t==="concluir"){ if(!com.trim()){toast("El comentario de cierre es obligatorio");return;} await apply(item.Codigo,{Estado:"Concluido",ComentarioSoporte:com,FechaConcluido:nowISO()}); toast("Concluido"); }
+    else if(t==="asignar"){ if(!tecnico){toast("Selecciona un técnico");return;} if(!fecha){toast("Indica la fecha límite de la tarea");return;}
+      await apply(item.Codigo,{Estado:"Asignada",Asignado:tecnico,FechaTentativa:fecha,ComentarioJefe:com});
+      await addNotif(tecnico,`Se te asignó la tarea de mantenimiento ${item.Codigo} (para el ${fmtDate(fecha)}).`,"",item.Codigo);
+      toast("Tarea asignada a "+tecnico); }
+    else if(t==="concluir"){ if(!com.trim()){toast("El comentario de cierre es obligatorio");return;} await apply(item.Codigo,{Estado:"Concluido",ComentarioSoporte:com,FechaConcluido:nowISO(),CierreCumplimiento:cumplimiento()}); toast("Concluido"); }
+    else if(t==="concluirTarea"){ if(!com.trim()){toast("Escribe un comentario de la tarea");return;} const cmp=cumplimiento();
+      await apply(item.Codigo,{Estado:"Concluido",ComentarioSoporte:com,FechaConcluido:nowISO(),CierreCumplimiento:cmp});
+      toast(cmp); }
     else if(t==="rechazar"){ if(!com.trim()){toast("El motivo es obligatorio");return;} await apply(item.Codigo,{Estado:"Rechazado",ComentarioSoporte:com,Asignado:user.nombre,FechaConcluido:nowISO()}); toast("Rechazado"); }
     else if(t==="encuesta"){ if(!cal){toast("Selecciona calificación");return;} await apply(item.Codigo,{Estado:"Cerrado",EncuestaCal:cal,EncuestaComentario:com,FechaEncuesta:nowISO()}); toast("¡Gracias por calificar!"); }
     onClose();
   }
-  const titles={ver:"Detalle del ticket",tomar:"Asignar fecha tentativa",concluir:"Concluir ticket",rechazar:"Rechazar",encuesta:"Calificar el servicio"};
+  const titles={ver:"Detalle del ticket",tomar:"Asignar fecha tentativa",asignar:"Asignar tarea al equipo",concluir:"Concluir ticket",concluirTarea:"Concluir tarea",rechazar:"Rechazar",encuesta:"Calificar el servicio"};
   return <Modal title={titles[t]} onClose={onClose}>
     {t==="ver" ? <div>
       {[["Código",item.Codigo],["Solicitante",item.Solicitante],["Departamento",item.Departamento],
         isSis?["Urgencia",item.Urgencia]:["Tipo",item.TipoSolicitud],
         isSis?["Título",item.Titulo]:["Fecha solicitud",fmtDate(item.FechaSolicitud)],
-        ["Descripción",item.Descripcion],["Estado",item.Estado],["Tentativa",fmtDate(item.FechaTentativa)],
-        ["Asignado",item.Asignado||"—"],["Cierre",item.ComentarioSoporte||"—"],["Calificación",item.EncuestaCal?item.EncuestaCal+"/10":"—"]].map(([k,v])=>
+        ["Descripción",item.Descripcion],["Estado",item.Estado],["Fecha límite",fmtDate(item.FechaTentativa)],
+        ["Asignado",item.Asignado||"—"],["Cumplimiento",item.CierreCumplimiento||"—"],["Cierre",item.ComentarioSoporte||"—"],["Calificación",item.EncuestaCal?item.EncuestaCal+"/10":"—"]].map(([k,v])=>
         <div className="kv" key={k}><b>{k}</b><span style={{textAlign:"right",maxWidth:"62%"}}>{v}</span></div>)}
       {(item.Fotos||[]).length>0 && <><h3 style={{margin:"12px 0 6px"}}>📷 Adjuntos</h3>
-        <div className="fgrid">{item.Fotos.map((f,i)=><div key={i} className="fthumb"><img src={f.data} onClick={()=>setFoto&&setFoto(f.data)}/></div>)}</div></>}
+        <div className="fgrid">{item.Fotos.map((f,i)=><SpImg key={i} foto={f} idx={i+1} onClick={setFoto}/>)}</div></>}
     </div> : <div>
+      {t==="asignar" && <><Field label="Técnico responsable" req><select className="inp" value={tecnico} onChange={e=>setTecnico(e.target.value)}>
+        {!opciones.length && <option value="">(sin miembros de equipo)</option>}
+        {opciones.map(n=><option key={n}>{n}</option>)}</select></Field>
+        <Field label="Fecha límite de la tarea" req hint="Según esta fecha se marcará 'a tiempo' o 'con atraso'."><input type="date" className="inp" value={fecha} onChange={e=>setFecha(e.target.value)}/></Field></>}
       {t==="tomar" && <Field label="Fecha tentativa de solución" hint="Sin fecha: queda 'Sin fecha asignada' y NO se marca vencido."><input type="date" className="inp" value={fecha} onChange={e=>setFecha(e.target.value)}/></Field>}
       {t==="encuesta" && <Field label="Calificación (1-10)"><Stars value={cal} onChange={setCal}/></Field>}
-      {["rechazar","concluir","encuesta"].includes(t) && <Field label={t==="rechazar"?"Motivo del rechazo":t==="concluir"?"Comentario de cierre / soporte":"Comentario (opcional)"} req={["rechazar","concluir"].includes(t)}>
+      {["rechazar","concluir","concluirTarea","encuesta","asignar"].includes(t) && <Field label={t==="rechazar"?"Motivo del rechazo":t==="concluir"||t==="concluirTarea"?"Comentario de la tarea / soporte":t==="asignar"?"Indicaciones para el técnico (opcional)":"Comentario (opcional)"} req={["rechazar","concluir","concluirTarea"].includes(t)}>
         <textarea className="inp" value={com} onChange={e=>setCom(e.target.value)}/></Field>}
       <div className="row end"><button className="btn ghost" onClick={onClose}>Cancelar</button>
         <button className={"btn "+(t==="rechazar"?"red":"primary")} onClick={go}>Confirmar</button></div></div>}
