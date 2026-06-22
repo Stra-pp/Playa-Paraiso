@@ -633,7 +633,7 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v4.4 · SharePoint Prueba7(Listas)",
+  version: "Playa Paraíso · App unificada v4.5 · SharePoint Prueba7(Listas)",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -776,18 +776,29 @@ const GraphStore = {
 };
 // ===== Backend de LISTAS de SharePoint (un elemento por solicitud) =====
 const LIST_TABLES=["ILD","Compras","Sistemas","Mantenimiento","Notif"];
-let SP_SITE=null; const SP_LIST={}; const SP_MAP={}; const SP_COLS={}; let SP_LISTNAMES=[];
+let SP_SITE=null; const SP_LIST={}; const SP_MAP={}; const SP_COLS={}; const SP_DCOL={}; let SP_LISTNAMES=[];
 const PREFER_NX={Prefer:"HonorNonIndexedQueriesWarningMayFailRandomly"};
 const recFecha=r=>String(r.fecha||r.FechaSolicitud||r.FechaCreacion||"").slice(0,10);
 const recEstado=r=>String(r.estado||r.Estado||"");
 const norm=s=>String(s||"").toLowerCase().replace(/[\s_-]+/g,"");
 async function spSite(){ if(SP_SITE) return SP_SITE;
   const s=await gfetch(`/sites/${APP.ms.siteHost}:${APP.ms.sitePath}`); SP_SITE=s.id; return SP_SITE; }
+// Descubre el nombre INTERNO real de cada columna y asegura una columna de datos multilínea
 async function spEnsureCols(site,lid,t){ if(SP_COLS[t]) return;
-  try{ const cols=await gfetch(`/sites/${site}/lists/${lid}/columns?$select=name`);
-    const have=new Set((cols.value||[]).map(c=>c.name));
-    for(const c of ["Fecha","Estado"]) if(!have.has(c)){ try{ await gfetch(`/sites/${site}/lists/${lid}/columns`,"POST",{name:c,text:{}}); }catch(e){} }
-  }catch(e){} SP_COLS[t]=true; }
+  let cols=[]; try{ const r=await gfetch(`/sites/${site}/lists/${lid}/columns?$select=name,displayName,text,readOnly,hidden`); cols=r.value||[]; }catch(e){}
+  const findBy=pred=>cols.find(pred);
+  // 1. columna de datos: busca "Data" (interno o visible); si no, cualquier multilínea editable; si no, la crea
+  let dcol = findBy(c=>c.name==="Data") || findBy(c=>norm(c.displayName)==="data")
+          || findBy(c=>c.text&&c.text.allowMultipleLines&&!c.readOnly&&!c.hidden&&c.name!=="Title");
+  if(!dcol){ try{ const c=await gfetch(`/sites/${site}/lists/${lid}/columns`,"POST",{name:"Data",text:{allowMultipleLines:true}}); dcol=c; }catch(e){} }
+  SP_DCOL[t]=dcol?dcol.name:"Data";
+  // 2. Fecha / Estado opcionales: usa el nombre interno real si existe; si no, intenta crear
+  const fcol=findBy(c=>norm(c.displayName)==="fecha"||c.name==="Fecha");
+  const ecol=findBy(c=>norm(c.displayName)==="estado"||c.name==="Estado");
+  SP_COLS[t]={d:SP_DCOL[t], f:fcol?fcol.name:null, e:ecol?ecol.name:null};
+  if(!fcol){ try{ await gfetch(`/sites/${site}/lists/${lid}/columns`,"POST",{name:"Fecha",text:{}}); SP_COLS[t].f="Fecha"; }catch(e){} }
+  if(!ecol){ try{ await gfetch(`/sites/${site}/lists/${lid}/columns`,"POST",{name:"Estado",text:{}}); SP_COLS[t].e="Estado"; }catch(e){} }
+}
 async function spEnsureList(t){ const site=await spSite();
   if(SP_LIST[t]){ await spEnsureCols(site,SP_LIST[t],t); return SP_LIST[t]; }
   const name=APP.ms.lists[t];
@@ -796,35 +807,38 @@ async function spEnsureList(t){ const site=await spSite();
   let hit=(all.value||[]).find(l=>l.displayName===name||l.name===name)
         ||(all.value||[]).find(l=>norm(l.displayName)===norm(name)||norm(l.name)===norm(name));
   if(hit){ SP_LIST[t]=hit.id; await spEnsureCols(site,hit.id,t); return hit.id; }
-  // intentar crear; si no se puede, error claro
   try{ const created=await gfetch(`/sites/${site}/lists`,"POST",{displayName:name,
       columns:[{name:"Data",text:{allowMultipleLines:true}},{name:"Fecha",text:{}},{name:"Estado",text:{}}],
-      list:{template:"genericList"}}); SP_LIST[t]=created.id; SP_COLS[t]=true; return created.id;
+      list:{template:"genericList"}}); SP_LIST[t]=created.id; await spEnsureCols(site,created.id,t); return created.id;
   }catch(e){ throw new Error(`No encontré la lista "${name}". Existentes: ${SP_LISTNAMES.join(", ")||"(ninguna)"}. Crea esa lista o renómbrala.`); } }
-function spMerge(t,items){ const map=SP_MAP[t]||new Map();
-  items.forEach(it=>{ const d=it.fields&&it.fields.Data; if(!d) return; let rec; try{rec=JSON.parse(d);}catch{return;}
+function spMerge(t,items){ const dcol=SP_DCOL[t]||"Data"; const map=SP_MAP[t]||new Map();
+  items.forEach(it=>{ const d=it.fields&&it.fields[dcol]; if(!d) return; let rec; try{rec=JSON.parse(d);}catch{return;}
     map.set(rec.id,{spId:it.id,hash:d}); }); SP_MAP[t]=map; }
 async function spPages(t,query){ const site=await spSite(); const lid=await spEnsureList(t);
-  let url=`/sites/${site}/lists/${lid}/items?$expand=fields($select=Data)&$top=500${query?("&"+query):""}`;
+  let url=`/sites/${site}/lists/${lid}/items?$expand=fields&$top=500${query?("&"+query):""}`;
   const items=[]; while(url){ const page=await gfetch(url.replace(GBASE,""),"GET",null,false,PREFER_NX);
     (page.value||[]).forEach(x=>items.push(x)); url=page["@odata.nextLink"]||null; } return items; }
+function spParse(t,items){ const dcol=SP_DCOL[t]||"Data";
+  return items.map(it=>{ try{return JSON.parse(it.fields[dcol]);}catch{return null;} }).filter(Boolean); }
 const ListStore={
-  async read(t){ const items=await spPages(t,""); spMerge(t,items);
-    return items.map(it=>{try{return JSON.parse(it.fields.Data);}catch{return null;}}).filter(Boolean); },
-  async readDesde(t,since){ try{ const items=await spPages(t,`$filter=fields/Fecha ge '${since}'`); spMerge(t,items);
-      return items.map(it=>{try{return JSON.parse(it.fields.Data);}catch{return null;}}).filter(Boolean);
-    }catch(e){ return (await this.read(t)).filter(r=>recFecha(r)>=since); } },
-  async readRango(t,desde,hasta){ try{ const items=await spPages(t,`$filter=fields/Fecha ge '${desde}' and fields/Fecha lt '${hasta}'`); spMerge(t,items);
-      return items.map(it=>{try{return JSON.parse(it.fields.Data);}catch{return null;}}).filter(Boolean);
-    }catch(e){ return (await this.read(t)).filter(r=>recFecha(r)>=desde&&recFecha(r)<hasta); } },
-  async write(t,arr){ const site=await spSite(); const lid=await spEnsureList(t);
+  async read(t){ const items=await spPages(t,""); spMerge(t,items); return spParse(t,items); },
+  async readDesde(t,since){ await spEnsureList(t); const c=SP_COLS[t]||{};
+    if(!c.f) return (await this.read(t)).filter(r=>recFecha(r)>=since);
+    try{ const items=await spPages(t,`$filter=fields/${c.f} ge '${since}'`); spMerge(t,items); return spParse(t,items); }
+    catch(e){ return (await this.read(t)).filter(r=>recFecha(r)>=since); } },
+  async readRango(t,desde,hasta){ await spEnsureList(t); const c=SP_COLS[t]||{};
+    if(!c.f) return (await this.read(t)).filter(r=>recFecha(r)>=desde&&recFecha(r)<hasta);
+    try{ const items=await spPages(t,`$filter=fields/${c.f} ge '${desde}' and fields/${c.f} lt '${hasta}'`); spMerge(t,items); return spParse(t,items); }
+    catch(e){ return (await this.read(t)).filter(r=>recFecha(r)>=desde&&recFecha(r)<hasta); } },
+  async write(t,arr){ const site=await spSite(); const lid=await spEnsureList(t); const c=SP_COLS[t]||{d:"Data"};
     if(!SP_MAP[t]) await this.read(t); const map=SP_MAP[t]||new Map();
     for(const rec of arr){ const j=JSON.stringify(rec); const m=map.get(rec.id);
-      const full={Title:String(rec.Codigo||rec.id||"").slice(0,255),Data:j,Fecha:recFecha(rec),Estado:recEstado(rec)};
-      const basico={Title:full.Title,Data:j};
-      if(!m){ let c; try{ c=await gfetch(`/sites/${site}/lists/${lid}/items`,"POST",{fields:full}); }
-          catch(e){ c=await gfetch(`/sites/${site}/lists/${lid}/items`,"POST",{fields:basico}); }
-        map.set(rec.id,{spId:c.id,hash:j}); }
+      const full={Title:String(rec.Codigo||rec.id||"").slice(0,255)}; full[c.d||"Data"]=j;
+      if(c.f) full[c.f]=recFecha(rec); if(c.e) full[c.e]=recEstado(rec);
+      const basico={Title:full.Title}; basico[c.d||"Data"]=j;
+      if(!m){ let cr; try{ cr=await gfetch(`/sites/${site}/lists/${lid}/items`,"POST",{fields:full}); }
+          catch(e){ cr=await gfetch(`/sites/${site}/lists/${lid}/items`,"POST",{fields:basico}); }
+        map.set(rec.id,{spId:cr.id,hash:j}); }
       else if(m.hash!==j){ try{ await gfetch(`/sites/${site}/lists/${lid}/items/${m.spId}/fields`,"PATCH",full); }
           catch(e){ await gfetch(`/sites/${site}/lists/${lid}/items/${m.spId}/fields`,"PATCH",basico); } m.hash=j; } }
     SP_MAP[t]=map; },
@@ -904,10 +918,12 @@ async function diagListas(){ const out=[];
   for(const t of LIST_TABLES){ const name=APP.ms.lists[t];
     const hit=(all.value||[]).find(l=>l.displayName===name||l.name===name||norm(l.displayName)===norm(name)||norm(l.name)===norm(name));
     out.push((hit?"✅ ":"❌ ")+name+(hit?"":"  (NO existe / nombre distinto)")); }
-  try{ const site=await spSite(); const lid=await spEnsureList("ILD");
-    const c=await gfetch(`/sites/${site}/lists/${lid}/items`,"POST",{fields:{Title:"__prueba__",Data:'{"id":"__diag__"}'}});
+  try{ const site=await spSite(); const lid=await spEnsureList("ILD"); const c=SP_COLS["ILD"]||{d:"Data"};
+    out.push("Columna de datos detectada: \""+(c.d||"Data")+"\""+(c.f?(" · Fecha: \""+c.f+"\""):" · sin columna Fecha")+(c.e?(" · Estado: \""+c.e+"\""):""));
+    const fields={Title:"__prueba__"}; fields[c.d||"Data"]='{"id":"__diag__"}';
+    const cr=await gfetch(`/sites/${site}/lists/${lid}/items`,"POST",{fields});
     out.push("✅ Escritura de prueba en PP_ILD: OK");
-    try{ await gfetch(`/sites/${site}/lists/${lid}/items/${c.id}`,"DELETE"); out.push("✅ Limpieza de la prueba: OK"); }catch(e){}
+    try{ await gfetch(`/sites/${site}/lists/${lid}/items/${cr.id}`,"DELETE"); out.push("✅ Limpieza de la prueba: OK"); }catch(e){}
   }catch(e){ out.push("❌ Escritura falló: "+e.message); }
   return out.join("\n"); }
 // Código legible por proceso/año a partir del arreglo existente
