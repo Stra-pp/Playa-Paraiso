@@ -633,7 +633,7 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v4.3 · SharePoint Prueba7(Listas)",
+  version: "Playa Paraíso · App unificada v4.4 · SharePoint Prueba7(Listas)",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -776,10 +776,11 @@ const GraphStore = {
 };
 // ===== Backend de LISTAS de SharePoint (un elemento por solicitud) =====
 const LIST_TABLES=["ILD","Compras","Sistemas","Mantenimiento","Notif"];
-let SP_SITE=null; const SP_LIST={}; const SP_MAP={}; const SP_COLS={};
+let SP_SITE=null; const SP_LIST={}; const SP_MAP={}; const SP_COLS={}; let SP_LISTNAMES=[];
 const PREFER_NX={Prefer:"HonorNonIndexedQueriesWarningMayFailRandomly"};
 const recFecha=r=>String(r.fecha||r.FechaSolicitud||r.FechaCreacion||"").slice(0,10);
 const recEstado=r=>String(r.estado||r.Estado||"");
+const norm=s=>String(s||"").toLowerCase().replace(/[\s_-]+/g,"");
 async function spSite(){ if(SP_SITE) return SP_SITE;
   const s=await gfetch(`/sites/${APP.ms.siteHost}:${APP.ms.sitePath}`); SP_SITE=s.id; return SP_SITE; }
 async function spEnsureCols(site,lid,t){ if(SP_COLS[t]) return;
@@ -790,12 +791,16 @@ async function spEnsureCols(site,lid,t){ if(SP_COLS[t]) return;
 async function spEnsureList(t){ const site=await spSite();
   if(SP_LIST[t]){ await spEnsureCols(site,SP_LIST[t],t); return SP_LIST[t]; }
   const name=APP.ms.lists[t];
-  const all=await gfetch(`/sites/${site}/lists?$select=id,displayName&$top=200`);
-  let lid=(all.value||[]).find(l=>l.displayName===name)?.id;
-  if(!lid){ const created=await gfetch(`/sites/${site}/lists`,"POST",{displayName:name,
-    columns:[{name:"Data",text:{allowMultipleLines:true}},{name:"Fecha",text:{}},{name:"Estado",text:{}}],
-    list:{template:"genericList"}}); lid=created.id; }
-  SP_LIST[t]=lid; await spEnsureCols(site,lid,t); return lid; }
+  const all=await gfetch(`/sites/${site}/lists?$select=id,displayName,name&$top=200`);
+  SP_LISTNAMES=(all.value||[]).map(l=>l.displayName);
+  let hit=(all.value||[]).find(l=>l.displayName===name||l.name===name)
+        ||(all.value||[]).find(l=>norm(l.displayName)===norm(name)||norm(l.name)===norm(name));
+  if(hit){ SP_LIST[t]=hit.id; await spEnsureCols(site,hit.id,t); return hit.id; }
+  // intentar crear; si no se puede, error claro
+  try{ const created=await gfetch(`/sites/${site}/lists`,"POST",{displayName:name,
+      columns:[{name:"Data",text:{allowMultipleLines:true}},{name:"Fecha",text:{}},{name:"Estado",text:{}}],
+      list:{template:"genericList"}}); SP_LIST[t]=created.id; SP_COLS[t]=true; return created.id;
+  }catch(e){ throw new Error(`No encontré la lista "${name}". Existentes: ${SP_LISTNAMES.join(", ")||"(ninguna)"}. Crea esa lista o renómbrala.`); } }
 function spMerge(t,items){ const map=SP_MAP[t]||new Map();
   items.forEach(it=>{ const d=it.fields&&it.fields.Data; if(!d) return; let rec; try{rec=JSON.parse(d);}catch{return;}
     map.set(rec.id,{spId:it.id,hash:d}); }); SP_MAP[t]=map; }
@@ -887,6 +892,24 @@ async function msEnsure(){
 }
 // Inicia sesión por redirección (debe llamarse desde un clic). Navega a Microsoft y vuelve.
 async function msSignIn(){ msErr=""; await msInitApp(); await msalApp.loginRedirect({scopes:MS_SCOPES}); }
+async function msSignOut(){ try{ await msInitApp(); const a=msalApp.getAllAccounts()[0];
+    await msalApp.logoutRedirect({account:a, postLogoutRedirectUri:APP.ms.redirectUri}); }catch(e){ location.reload(); } }
+async function diagListas(){ const out=[];
+  try{ await spSite(); out.push("✅ Sitio Prueba: conexión OK"); }
+  catch(e){ out.push("❌ Sitio: "+e.message); return out.join("\n"); }
+  let all;
+  try{ const site=await spSite(); all=await gfetch(`/sites/${site}/lists?$select=id,displayName,name&$top=200`); }
+  catch(e){ out.push("❌ No pude leer las listas: "+e.message); return out.join("\n"); }
+  out.push("Listas que veo en el sitio:"); out.push("  "+((all.value||[]).map(l=>l.displayName).join(", ")||"(ninguna)"));
+  for(const t of LIST_TABLES){ const name=APP.ms.lists[t];
+    const hit=(all.value||[]).find(l=>l.displayName===name||l.name===name||norm(l.displayName)===norm(name)||norm(l.name)===norm(name));
+    out.push((hit?"✅ ":"❌ ")+name+(hit?"":"  (NO existe / nombre distinto)")); }
+  try{ const site=await spSite(); const lid=await spEnsureList("ILD");
+    const c=await gfetch(`/sites/${site}/lists/${lid}/items`,"POST",{fields:{Title:"__prueba__",Data:'{"id":"__diag__"}'}});
+    out.push("✅ Escritura de prueba en PP_ILD: OK");
+    try{ await gfetch(`/sites/${site}/lists/${lid}/items/${c.id}`,"DELETE"); out.push("✅ Limpieza de la prueba: OK"); }catch(e){}
+  }catch(e){ out.push("❌ Escritura falló: "+e.message); }
+  return out.join("\n"); }
 // Código legible por proceso/año a partir del arreglo existente
 function nextCode(prefix, arr){
   const y=yr(); const n=arr.filter(x=>(x.Codigo||"").startsWith(prefix+"-"+y)).length+1;
@@ -2194,7 +2217,7 @@ function DeleteRecords({toast}){
     </div></div>;
 }
 function Admin({user,toast}){
-  const [counts,setCounts]=useState({}); const [reloadKey,setReloadKey]=useState(0);
+  const [counts,setCounts]=useState({}); const [reloadKey,setReloadKey]=useState(0); const [diag,setDiag]=useState("");
   useEffect(()=>{(async()=>{ const o={}; for(const t of ["ILD","Compras","Sistemas","Mantenimiento"]) o[t]=(await Store.read(t)).length; setCounts(o); })();},[reloadKey]);
   async function exportar(t){ const data=await Store.read(t);
     if(!data.length){toast("Sin datos en "+t);return;}
@@ -2227,6 +2250,14 @@ function Admin({user,toast}){
         <button className="btn ghost" onClick={toggleMode}>{MODE==="graph"?"Cambiar a demo local":"Conectar a SharePoint"}</button></div>
       <div className="hint" style={{marginTop:8}}>El histórico se guarda en {MODE==="graph"?"SharePoint y se abre desde cualquier dispositivo al iniciar sesión.":"este navegador (modo demo)."}</div>
     </div>
+    {MODE==="graph" && <div className="card"><h3>🩺 Diagnóstico de Listas</h3>
+      <div className="hint">Si algo no se graba, toca “Probar conexión”: te dirá exactamente dónde está el problema (sitio, listas o permiso de escritura).</div>
+      <div className="row" style={{marginTop:10}}>
+        <button className="btn ocean" disabled={diag==="...probando..."} onClick={async()=>{ setDiag("...probando..."); try{ setDiag(await diagListas()); }catch(e){ setDiag("Error: "+(e.message||e)); } }}>▶ Probar conexión</button>
+        <button className="btn ghost" onClick={()=>{ if(confirm("Cerrar sesión de Microsoft y volver a entrar? Sirve para refrescar permisos recién concedidos.")) msSignOut(); }}>🔁 Reconectar Microsoft</button>
+      </div>
+      {diag && <pre style={{whiteSpace:"pre-wrap",background:"#0e1b22",color:"#d6f0f4",padding:12,borderRadius:10,fontSize:12.5,marginTop:10,lineHeight:1.5}}>{diag}</pre>}
+    </div>}
     <div className="card"><h3>🪪 App Registration propia</h3>
       <div className="hint">Pega aquí el <b>Client ID</b> de tu propia App Registration de Azure (queda separada de la del ILD). El Tenant ID es opcional (por defecto usa el mismo).</div>
       <ClientIdForm toast={toast}/></div>
@@ -2267,7 +2298,7 @@ function App(){
         bump(); } }
     setChecking(false);
   })(); },[]);
-  const toast=m=>{ setToastMsg(m); setTimeout(()=>setToastMsg(""),2600); };
+  const toast=m=>{ setToastMsg(m); const dur=/no se pudo|error|❌|403|falló|no encontr/i.test(m)?8000:2600; setTimeout(()=>setToastMsg(""),dur); };
   async function reloadCounts(u){ const who=u||user; if(!who) return;
     const c=await Store.read("Compras"), s=await Store.read("Sistemas"), m=await Store.read("Mantenimiento"), il=await Store.read("ILD");
     const pendChief=(arr,mod,abiertos)=> gestionaModulo(who,mod) ? arr.filter(r=>abiertos.includes(r.Estado)).length
