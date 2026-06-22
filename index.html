@@ -623,7 +623,7 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v4.0 · SharePoint Prueba7(Listas)",
+  version: "Playa Paraíso · App unificada v4.1 · SharePoint Prueba7(Listas)",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -735,9 +735,12 @@ async function gfetch(path,method="GET",body=null,raw=false,headers=null){
   if(headers) Object.assign(h,headers);
   if(body && !(body instanceof ArrayBuffer)) h["Content-Type"]="application/json";
   else if(body instanceof ArrayBuffer) h["Content-Type"]="application/octet-stream";
-  const r=await fetch(GBASE+path,{method,headers:h,body:body?(body instanceof ArrayBuffer?body:JSON.stringify(body)):null});
+  const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),30000);
+  let r; try{ r=await fetch(GBASE+path,{method,headers:h,body:body?(body instanceof ArrayBuffer?body:JSON.stringify(body)):null,signal:ctrl.signal}); }
+  catch(e){ clearTimeout(to); throw new Error("conexión: "+(e.name==="AbortError"?"tiempo de espera agotado":e.message)); }
+  clearTimeout(to);
   if(r.status===204) return null;
-  if(!r.ok) throw new Error(method+" "+path+": "+r.status);
+  if(!r.ok){ let extra=""; try{ const j=await r.json(); extra=j.error&&j.error.message?(" — "+j.error.message):""; }catch{} throw new Error(method+" "+path.split("?")[0]+": "+r.status+extra); }
   return raw?r.arrayBuffer():r.json();
 }
 const GraphStore = {
@@ -748,14 +751,14 @@ const GraphStore = {
   async write(t,arr){
     const buf=new TextEncoder().encode(JSON.stringify(arr));
     await gfetch(`/drives/${APP.ms.driveId}/root:/${this.fileName(t)}:/content`,"PUT",buf.buffer); },
-  async uploadFoto(dataUrl,nombre,carpetaId){
-    const folder=`${APP.ms.base}/${APP.ms.fotosFolder}`;
+  async ensureCarpeta(carpetaId){ const folder=`${APP.ms.base}/${APP.ms.fotosFolder}`;
     try{ await gfetch(`/drives/${APP.ms.driveId}/root:/${folder}/${carpetaId}`); }
-    catch{ try{ await gfetch(`/drives/${APP.ms.driveId}/root:/${folder}:/children`,"POST",{name:carpetaId,folder:{},"@microsoft.graph.conflictBehavior":"replace"}); }catch(e){} }
+    catch{ try{ await gfetch(`/drives/${APP.ms.driveId}/root:/${folder}:/children`,"POST",{name:carpetaId,folder:{},"@microsoft.graph.conflictBehavior":"replace"}); }catch(e){} } },
+  async putFoto(dataUrl,nombre,carpetaId){ const folder=`${APP.ms.base}/${APP.ms.fotosFolder}`;
     const blob=await (await fetch(dataUrl)).arrayBuffer();
     await gfetch(`/drives/${APP.ms.driveId}/root:/${folder}/${carpetaId}/${nombre}:/content`,"PUT",blob);
-    return {nombre,path:`${folder}/${carpetaId}/${nombre}`};
-  },
+    return {nombre,path:`${folder}/${carpetaId}/${nombre}`}; },
+  async uploadFoto(dataUrl,nombre,carpetaId){ await this.ensureCarpeta(carpetaId); return this.putFoto(dataUrl,nombre,carpetaId); },
   async getImg(path){
     const buf=await gfetch(`/drives/${APP.ms.driveId}/root:/${path}:/content`,"GET",null,true);
     return URL.createObjectURL(new Blob([buf]));
@@ -802,9 +805,13 @@ const ListStore={
   async write(t,arr){ const site=await spSite(); const lid=await spEnsureList(t);
     if(!SP_MAP[t]) await this.read(t); const map=SP_MAP[t]||new Map();
     for(const rec of arr){ const j=JSON.stringify(rec); const m=map.get(rec.id);
-      const fields={Title:String(rec.Codigo||rec.id||"").slice(0,255),Data:j,Fecha:recFecha(rec),Estado:recEstado(rec)};
-      if(!m){ const c=await gfetch(`/sites/${site}/lists/${lid}/items`,"POST",{fields}); map.set(rec.id,{spId:c.id,hash:j}); }
-      else if(m.hash!==j){ await gfetch(`/sites/${site}/lists/${lid}/items/${m.spId}/fields`,"PATCH",fields); m.hash=j; } }
+      const full={Title:String(rec.Codigo||rec.id||"").slice(0,255),Data:j,Fecha:recFecha(rec),Estado:recEstado(rec)};
+      const basico={Title:full.Title,Data:j};
+      if(!m){ let c; try{ c=await gfetch(`/sites/${site}/lists/${lid}/items`,"POST",{fields:full}); }
+          catch(e){ c=await gfetch(`/sites/${site}/lists/${lid}/items`,"POST",{fields:basico}); }
+        map.set(rec.id,{spId:c.id,hash:j}); }
+      else if(m.hash!==j){ try{ await gfetch(`/sites/${site}/lists/${lid}/items/${m.spId}/fields`,"PATCH",full); }
+          catch(e){ await gfetch(`/sites/${site}/lists/${lid}/items/${m.spId}/fields`,"PATCH",basico); } m.hash=j; } }
     SP_MAP[t]=map; },
   async remove(t,id){ const site=await spSite(); const lid=await spEnsureList(t);
     if(!SP_MAP[t]) await this.read(t); const m=(SP_MAP[t]||new Map()).get(id);
@@ -833,12 +840,10 @@ const Store = {
 };
 
 async function subirFotos(fotos,carpetaId,prefijo){
-  if(MODE==="graph"){ const out=[];
-    for(let i=0;i<fotos.length;i++){ const nombre=`${prefijo}_${i+1}.jpg`;
-      try{ out.push(await GraphStore.uploadFoto(fotos[i],nombre,carpetaId)); }
-      catch(e){ out.push({nombre,error:true}); } }   // sin base64: el registro queda liviano
-    return out; }
-  return fotos.map((d,i)=>({nombre:`${prefijo}_${i+1}.jpg`,data:d}));
+  if(MODE!=="graph") return fotos.map((d,i)=>({nombre:`${prefijo}_${i+1}.jpg`,data:d}));
+  try{ await GraphStore.ensureCarpeta(carpetaId); }catch(e){}
+  return Promise.all(fotos.map(async(d,i)=>{ const nombre=`${prefijo}_${i+1}.jpg`;
+    try{ return await GraphStore.putFoto(d,nombre,carpetaId); }catch(e){ return {nombre,error:true}; } }));
 }
 async function addNotif(para,texto,ildId,codigo){
   if(!para) return;
