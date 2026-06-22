@@ -633,7 +633,7 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v4.5 · SharePoint Prueba7(Listas)",
+  version: "Playa Paraíso · App unificada v4.6 · SharePoint Prueba7(Listas)",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -1361,9 +1361,14 @@ function actaILD(r){
   ${r.obs?`<div class="note"><b>Nota del colaborador:</b> ${esc(r.obs)}</div>`:""}
   ${r.notaJef?`<div class="note"><b>Comentario de ${esc(r.aprobador)}:</b> ${esc(r.notaJef)}</div>`:""}
   ${r.notaGerencia?`<div class="note"><b>Gerencia:</b> ${esc(r.notaGerencia)}</div>`:""}
+  <script>window.onload=function(){setTimeout(function(){try{window.print();}catch(e){}},300);};<\/script>
   </body></html>`;
-  const w=window.open("","_blank"); if(!w){ alert("Permite ventanas emergentes para exportar el PDF."); return; }
-  w.document.write(html); w.document.close(); w.focus(); setTimeout(function(){ try{ w.print(); }catch(e){} },350);
+  try{
+    const blob=new Blob([html],{type:"text/html"}); const url=URL.createObjectURL(blob);
+    const w=window.open(url,"_blank");
+    if(!w){ const a=document.createElement("a"); a.href=url; a.target="_blank"; a.rel="noopener"; document.body.appendChild(a); a.click(); a.remove(); }
+    setTimeout(()=>{ try{URL.revokeObjectURL(url);}catch(e){} },60000);
+  }catch(e){ alert("No se pudo abrir el PDF: "+(e.message||e)); }
 }
 function ILDDetail({user,r,onClose,reload,toast,setFoto}){
   const items=CL[r.area]||[];
@@ -1395,7 +1400,11 @@ function ILDDetail({user,r,onClose,reload,toast,setFoto}){
     {[["Área",r.area+(r.turno?` · ${r.turno}`:"")],["Responsable",r.usuario],["Fecha",fmtDT(r.fecha)],
       ["Aprobador esperado",r.aprobadorEsperado||"—"],["Ítems",`${r.completados}/${r.totalItems}`],
       ["Estado",r.estado]].map(([k,v])=><div className="kv" key={k}><b>{k}</b><span>{v}</span></div>)}
-    {r.estado==='Aprobado' && <button className="btn ocean block" style={{margin:"10px 0"}} onClick={()=>actaILD(r)}>📄 Descargar PDF del ILD</button>}
+    <div className="row" style={{margin:"10px 0",gap:8,flexWrap:"wrap"}}>
+      <button className="btn ocean" style={{flex:"1 1 120px"}} onClick={()=>actaILD(r)}>📄 Descargar PDF</button>
+      {(esDev(user)||gestionaModulo(user,'ild')) && <button className="btn ghost" style={{flex:"1 1 120px"}} onClick={async()=>{ const nv=prompt("Nuevo nombre / código del ILD:", r.Codigo||("ILD-"+r.id)); if(nv==null)return; const v=nv.trim(); if(!v)return; try{ const arr=await Store.read("ILD"); await Store.write("ILD",arr.map(x=>x.id===r.id?{...x,Codigo:v}:x)); toast("Nombre actualizado"); reload(); onClose(); }catch(e){ toast("No se pudo: "+(e.message||"")); } }}>✏️ Editar nombre</button>}
+      {(esDev(user)||gestionaModulo(user,'ild')) && <button className="btn red" style={{flex:"1 1 120px"}} onClick={async()=>{ if(!confirm("¿Eliminar este ILD de forma permanente? No se podrá recuperar."))return; try{ await Store.remove("ILD",r.id); toast("ILD eliminado"); reload(); onClose(); }catch(e){ toast("No se pudo eliminar: "+(e.message||"")); } }}>🗑️ Eliminar</button>}
+    </div>
     <h3 style={{margin:"14px 0 6px"}}>Checklist</h3>
     {items.map((it,i)=>{ const tx=itemText(it),tp=itemTipo(it);
       let val;
@@ -1631,14 +1640,17 @@ function UsuariosEditor({toast,onSave}){
   const colabs=USERS.filter(u=>u.rol==='colaborador');
   const jefes=USERS.filter(u=>u.rol!=='colaborador');
   function saveUser(u){
-    if(u._new){ USERS.push({id:"c"+Date.now(),nombre:u.nombre,pin:u.pin||"",rol:"colaborador",areas:u.areas||[]}); }
-    else { const t=USERS.find(x=>x.id===u.id); if(t){ t.nombre=u.nombre; t.pin=u.pin; t.areas=u.areas; } }
+    if(u._new){ USERS.push({id:"c"+Date.now(),nombre:u.nombre,pin:u.pin||"",rol:u.rol||"colaborador",areas:u.areas||[]}); }
+    else { const t=USERS.find(x=>x.id===u.id); if(t){ t.nombre=u.nombre; t.pin=u.pin; t.areas=u.areas; if(u.rol) t.rol=u.rol; } }
     applyGestiona(); onSave(); setEdit(null); re(); toast("Usuario guardado");
   }
   function delUser(id){ if(!confirm("¿Eliminar este colaborador?"))return; const i=USERS.findIndex(x=>x.id===id);
     if(i>=0){ USERS.splice(i,1); onSave(); re(); toast("Colaborador eliminado"); } }
   return <div>
-    <button className="btn primary block" onClick={()=>setEdit({_new:true,areas:[]})}>➕ Nuevo colaborador</button>
+    <div className="row" style={{gap:8}}>
+      <button className="btn primary" style={{flex:1}} onClick={()=>setEdit({_new:true,rol:"colaborador",areas:[]})}>➕ Nuevo colaborador</button>
+      <button className="btn ocean" style={{flex:1}} onClick={()=>setEdit({_new:true,rol:"aprobador",areas:[]})}>➕ Nuevo aprobador / jefatura</button>
+    </div>
     <div className="card" style={{marginTop:14}}><h3>Jefatura y gerencia</h3>
       {jefes.map(u=><div className="kv" key={u.id}>
         <span><b style={{color:"var(--ink)"}}>{u.nombre}</b> · {u.rol}{u.pin?` · PIN ${u.pin}`:""}</span>
@@ -1656,18 +1668,23 @@ function UsuariosEditor({toast,onSave}){
 }
 function UserModal({u,onClose,onSave}){
   const [nombre,setNombre]=useState(u.nombre||""); const [pin,setPin]=useState(u.pin||"");
+  const [rol,setRol]=useState(u.rol||"colaborador");
   const [areas,setAreas]=useState(u.areas||[]);
-  const esColab=(u.rol||"colaborador")==="colaborador";
+  const esColab=rol==="colaborador";
   const toggle=a=>setAreas(s=>s.includes(a)?s.filter(x=>x!==a):[...s,a]);
-  return <Modal title={u._new?"Nuevo colaborador":"Editar usuario"} onClose={onClose}>
+  return <Modal title={u._new?(rol==="colaborador"?"Nuevo colaborador":"Nuevo aprobador / jefatura"):"Editar usuario"} onClose={onClose}>
     <Field label="Nombre y apellido" req><input className="inp" value={nombre} onChange={e=>setNombre(e.target.value)}/></Field>
-    {!esColab && <Field label="PIN (4 dígitos)" hint="Solo jefaturas/gerencia usan PIN."><input className="inp" inputMode="numeric" value={pin} onChange={e=>setPin(e.target.value.replace(/\D/g,'').slice(0,4))}/></Field>}
-    <Field label="ILD / áreas que realiza">
+    <Field label="Rol"><select className="inp" value={rol} onChange={e=>setRol(e.target.value)}>
+      <option value="colaborador">Colaborador (sin PIN)</option>
+      <option value="aprobador">Aprobador / Jefatura</option>
+      <option value="gerencia">Gerencia</option></select></Field>
+    {!esColab && <Field label="PIN (4 dígitos)" hint="Las jefaturas y gerencia ingresan con PIN."><input className="inp" inputMode="numeric" value={pin} onChange={e=>setPin(e.target.value.replace(/\D/g,'').slice(0,4))}/></Field>}
+    <Field label="ILD / áreas que realiza o aprueba">
       <div style={{maxHeight:280,overflow:"auto",border:"1px solid var(--line)",borderRadius:12,padding:"4px 10px"}}>
         {Object.keys(AC).map(a=><label key={a} style={{display:"flex",gap:9,alignItems:"center",padding:"7px 0",fontSize:13.5,borderBottom:"1px solid #f3efe6"}}>
           <input type="checkbox" checked={areas.includes(a)} onChange={()=>toggle(a)}/> {a}</label>)}</div></Field>
     <div className="row end"><button className="btn ghost" onClick={onClose}>Cancelar</button>
-      <button className="btn primary" onClick={()=>{ if(!nombre.trim())return; onSave({...u,nombre:nombre.trim(),pin,areas}); }}>Guardar</button></div>
+      <button className="btn primary" onClick={()=>{ if(!nombre.trim())return; if(rol!=="colaborador"&&pin.length!==4){alert("Las jefaturas/gerencia necesitan un PIN de 4 dígitos.");return;} onSave({...u,nombre:nombre.trim(),pin,rol,areas}); }}>Guardar</button></div>
   </Modal>;
 }
 
