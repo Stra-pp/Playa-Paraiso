@@ -1,0 +1,2332 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0d6e75" />
+<title>Playa Paraíso</title>
+<link rel="manifest" href="data:application/json,%7B%22name%22%3A%22Playa%20Para%C3%ADso%22%2C%22short_name%22%3A%22Playa%20Para%C3%ADso%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%230d6e75%22%2C%22theme_color%22%3A%22%230d6e75%22%7D" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js" onerror="window.__noMsal=true"></script>
+<script>if(typeof msal==="undefined"){var _m=document.createElement("script");_m.src="https://alcdn.msftauth.net/browser/2.38.0/js/msal-browser.min.js";document.head.appendChild(_m);}</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" onerror="window.__noXlsx=true"></script>
+<style>
+:root{
+  --ocean:#0d6e75; --ocean-d:#0a565c; --ocean-l:#e6f2f3;
+  --sand:#f7f4ee; --surface:#ffffff; --line:#e7e2d8;
+  --ink:#1f2a2c; --muted:#6c7a7c;
+  --coral:#e8663d; --coral-d:#cf5530;
+  --green:#1f9d6b; --amber:#e0a32e; --red:#d34c4c; --blue:#3a78c2; --gray:#9aa6a7; --purple:#7e57c2;
+  --shadow:0 1px 2px rgba(16,40,42,.06),0 8px 24px rgba(16,40,42,.08);
+  --r:16px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--sand);color:var(--ink);-webkit-font-smoothing:antialiased}
+button{font-family:inherit;cursor:pointer;border:none;background:none}
+input,select,textarea{font-family:inherit;font-size:16px}
+.app{max-width:920px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column}
+.topbar{position:sticky;top:0;z-index:30;background:var(--ocean);color:#fff;padding:14px 16px;display:flex;align-items:center;gap:12px;padding-top:max(14px,env(safe-area-inset-top))}
+.topbar .brand{font-weight:800;letter-spacing:.2px;font-size:18px;display:flex;align-items:center;gap:9px}
+.topbar .brand .dot{width:10px;height:10px;border-radius:50%;background:var(--coral);box-shadow:0 0 0 4px rgba(232,102,61,.25)}
+.topbar .sp{flex:1}
+.topbar .who{font-size:13px;opacity:.95;text-align:right;line-height:1.2}
+.iconbtn{color:#fff;background:rgba(255,255,255,.14);width:38px;height:38px;border-radius:11px;display:grid;place-items:center;font-size:18px}
+.iconbtn:active{transform:scale(.96)}
+.content{flex:1;padding:16px;padding-bottom:46px}
+.backrow{display:flex;align-items:center;gap:10px;margin:-4px 0 14px}
+.backbtn{background:#fff;border:1px solid var(--line);border-radius:11px;padding:9px 14px;font-weight:600;color:var(--ink);box-shadow:var(--shadow)}
+.h1{font-size:22px;font-weight:800;margin:0}
+.sub{color:var(--muted);font-size:14px;margin:2px 0 0}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(min-width:620px){.grid{grid-template-columns:1fr 1fr 1fr}}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:18px 16px;box-shadow:var(--shadow);text-align:left;display:flex;flex-direction:column;gap:10px;min-height:128px;transition:transform .08s}
+.tile:active{transform:translateY(1px) scale(.995)}
+.tile .ico{width:46px;height:46px;border-radius:13px;display:grid;place-items:center;font-size:24px;color:#fff}
+.tile .t{font-weight:700;font-size:16px}
+.tile .d{color:var(--muted);font-size:12.5px;line-height:1.35}
+.tile .badge{align-self:flex-start;background:var(--ocean-l);color:var(--ocean-d);font-weight:700;font-size:12px;border-radius:999px;padding:3px 10px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:16px;margin-bottom:14px}
+.card h3{margin:0 0 4px;font-size:16px}
+.field{margin-bottom:13px}
+.field label{display:block;font-weight:600;font-size:13.5px;margin-bottom:6px}
+.field .req{color:var(--coral)}
+.inp,select.inp,textarea.inp{width:100%;border:1px solid var(--line);border-radius:12px;padding:12px 13px;background:#fff;color:var(--ink)}
+.inp:focus,textarea.inp:focus,select.inp:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0 3px var(--ocean-l)}
+textarea.inp{min-height:88px;resize:vertical}
+.hint{color:var(--muted);font-size:12px;margin-top:5px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;font-weight:700;border-radius:13px;padding:13px 18px;font-size:15px}
+.btn.primary{background:var(--coral);color:#fff}
+.btn.primary:active{background:var(--coral-d)}
+.btn.ocean{background:var(--ocean);color:#fff}
+.btn.ocean:active{background:var(--ocean-d)}
+.btn.ghost{background:#fff;border:1px solid var(--line);color:var(--ink)}
+.btn.green{background:var(--green);color:#fff}
+.btn.amber{background:var(--amber);color:#fff}
+.btn.red{background:var(--red);color:#fff}
+.btn.block{width:100%}
+.btn:disabled{opacity:.5}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.row.end{justify-content:flex-end}
+.pill{display:inline-flex;align-items:center;gap:6px;font-weight:700;font-size:11.5px;border-radius:999px;padding:4px 10px;white-space:nowrap}
+.pill .pdot{width:7px;height:7px;border-radius:50%}
+.item{background:#fff;border:1px solid var(--line);border-radius:14px;padding:13px 14px;box-shadow:var(--shadow);margin-bottom:11px}
+.item .top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.item .code{font-size:11.5px;color:var(--muted);font-weight:700;letter-spacing:.4px}
+.item .ttl{font-weight:700;font-size:15px;margin:3px 0 2px;line-height:1.3}
+.item .meta{font-size:12.5px;color:var(--muted)}
+.item .acts{margin-top:11px;display:flex;gap:8px;flex-wrap:wrap}
+.empty{text-align:center;color:var(--muted);padding:46px 16px}
+.empty .e{font-size:40px}
+.seg{display:flex;background:#eee9df;border-radius:13px;padding:4px;gap:4px;margin-bottom:14px;overflow:auto}
+.seg button{flex:1;white-space:nowrap;border-radius:10px;padding:9px 12px;font-weight:700;font-size:13.5px;color:var(--muted)}
+.seg button.on{background:#fff;color:var(--ocean-d);box-shadow:var(--shadow)}
+/* checklist ILD */
+.crow{display:flex;align-items:center;gap:12px;border:1px solid var(--line);border-radius:12px;padding:12px 13px;margin-bottom:9px;background:#fff;cursor:pointer}
+.crow.on{border-color:var(--green);background:#f1faf5}
+.cbox{width:26px;height:26px;border-radius:8px;border:2px solid #cdd5d4;display:grid;place-items:center;color:#fff;font-weight:800;flex:0 0 auto}
+.crow.on .cbox{background:var(--green);border-color:var(--green)}
+.ctext{font-size:14px;font-weight:500}
+.qcard{border:1px solid var(--line);border-radius:12px;padding:12px 13px;margin-bottom:9px;background:#fff}
+.qcard .qt{font-weight:600;font-size:13.5px;margin-bottom:9px}
+.opts{display:flex;gap:8px;flex-wrap:wrap}
+.opt{flex:1;min-width:84px;text-align:center;border:2px solid var(--line);border-radius:10px;padding:9px 8px;font-weight:700;font-size:13px;color:var(--muted)}
+.opt.on{border-color:var(--ocean);background:var(--ocean-l);color:var(--ocean-d)}
+.opt.si.on{border-color:var(--green);background:#e9f7f0;color:var(--green)}
+.opt.no.on{border-color:var(--red);background:#fdeeee;color:var(--red)}
+.pbar{height:8px;background:#e8e2d6;border-radius:6px;overflow:hidden;margin:8px 0 14px}
+.pbar i{display:block;height:100%;background:var(--ocean);transition:width .25s}
+.fgrid{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.fthumb{position:relative;width:74px;height:74px;border-radius:10px;overflow:hidden;border:1px solid var(--line)}
+.fthumb img{width:100%;height:100%;object-fit:cover}
+.fdel{position:absolute;top:2px;right:2px;background:rgba(0,0,0,.55);color:#fff;border-radius:50%;width:22px;height:22px;font-size:12px}
+.fnum{position:absolute;bottom:2px;left:2px;background:rgba(0,0,0,.55);color:#fff;border-radius:6px;font-size:10px;padding:0 5px}
+.kv{display:flex;justify-content:space-between;gap:10px;font-size:13.5px;padding:7px 0;border-bottom:1px solid var(--line)}
+.kv:last-child{border-bottom:none}
+.kv b{color:var(--muted);font-weight:600}
+.note{border-radius:12px;padding:12px 13px;margin:10px 0;font-size:13.5px}
+.note.obs{background:#fff8e1;border:1px solid #ffe0a3}
+.note.jef{background:#f3eafc;border:1px solid #d9c2f0}
+.note.ger{background:#e9f7f0;border:1px solid #aedcc6}
+.kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px}
+@media(min-width:560px){.kpis{grid-template-columns:repeat(5,1fr)}}
+.kpi{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px;text-align:center;box-shadow:var(--shadow)}
+.kpi .kn{font-size:22px;font-weight:800}
+.kpi .kl{font-size:11px;color:var(--muted);margin-top:2px}
+.barline{margin-bottom:11px}
+.barline .lab{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:3px}
+.barwrap{display:flex;height:10px;border-radius:6px;overflow:hidden;background:#eee7da}
+.stars{display:flex;gap:4px;font-size:24px}
+.stars span{cursor:pointer;color:#d8d2c5}
+.stars span.on{color:var(--amber)}
+.kan{display:flex;gap:12px;overflow-x:auto;padding-bottom:10px}
+.kcol{flex:0 0 80%;max-width:300px;background:#efe9de;border-radius:16px;padding:11px}
+@media(min-width:760px){.kcol{flex:0 0 250px}}
+.kcol h4{margin:2px 4px 10px;font-size:13.5px;display:flex;justify-content:space-between;align-items:center}
+.kcol h4 .cnt{background:#fff;border-radius:999px;font-size:12px;padding:1px 9px;color:var(--muted)}
+.kcard{background:#fff;border:1px solid var(--line);border-radius:12px;padding:11px;margin-bottom:9px;box-shadow:var(--shadow)}
+.kcol.over{outline:2px dashed var(--ocean);outline-offset:-4px}
+.kchip{display:inline-block;font-size:10.5px;font-weight:700;border-radius:999px;padding:2px 8px;background:#eef3f6;color:#3c5b66}
+.kchip.urg{background:#fbe6e6;color:#a83232}
+.kcol h4 .dotc{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:7px;vertical-align:middle}
+.kfilters{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.kfilters select{flex:1;min-width:150px;border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:#fff;font-size:14px}
+.kcount{font-size:12px;color:var(--muted);margin:-4px 0 12px}
+.dgrp{background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);margin-bottom:14px;overflow:hidden}
+.dgrp .ghead{background:var(--ocean);color:#fff;font-weight:800;font-size:13px;letter-spacing:.4px;padding:11px 14px;display:flex;align-items:center;gap:8px}
+.dscroll{overflow-x:auto}
+.dtable{width:100%;border-collapse:collapse;min-width:560px}
+.dtable th{background:#f6f2ea;color:var(--muted);font-size:10.5px;font-weight:800;letter-spacing:.3px;text-transform:uppercase;padding:9px 8px;text-align:center;white-space:nowrap}
+.dtable th:first-child{text-align:left;padding-left:14px}
+.dtable td{padding:11px 8px;text-align:center;border-top:1px solid #f0ebe1;font-size:13.5px;white-space:nowrap}
+.dtable td:first-child{text-align:left;padding-left:14px;font-weight:700}
+.dnum{display:inline-block;min-width:34px;border:1px solid var(--line);border-radius:9px;padding:3px 6px;font-weight:700;background:#fff}
+.dnum.g{color:var(--green);border-color:#bfe6d3}
+.dnum.p{color:var(--purple);border-color:#ddccf0}
+.dcirc{display:inline-grid;place-items:center;width:42px;height:42px;border-radius:50%;font-weight:800;font-size:12px;border:2.5px solid}
+.ddias{font-size:11px;color:var(--muted)}
+.kcard .kc{font-size:11px;color:var(--muted);font-weight:700}
+.kcard .kt{font-weight:600;font-size:13.5px;margin:3px 0;line-height:1.3}
+.kcard .km{font-size:11.5px;color:var(--muted)}
+.kcard select{margin-top:8px;width:100%;border:1px solid var(--line);border-radius:9px;padding:7px;font-size:12.5px}
+.ovl{position:fixed;inset:0;background:rgba(16,30,32,.5);z-index:50;display:flex;align-items:flex-end;justify-content:center}
+@media(min-width:620px){.ovl{align-items:center;padding:20px}}
+.modal{background:#fff;width:100%;max-width:600px;border-radius:20px 20px 0 0;padding:18px;max-height:92vh;overflow:auto}
+@media(min-width:620px){.modal{border-radius:20px}}
+.modal h3{margin:0 0 12px;font-size:18px}
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 18px;border-radius:13px;font-weight:600;font-size:14px;z-index:80;box-shadow:var(--shadow);max-width:90%;text-align:center}
+.banner{background:#fff7e8;border:1px solid #f0d9a0;color:#8a6512;border-radius:12px;padding:10px 12px;font-size:12.5px;margin-bottom:14px;display:flex;gap:8px;align-items:flex-start}
+.ver{font-size:11px;color:var(--muted);text-align:center;padding:18px 0 8px}
+.fotomodal{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:90;display:flex;align-items:center;justify-content:center;padding:16px}
+.fotomodal img{max-width:96vw;max-height:90vh;border-radius:10px;object-fit:contain}
+.fotomodal .x{position:absolute;top:16px;right:16px;background:rgba(255,255,255,.2);color:#fff;border-radius:50%;width:42px;height:42px;font-size:20px}
+/* ===== LOGIN (rediseñado) ===== */
+.login{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;position:relative;overflow:hidden;
+  background:radial-gradient(120% 80% at 50% -10%, #14808a 0%, var(--ocean) 42%, var(--ocean-d) 78%, #073e43 100%)}
+.login .sun{position:absolute;top:-90px;left:50%;transform:translateX(-50%);width:260px;height:260px;border-radius:50%;
+  background:radial-gradient(circle, rgba(255,196,140,.45) 0%, rgba(232,102,61,.12) 55%, transparent 70%);pointer-events:none}
+.login .wave{position:absolute;bottom:0;left:0;right:0;height:120px;background:
+  radial-gradient(120% 100% at 50% 120%, rgba(255,255,255,.10), transparent 60%);pointer-events:none}
+.lcard{position:relative;z-index:2;background:rgba(255,255,255,.97);border-radius:24px;padding:26px 22px;width:100%;max-width:380px;
+  box-shadow:0 24px 60px rgba(0,0,0,.28);text-align:center}
+.lbrand{display:flex;align-items:center;justify-content:center;gap:10px;font-size:22px;font-weight:800;color:var(--ocean-d)}
+.lbrand .dot{width:12px;height:12px;border-radius:50%;background:var(--coral);box-shadow:0 0 0 5px rgba(232,102,61,.18)}
+.ltag{color:var(--muted);font-size:13px;margin:4px 0 20px}
+.lchoice{display:flex;flex-direction:column;gap:11px}
+.lbig{display:flex;align-items:center;gap:13px;text-align:left;border:1.5px solid var(--line);border-radius:15px;padding:15px;background:#fff;transition:.12s}
+.lbig:active{transform:scale(.99)}
+.lbig.pri{border-color:var(--ocean);background:var(--ocean-l)}
+.lbig .e{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-size:22px;color:#fff;flex:0 0 auto}
+.lbig .tt{font-weight:700;font-size:15px;color:var(--ink)}
+.lbig .dd{font-size:12px;color:var(--muted);margin-top:1px}
+.lsel{width:100%;border:1.5px solid var(--line);border-radius:13px;padding:13px;font-size:15px;background:#fff;margin-bottom:14px}
+.ldots{display:flex;gap:13px;justify-content:center;margin:4px 0 18px;height:16px}
+.ldots i{width:14px;height:14px;border-radius:50%;background:#e2ddd2;transition:.15s}
+.ldots i.f{background:var(--coral);transform:scale(1.05)}
+.lpad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.lpad button{height:58px;border-radius:14px;background:#f3efe6;color:var(--ink);font-size:22px;font-weight:600;border:1px solid var(--line)}
+.lpad button:active{background:var(--ocean-l)}
+.lpad button.fn{font-size:14px;font-weight:700;color:var(--muted);background:#fff}
+.lback{margin-top:16px;color:var(--ocean-d);font-weight:700;font-size:14px;background:none}
+.lerr{color:var(--red);font-weight:600;font-size:13px;min-height:18px;margin-top:8px}
+.lfoot{position:relative;z-index:2;color:rgba(255,255,255,.8);font-size:11px;margin-top:18px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const {useState,useEffect,useMemo,useRef} = React;
+
+const AC={
+  'Recepción Apertura':        {r:9,  g:'Recepción',    t:'Apertura', turno:false},
+  'Recepción Cierre':          {r:7,  g:'Recepción',    t:'Cierre',   turno:false},
+  'Áreas Públicas':            {r:10, g:'Housekeeping', t:'Diurno',   turno:false},
+  'Habitaciones':              {r:6,  g:'Housekeeping', t:'Diurno',   turno:false},
+  'Servicio A la Carta':       {r:2,  g:'Servicio',     t:'Diurno',   turno:false},
+  'Servicio Buffet':           {r:4,  g:'Servicio',     t:'Diurno',   turno:false},
+  'Servicio Buffet Plaza':     {r:4,  g:'Servicio',     t:'Diurno',   turno:false},
+  'Cierre Plaza Paraíso':      {r:7,  g:'Servicio',     t:'Cierre',   turno:false},
+  'Servicio Almeja Playera':   {r:4,  g:'Servicio',     t:'Diurno',   turno:false},
+  'Servicio Chiringuito':      {r:4,  g:'Servicio',     t:'Diurno',   turno:false},
+  'Apertura Cocina':           {r:5,  g:'Cocina',       t:'Apertura', turno:false},
+  'Cocina Central':            {r:6,  g:'Cocina',       t:'Diurno',   turno:true},
+  'Cocina Almeja Playera':     {r:9,  g:'Cocina',       t:'Diurno',   turno:true},
+  'Chiringuito Apertura':      {r:8,  g:'Cocina',       t:'Apertura', turno:false},
+  'Cierre Chiringuito':        {r:8,  g:'Cocina',       t:'Cierre',   turno:false},
+  'Sunset Bar':                {r:11, g:'Servicio',     t:'Diurno',   turno:true},
+  'Sunset Deck':               {r:6,  g:'Servicio',     t:'Diurno',   turno:false},
+  'Apertura Spa':              {r:7,  g:'Spa',          t:'Apertura', turno:false},
+  'Cierre Spa':                {r:7,  g:'Spa',          t:'Cierre',   turno:false},
+  'Mantenimiento':             {r:6,  g:'Mantenimiento',t:'Apertura', turno:false},
+  'Compras / Bodega Apertura': {r:7,  g:'Compras',      t:'Apertura', turno:false},
+  'Compras / Bodega Cierre':   {r:7,  g:'Compras',      t:'Cierre',   turno:false},
+};
+const APR={
+  'Recepción Apertura':        'Coordinador Comercial',
+  'Recepción Cierre':          'Coordinador Comercial',
+  'Áreas Públicas':            'Ama de Llaves',
+  'Habitaciones':              'Ama de Llaves',
+  'Servicio A la Carta':       'Jefe de Operaciones',
+  'Servicio Buffet':           'Jefe de Operaciones',
+  'Servicio Buffet Plaza':     'Jefe de Operaciones',
+  'Cierre Plaza Paraíso':      'Jefe de Operaciones',
+  'Servicio Almeja Playera':   'Jefe de Operaciones',
+  'Servicio Chiringuito':      'Jefe de Operaciones',
+  'Apertura Cocina':           'Jefe de Operaciones',
+  'Cocina Central':            'Jefe de Operaciones',
+  'Cocina Almeja Playera':     'Jefe de Operaciones',
+  'Chiringuito Apertura':      'Jefe de Operaciones',
+  'Cierre Chiringuito':        'Jefe de Operaciones',
+  'Sunset Bar':                'Jefe de Operaciones',
+  'Sunset Deck':               'Jefe de Operaciones',
+  'Apertura Spa':              'Jefe de Operaciones',
+  'Cierre Spa':                'Jefe de Operaciones',
+  'Mantenimiento':             'Jefe de Mantenimiento',
+  'Compras / Bodega Apertura': 'Coordinador de Compras',
+  'Compras / Bodega Cierre':   'Coordinador de Compras',
+};
+let CL={
+  'Recepción Apertura':[
+    'Oficina despejada',
+    'Parte interna del counter con material de trabajo',
+    'Parte externa del counter con informativo',
+    'Habladores',
+    'Grab&Go montado y surtido de productos',
+    'Nevera de Coca Cola',
+    'Estación de bebidas',
+    'Muebles ordenados y limpios vista hacia el espejo',
+    'Muebles ordenados y limpios vista hacia el counter',
+    'Ventanales limpios de lado izquierdo',
+    'Ventanales limpios de lado derecho',
+    'Puerta ingreso a recepción',
+    'Puerta salida recepción tomada desde el interior',
+    'Bodega de botones',
+    'Bodega ordenada y limpia',
+    'Nevera de Bodega con bebidas del minibar ordenada y abastecida',
+    'Listado de reservas',
+    'Tarjetas de registro',
+  ],
+  'Recepción Cierre':[
+    'Oficina despejada',
+    'Parte interna del counter sin material de trabajo',
+    'Parte externa del counter con informativo',
+    'Grab&Go desmontado sin hablador de precios',
+    'Nevera de Coca Cola',
+    'Estación de bebidas desmontada',
+    'Nevera apagada (vinos)',
+    'Nevera apagada (cervezas)',
+    'Bodega ordenada y limpia',
+    'Nevera de Bodega con bebidas del minibar ordenada y abastecida',
+    'Letrero asistencia y retorno',
+    'Aire Apagado',
+    'Recepción luces y equipos apagados',
+    'Puertas cerradas',
+  ],
+  'Áreas Públicas':[
+    'Lobby Central',
+    'Restaurante Plaza Paraíso',
+    'Área Piscina',
+    'Camas Playa - Alrededor',
+    'Chiringuito - Baños',
+    'Sunset Bar - Baños',
+    'Sunset Deck - Fogata',
+    'Recepción - Baños',
+    'Baños colaboradores',
+    'Administración - Sala de Reuniones',
+    'Restaurante Almeja Playera',
+    'Áreas Comunes',
+    'Recorrido de playa',
+    'Parqueadero frente Recepción',
+    'Casilleros Colaboradores',
+    'Salon Villamil',
+    'Oficina Villa Master',
+    'Sunset Planta alta',
+    'Cuarto de basura',
+    'Area buffet - Baños',
+  ],
+  'Habitaciones':[
+    'Baño – Ducha limpia y sin residuos',
+    'Inodoro limpio y desinfectado',
+    'Lavamanos limpio',
+    'Amenities completos y ordenados',
+    'Toallas en buen estado y dobladas',
+    'Cama tendida correctamente',
+    'Habitación limpia y ordenada',
+    'TV y AC funcionando correctamente',
+    'Minibar revisado y completo',
+    'Espejo limpio sin manchas',
+    'Papelera limpia',
+    'Número de habitación registrado',
+  ],
+  'Servicio A la Carta':[
+    {t:'Servicio',tipo:'comida'},
+    'Bodega servicio: ordenada y limpia',
+    'Restaurante: mesas montaje',
+    'Estación bebidas-frutas-pan / mesón limpio / estación bebidas',
+    'Mesa lateral restaurante Palo Santo',
+  ],
+  'Servicio Buffet':[
+    {t:'Tipo de Servicio',tipo:'comida'},
+    'Bodega de Servicio: ordenada y limpia',
+    'Restaurante: mesas montaje',
+    'Mesas frutas / ceviches + guarniciones / Panecillos',
+    'Mesa de quesos+embutidos+pan / sopas + ensaladas + vinagretas / ensaladas',
+    'Estación de Café y aromáticas',
+    'Linea caliente: proteínas y guarniciones en samovares con rompevientos + tapas - etiquetas con nombres',
+    'Mesa lateral: Avena / Estación de postres',
+    'Estación de bebidas',
+    {t:'¿Salió el menú completo?',tipo:'sino'},
+  ],
+  'Servicio Buffet Plaza':[
+    {t:'Servicio',tipo:'comida'},
+    'Bodega servicio: ordenada y limpia',
+    'Plaza Paraiso: mesas montaje',
+    'Frutas-cereal-yogurt / Ceviches + guarniciones / Panecillos',
+    'Mesa quesos+embutidos+pan / Sopas+ensaladas+vinagretas / Ensaladas',
+    'Línea Caliente: proteínas y guarniciones en samovares',
+    'Estación Avena+jugos detox / Estación de Postres',
+    'Estación de bebidas frías',
+    'Estación de bebidas calientes',
+    {t:'¿Salió el menú completo?',tipo:'sino'},
+    {t:'Indica el número de menú que salió y los items incompletos en caso de existir',tipo:'texto'},
+    {t:'¿Tuvimos menú de niños?',tipo:'sino'},
+    {t:'Montaje de menú de niños Palo Santo',tipo:'foto'},
+    {t:'Foto del menú',tipo:'foto'},
+  ],
+  'Cierre Plaza Paraíso':[
+    'Bodega servicio: ordenada y limpia',
+    'Nevera Dasani limpia',
+    'Armario de bebidas ordenado y limpio',
+    'Alto Shaam ordenado',
+    'Armarios debajo de mesón 1',
+    'Armarios debajo de mesón 2',
+    'Armarios debajo de mesón 3',
+    'Armarios debajo de mesón 4',
+    'Armarios debajo de mesón 5',
+    'Armarios debajo de mesón 6',
+    'Área interna de plaza lateral TV: limpia',
+    'Área interna de plaza lateral puerta central: limpio',
+    'Mesón de plaza: desmontaje / limpio',
+    'Dispensador de bebidas: sin boquillas',
+  ],
+  'Servicio Almeja Playera':[
+    'Área de bar limpia y ordenada',
+    'Equipo frigorífico: Lado derecho',
+    'Equipo frigorífico: Lado izquierdo',
+    'Bodega / repisa de licores y cristalería',
+    'Cava de vinos',
+    'Mesas montaje / desmontaje',
+    'Equipos de trabajo: encendido / apagado',
+    'Televisores sala: encendidos / apagados',
+  ],
+  'Servicio Chiringuito':[
+    {t:'Tipo de ILD',tipo:'apertura_cierre'},
+    'Bodega de servicio: ordenada y limpia',
+    'Rack de audio: encendido / apagado',
+    'Mesa mise en place snacks salsas + queso: montaje / desmontaje',
+    'Mesón mise en place para snacks / mesón limpio',
+    'Restaurante sillas y mesas: montaje / desmontaje',
+    'Linea de camas balinesas vista desde salida a la playa: montaje / desmontaje',
+    'Piscina chiringuito Hongo: encendido / apagado',
+  ],
+  'Apertura Cocina':[
+    'Área de Steward Back limpia y organizada',
+    'Mesón de apoyo y área de Steward limpio',
+    'Mesón de trabajo de Steward limpio y ordenado',
+    'Cámaras de frío en temperatura correcta',
+    'Área de producción limpia',
+    'Equipos operativos y en buen estado',
+    'Mise en place lista para el servicio',
+    'Ventilación funcionando correctamente',
+    'Stock revisado y suficiente',
+    'Registro de temperatura completado',
+  ],
+  'Cocina Central':[
+    'Área de Steward Back',
+    'Mesón de apoyo y área de Steward',
+    'Mesón de trabajo de Steward debe estar limpio y ordenado',
+    'Congelador limpio y en temperatura',
+    'Cámaras de frío cerradas y en temperatura',
+    'Basura retirada y contenedores limpios',
+    'Pisos y paredes limpios',
+    'Equipos apagados correctamente',
+    'Utensilios guardados en su lugar',
+    'Área de lavado limpia',
+    'Registro de temperaturas completado',
+  ],
+  'Cocina Almeja Playera':[
+    'Mesa fría de trabajo con puerta cerrada',
+    'Parrilla con la lata afuera',
+    'Cocina de 6 estufa con la lata afuera',
+    'Plancha limpia con la lata afuera',
+    'Parte inferior de la freidora',
+    'Parte exterior de la freidora',
+    'Mesa de montaje de platos',
+    'Pozo de lavado de cocina',
+    'Mesa fría con la puerta abierta',
+    'Parte inferior del mesón - baño maría',
+    'Parte superior del mesón - baño maría',
+    'Piso área de despacho limpio y seco',
+    'Llave de paso de gas cerrada',
+    'Piso área de Steward limpio y seco',
+    'Mesón de recepción vajilla limpio y desocupado',
+    'Pozo de lavado de cocina limpio y seco',
+    'Mesón de trabajo limpio y despejado',
+  ],
+  'Chiringuito Apertura':[
+    'Cocina de 4 Hornillas con bandeja limpia',
+    'Plancha Limpia con su bandeja afuera',
+    'Parte superior de freidora',
+    'Parte inferior de freidora',
+    'Bases de mesas de apoyo - plancha',
+    'Base inferior de la base de la cocina',
+    'Mesa y baño frío',
+    'Parte inferior del mesón - baño maría',
+    'Parte superior del mesón - baño maría',
+    'Piso área de despacho limpio y seco',
+    'Llave de paso de gas cerrada',
+    'Piso área de Steward limpio y seco',
+    'Mesón de recepción vajilla limpio y desocupado',
+    'Pozo de lavado de cocina limpio y seco',
+    'Mesón de trabajo limpio y despejado',
+  ],
+  'Cierre Chiringuito':[
+    'Cocina de 4 Hornillas con bandeja limpia',
+    'Plancha Limpia con su bandeja afuera',
+    'Parte superior de freidora',
+    'Parte inferior de freidora',
+    'Bases de mesas de apoyo - plancha',
+    'Base inferior de la base de la cocina',
+    'Mesa y baño frío',
+    'Parte inferior del mesón - baño maría',
+    'Parte superior del mesón - baño maría',
+    'Piso área de despacho limpio y seco',
+    'Llave de paso de gas cerrada',
+    'Piso área de Steward limpio y seco',
+    'Mesón de recepción vajilla limpio y desocupado',
+    'Pozo de lavado de cocina limpio y seco',
+    'Mesón de trabajo limpio y despejado',
+  ],
+  'Sunset Bar':[
+    'Bar Sunset – Vista frontal puerta de ingreso',
+    'Bar Sunset – Vista frontal',
+    'Bar Sunset – Estación de café y aromáticas',
+    'Bar Sunset – Vista interior',
+    'Bar Sunset – Lavadero de copas',
+    'Bar Sunset – Mesa de apoyo botellas',
+    'Bar Sunset – Vista interior cajonera 1',
+    'Bar Sunset – Vista interior Cajonera 2',
+    'Bar Sunset – Vista interior cajonera 3',
+    'Bar Sunset – Vista interior lateral de cajones',
+    'Bar Sunset – Vista interior Bodegas',
+    'Bar Sunset – Juegos de mesa',
+    'Bar Sunset – Refrigerador Corona Parte Alta',
+    'Bar Sunset – Refrigerador Corona Parte Baja',
+    'Bar Sunset – Refrigerador Pilsener Parte Alta',
+    'Bar Sunset – Refrigerador Pilsener Parte Baja',
+    'Bar Sunset – Refrigerador Coca Cola Parte Alta',
+    'Bar Sunset – Refrigerador Coca Cola Parte Baja',
+    'Bar Sunset – Sala y Chimenea',
+    'Bar Sunset – Mesas cocteleras',
+    'Dispensador Coca Cola con/sin Boquillas instaladas',
+  ],
+  'Sunset Deck':[
+    {t:'ILD de',tipo:'apertura_cierre'},
+    'Vista frontal del Sunset Deck: montaje / desmontaje',
+    'Nevera #1 - Parte Alta',
+    'Nevera #1 - Parte Baja',
+    'Nevera #2 - Parte Alta',
+    'Nevera #2 - Parte Baja',
+    'Nevera #3 - Parte Alta',
+    'Nevera #3 - Parte Baja',
+    'Parte interna inferior del bar: montaje / desmontaje',
+    'Silla y mesas del Deck: montaje / desmontaje',
+    'Sillas y mesas junto a fogata: montaje / desmontaje',
+    'Camas, sillas y perezosas playa: montaje/desmontaje',
+  ],
+  'Apertura Spa':[
+    'Ventanal boutique / recepción SPA limpio y ordenado (sin polvo, huellas ni manchas)',
+    'Exhibidor Grab & Go ordenado, precios visibles, productos con fecha vigente',
+    'Baño hombres – pisos, duchas, inodoros, urinarios, espejos y dispensadores limpios y abastecidos',
+    'Baño mujeres – pisos, duchas, inodoros, espejos y dispensadores limpios y abastecidos',
+    'Counter SPA: aceites, cremas, sales, toallas y batas ordenadas y suficientes',
+    'Toallas y sábanas de camilla dobladas perfectamente',
+    'Sala de masajes 1: camilla tendida con sábana impecable, detalle floral o aromático fresco',
+    'Sala de descanso: sillones ordenados, infusiones preparadas (jamaica, hierbaluisa, menta), fruta de mano',
+    'Gimnasio: pisos limpios, máquinas desinfectadas, mancuernas ordenadas por peso, mats sin polvo',
+    'Sauna seca: limpia, eucalipto fresco colocado, temperatura inicial verificada (80–90 °C)',
+    'Baño turco: vapor funcional, eucalipto o infusión colocada, temperatura verificada (45–50 °C)',
+    'Duchas: cabezales limpios, agua caliente disponible',
+    'Lockers: todos cerrados, sin objetos olvidados del día anterior',
+  ],
+  'Cierre Spa':[
+    'Camillas desinfectadas, sábanas retiradas a lavandería',
+    'Toallas usadas recolectadas y enviadas a lavandería',
+    'Aceites y cremas tapados y guardados en lugar fresco',
+    'Grab & Go: conteo rápido de stock, reporte de quiebres al día siguiente',
+    'Baños hombres y mujeres: última limpieza profunda realizada',
+    'Sauna seca apagada, puerta abierta para ventilación',
+    'Baño turco apagado, vapor residual eliminado',
+    'Duchas cerradas, cabezales sin agua residual',
+    'Gimnasio: máquinas desinfectadas, mancuernas ordenadas, piso barrido',
+    'Sala de descanso: Dispensador de agua saborizada limpio y seco',
+    'Aire acondicionado apagado en todas las áreas',
+    'Luces apagadas (excepto luces de seguridad nocturnas)',
+    'Armarios y counter cerrados',
+  ],
+  'Mantenimiento':[
+    'Lectura de consumo de energía',
+    'Lectura de consumo de agua',
+    'Consumo de Gas',
+    'Consumo de diesel del generador',
+    'Carga de batería de Generador',
+    'Horas de trabajo del generador',
+    'Estado de la bomba contra incendios',
+    'Carga de batería de bomba contra incendios',
+    'Calibración y funcionamiento de sistema de bombeo de agua',
+    'Niveles de agua de cisterna de agua limpia',
+    'Niveles de pozos sépticos',
+    'Temperatura de agua caliente',
+  ],
+  'Compras / Bodega Apertura':[
+    'Bodega Suministros - Primer corredor - Planta alta',
+    'Bodega Suministros - Segundo Corredor – Planta Alta',
+    'Bodega de Vajilla – Planta Alta',
+    'Escalera sin productos',
+    'Bodega Alimentos - Planta Baja (hacia la puerta)',
+    'Bodega Alimentos - Planta Baja (hacia las perchas)',
+    'Temperatura de cámaras - Cámara de frío',
+    'Cámara de Congelación',
+    'Área de Porcionamiento',
+    'Exterior de la Bodega',
+    'Vehículo de Compras',
+    'Cabina interna del chofer',
+    'Cabina interna del cajón de camión',
+  ],
+  'Compras / Bodega Cierre':[
+    'Bodega Suministros - Primer corredor - Planta alta',
+    'Bodega Suministros - Segundo Corredor – Planta Alta',
+    'Bodega de Vajilla – Planta Alta',
+    'Escalera sin productos',
+    'Bodega Alimentos - Planta Baja (hacia la puerta)',
+    'Bodega Alimentos - Planta Baja (hacia las perchas)',
+    'Temperatura de cámaras - Cámara de frío',
+    'Cámara de Congelación',
+    'Área de Porcionamiento',
+    'Exterior de la Bodega',
+    'Registro de entradas y salidas completo',
+    'Inventario actualizado',
+    'Puertas y candados cerrados',
+  ],
+};
+let USERS=[
+  {id:'dev',nombre:'Desarrollador',pin:'9999',rol:'desarrollador',areas:[]},
+  {id:'g1',nombre:'Gerencia General',pin:'0000',rol:'gerencia',areas:[]},
+  {id:'a1',nombre:'Jefe de Operaciones',pin:'1001',rol:'aprobador',areas:['Servicio A la Carta','Servicio Buffet','Servicio Buffet Plaza','Cierre Plaza Paraíso','Apertura Cocina','Cocina Central','Cocina Almeja Playera','Servicio Almeja Playera','Sunset Bar','Sunset Deck','Chiringuito','Apertura Spa','Cierre Spa']},
+  {id:'a2',nombre:'Coordinador Comercial',pin:'1002',rol:'aprobador',areas:['Recepción Apertura','Recepción Cierre']},
+  {id:'a3',nombre:'Jefe de Mantenimiento',pin:'1003',rol:'aprobador',areas:['Mantenimiento']},
+  {id:'a4',nombre:'Ama de Llaves',pin:'1004',rol:'aprobador',areas:['Áreas Públicas','Habitaciones']},
+  {id:'a5',nombre:'Coordinador de Compras',pin:'1005',rol:'aprobador',areas:['Compras / Bodega Apertura','Compras / Bodega Cierre']},
+  {id:'c1',nombre:'Recepcion',pin:'',rol:'colaborador',areas:['Recepción Apertura','Recepción Cierre']},
+  {id:'c2',nombre:'Ángel Benites',pin:'',rol:'colaborador',areas:['Recepción Apertura','Recepción Cierre']},
+  {id:'c3',nombre:'Daniela',pin:'',rol:'colaborador',areas:['Recepción Apertura','Recepción Cierre']},
+  {id:'c4',nombre:'Lady',pin:'',rol:'colaborador',areas:['Recepción Apertura','Recepción Cierre']},
+  {id:'c5',nombre:'Jonathan Mazzini',pin:'',rol:'colaborador',areas:['Recepción Apertura','Recepción Cierre']},
+  {id:'c6',nombre:'Daniel Guevara',pin:'',rol:'colaborador',areas:['Áreas Públicas']},
+  {id:'c7',nombre:'Dary Hidalgo',pin:'',rol:'colaborador',areas:['Áreas Públicas']},
+  {id:'c8',nombre:'Jocelyn',pin:'',rol:'colaborador',areas:['Habitaciones']},
+  {id:'c9',nombre:'Justin',pin:'',rol:'colaborador',areas:['Habitaciones']},
+  {id:'c10',nombre:'Shirley Fuentes',pin:'',rol:'colaborador',areas:['Apertura Cocina','Cocina Central','Chiringuito','Servicio A la Carta','Servicio Buffet','Servicio Buffet Plaza','Sunset Bar','Sunset Deck']},
+  {id:'c11',nombre:'Fernando Urrutia',pin:'',rol:'colaborador',areas:['Apertura Cocina','Cocina Central','Chiringuito','Servicio A la Carta','Servicio Buffet','Servicio Buffet Plaza','Sunset Bar','Sunset Deck']},
+  {id:'c12',nombre:'Andrés Mite',pin:'',rol:'colaborador',areas:['Cocina Almeja Playera']},
+  {id:'c13',nombre:'Adriana',pin:'',rol:'colaborador',areas:['Servicio Almeja Playera']},
+  {id:'c14',nombre:'Manuel C.',pin:'',rol:'colaborador',areas:['Mantenimiento']},
+  {id:'c15',nombre:'Xavier L.',pin:'',rol:'colaborador',areas:['Mantenimiento']},
+  {id:'c16',nombre:'Josue Aquino',pin:'',rol:'colaborador',areas:['Compras / Bodega Apertura','Compras / Bodega Cierre']},
+  {id:'c17',nombre:'Departamento Compras',pin:'',rol:'colaborador',areas:['Compras / Bodega Apertura','Compras / Bodega Cierre']},
+  {id:'c18',nombre:'Eventual',pin:'',rol:'colaborador',areas:['Áreas Públicas','Servicio A la Carta','Sunset Bar','Sunset Deck','Chiringuito','Apertura Spa','Cierre Spa']},
+];const ILD_SEED = [{"id": 34190, "area": "Recepción Cierre", "turno": "Cierre", "selecciones": {}, "usuario": "Lady", "fecha": "2026-06-18T01:45:00.882Z", "checks": {"0": true, "1": true, "2": true, "3": true, "4": true, "5": true, "6": true, "7": true, "8": true, "9": true, "10": true, "11": true, "12": true, "13": true}, "textos": {}, "fotos": [{"nombre": "ILD34190_foto1.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQAqgaxZ2wNQSLeMYu8MWnMbARDxBz4sQdp3L8VjbS0MP64"}, {"nombre": "ILD34190_foto2.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQBDpXbnJ1EFSa3GG1y9c3H-AWIN0U8wUzbNdGoOYGpgB4o"}, {"nombre": "ILD34190_foto3.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQBBjfXvms9jQKnBelaSL9xaARZM_DGR1xKJd09nUhojLTA"}, {"nombre": "ILD34190_foto4.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQBz2JJIkZH3Rr7MnMV0MxC_AW0cGkxXBQJ0Lgr_uE-_aas"}, {"nombre": "ILD34190_foto5.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQAVAdZX49aEQaIinMUFMNYZATyGAf62W5pvPUtW7MErMnA"}, {"nombre": "ILD34190_foto6.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQBbfHoqAFTMSYHBUKly_-3mAcMstjVLskGOp0R3HlBDtSw"}, {"nombre": "ILD34190_foto7.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQABZfurUh2KSaIlZvP-FCmQAUf3W3SzW8et0JjOJMhNwx4"}, {"nombre": "ILD34190_foto8.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQBd9I9X0bu1R4rqOGLe3KG7AUoCza2tdRYwdPnUTbw4xEc"}, {"nombre": "ILD34190_foto9.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQDKc_wUkt69RJ38A269aeR0ASewWWAnEBrsAuJe8KuQLlM"}, {"nombre": "ILD34190_foto10.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQB0lCI5R1z4RKYsgw06ET9TAb3jTfMZ5QiQD9eMJOgZxnY"}, {"nombre": "ILD34190_foto11.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQAgMEUg1ObhSoFKAMptICrVAYImccjhbUrxLfLlT__sJ4U"}, {"nombre": "ILD34190_foto12.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQD--pGokpzuQpsOOfDBJsLVAcp6gvx19qQ2s92NPDpblT8"}, {"nombre": "ILD34190_foto13.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQB3lCXfjD7rTJnw0g0KBdaOAZfhJLzbCi2ZP_wkpJayEJg"}, {"nombre": "ILD34190_foto14.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQC9M8mQfpKHSbnMGhMASUlTAU8ms4jQHaxGLE5YP-vYKF0"}], "obs": "", "estado": "Pendiente", "notaJef": "", "aprobador": "", "fechaAprobacion": "", "totalItems": 14, "completados": 14, "aprobadorEsperado": "Coordinador Comercial", "Codigo": "ILD-34190", "importado": true}, {"id": 89192, "area": "Recepción Apertura", "turno": "Apertura", "selecciones": {}, "usuario": "Sheila", "fecha": "2026-06-17T13:05:58.311Z", "checks": {"0": true, "1": true, "2": true, "3": true, "4": true, "5": true, "6": true, "7": true, "8": true, "9": true, "10": true, "11": true, "12": true, "13": true, "14": true, "15": true, "16": true, "17": true}, "textos": {}, "fotos": [{"nombre": "ILD89192_foto1.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQAGeKUB9qu8SpyWn7hlE0YNAbUf6bRMENT9qcCT79JkEIQ"}, {"nombre": "ILD89192_foto2.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQAFXWfOtaiBSKvWlX24FXNwAcrEnfOSGsZED82T_Ieh7Mw"}, {"nombre": "ILD89192_foto3.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQAcTMcX8qfYTbJIKrNSDkamAS6F4zBCucBM_j64v4RGKNM"}, {"nombre": "ILD89192_foto4.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQBI64vh7PiiSpbWcH9qMjpdAXd8Y9SKFTWyS_pVTfoPmwU"}, {"nombre": "ILD89192_foto5.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQBgm5YowahAS4fJm_79vOa8AeZYI8ucCypZE_LroFGhq18"}, {"nombre": "ILD89192_foto6.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQAmJfwc4yCTTo6NvEuXxJlYAaLKo4RVkCAarBsE4BbWmhE"}, {"nombre": "ILD89192_foto7.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQAXUkXVws0JTrVpxmao9FhDAbvKH2s7khMgND-jUP0nPcM"}, {"nombre": "ILD89192_foto8.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQCd0lv_WaMVS7Iyq9Xr2Y7bATqPcmVdlmF_eWOphxnPJ3k"}, {"nombre": "ILD89192_foto9.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQBTlN1IfeJBSpiHbOlWxwGpAQy9NGXD81x11nofrrs1ipQ"}, {"nombre": "ILD89192_foto10.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQBuoU2Mil2RR4ghmCa9qk7WASVQxtezCsBpa44WAPhgbe4"}, {"nombre": "ILD89192_foto11.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQCpz5e_z6fUQLcaUduAc410AfNy0jI2mchPoCBoofH8Q8Q"}, {"nombre": "ILD89192_foto12.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQB78LLioGM6SrtbBU1y9HknASkx4Hjypwkm_CC5ww85YUU"}, {"nombre": "ILD89192_foto13.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQDjUIeuIEAXRbqA5Cf3Dgv1AQAkJpy3NdcEDVPRezkUV6I"}, {"nombre": "ILD89192_foto14.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQCietKql-OOR6wPb7C1BTCuAYFE9U8YRX3Mb1DyOFOyN1s"}, {"nombre": "ILD89192_foto15.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQDXtsF7lBcwQ4Mq3NiuGba0Abzt5-BZkYPw6ZpEjd7lCEw"}, {"nombre": "ILD89192_foto16.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQAZcvw3zDSTTalW3m7E1OE6Af37A2_4bzTEvo5lpzg0INk"}, {"nombre": "ILD89192_foto17.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQDBNnYA9EDZSb4E39vRR_5DAf4UJrLm6L_MM7mi-SzYZwY"}, {"nombre": "ILD89192_foto18.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQCBJzxd1IFATov17ugeVD1ZAfyLpd0r6dcJi-SYmmEu1rU"}], "obs": "", "estado": "Pendiente", "notaJef": "", "aprobador": "", "fechaAprobacion": "", "totalItems": 18, "completados": 18, "aprobadorEsperado": "Coordinador Comercial", "Codigo": "ILD-89192", "importado": true}, {"id": 36839, "area": "Cierre Spa", "turno": "Cierre", "selecciones": {}, "usuario": "Maricela", "fecha": "2026-06-15T00:21:17.443Z", "checks": {"0": true, "1": true, "2": true, "3": true, "4": true, "5": true, "6": true, "7": true, "8": true, "9": true, "10": true, "11": true, "12": true}, "textos": {}, "fotos": [{"nombre": "ILD36839_foto1.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQCFAfNzzSY7Q588l2kS8IFjAeilOz2lqD2CyzxYlTzBfGA"}, {"nombre": "ILD36839_foto2.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQArWuqt82hDSYiSlgerIQyjAf0IzB7wsli6yQn_yfXiTwU"}, {"nombre": "ILD36839_foto3.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQC7mWlrba4uTqZWB0sZrOVwAeo994vDHEhD2dr_mdBUWLM"}, {"nombre": "ILD36839_foto4.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQBzbT7B850sS5xUzSgUDL93AczyxgM3AEcc7dDv_fphz40"}, {"nombre": "ILD36839_foto5.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQDhiJUvHYK1QYCoKhDUyWnhAV3iItCPPtyGo66UeqtPOVU"}, {"nombre": "ILD36839_foto6.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQD0eJSXDNzSQLkTzk3iLPWzAUawRhTFIPP7BQ_pyI3XJqc"}, {"nombre": "ILD36839_foto7.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQC0iSkTU5GSTKQ207nM3BWhAZWVhrZcIV7fA549_hehwGA"}, {"nombre": "ILD36839_foto8.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQDB7Po-MpktTbskvXqa7exoAdEiOBp6yltSAx7YY1YcFAU"}, {"nombre": "ILD36839_foto9.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQDx8V0h4QZ4TYwnqryZH4aBAf-2x1Ui5JGXnSIfZdDn8Nk"}, {"nombre": "ILD36839_foto10.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQBVu7WYzizGTJMyvfZqkJnKAZlCvSMINRZ3_G-2xm7fbjE"}, {"nombre": "ILD36839_foto11.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQCa2p81tM4ARorGavGN_e2uAXkofDiQ-eadOgv0LBPaIV8"}, {"nombre": "ILD36839_foto12.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQCd8dJcsjYwT4PAg9pK_d3NAfZkoLotqH7nFPBHX--i15A"}, {"nombre": "ILD36839_foto13.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQDv6f4lPmiLQadM2eWTgR7LAaqX3rHjt_648l5g9bq7Q2w"}], "obs": "", "estado": "Aprobado", "notaJef": "", "aprobador": "Jefe de Operaciones", "fechaAprobacion": "2026-06-16T15:37:24.114Z", "totalItems": 13, "completados": 13, "aprobadorEsperado": "Jefe de Operaciones", "Codigo": "ILD-36839", "importado": true}, {"id": 22710, "area": "Apertura Spa", "turno": "Apertura", "selecciones": {}, "usuario": "Maricela", "fecha": "2026-06-14T15:33:49.889Z", "checks": {"0": true, "1": true, "2": true, "3": true, "4": true, "5": true, "6": true, "7": true, "8": true, "9": true, "10": true, "11": true, "12": true}, "textos": {}, "fotos": [{"nombre": "ILD22710_foto1.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQBqsgHe9obMQ6DQD9fnLsHHAVcPDi7u-O1R0AThYget5lQ"}, {"nombre": "ILD22710_foto2.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQClnYpruc1YQK1g6YPrP3k4AVSJRkSsbgLm4HVN0snvZGI"}, {"nombre": "ILD22710_foto3.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQBDoJH3UYAOTKr9v6Nh94GyAYIp4nLMhjDFMLP_7VNOifk"}, {"nombre": "ILD22710_foto4.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQA1tWzaCui6TbWrW00wIP_uAQpCL9CZKpVkfU2lle80-3w"}, {"nombre": "ILD22710_foto5.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQBQESsfrcdARbrpnChxEDyWAUYLGEm-fKoKpVS-Mz4nYGE"}, {"nombre": "ILD22710_foto6.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQDCCycB2U9WQohXXff3Xes4AdpuYuPYmUAjW9ZvOQWQ3b8"}, {"nombre": "ILD22710_foto7.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQCqmHTqfUAyTqRDee9Pm1s8AaaeUQCGbdPa8jB7UuDFgFc"}, {"nombre": "ILD22710_foto8.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQCbByAuOFroRIegyvhcIjkKAcsYHcyhlMM_iRsvNdAmLF0"}, {"nombre": "ILD22710_foto9.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQCex0RQYCWZQY6HDFkp4Gm0Adcn7cRp6TuQQA_-gwh4Tqs"}, {"nombre": "ILD22710_foto10.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQDvXVn0tVWGSrxvuKvUqkvWAV9QdTTkpi1MDYw0Z5jPDNI"}, {"nombre": "ILD22710_foto11.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQATudfPopl1QLdj9jlCOyPMAaUVBCbCj91aCksT7kLcsEY"}, {"nombre": "ILD22710_foto12.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQA2xAspGTSZTIu36rdu7MTIAaUN8tyb41lMdldVqMGIZxk"}, {"nombre": "ILD22710_foto13.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQA37RG_XvDETokgRF-81cnPATprQY9YFZsBRMzHmk_p1cg"}], "obs": "", "estado": "Pendiente", "notaJef": "", "aprobador": "", "fechaAprobacion": "", "totalItems": 13, "completados": 13, "aprobadorEsperado": "Jefe de Operaciones", "Codigo": "ILD-22710", "importado": true}, {"id": 15096, "area": "Cierre Spa", "turno": "Cierre", "selecciones": {}, "usuario": "Maricela", "fecha": "2026-06-14T00:28:14.756Z", "checks": {"0": true, "1": true, "2": true, "3": true, "4": true, "5": true, "6": true, "7": true, "8": true, "9": true, "10": true, "11": true, "12": true}, "textos": {}, "fotos": [{"nombre": "ILD15096_foto1.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQA10bwQojdHT5uck8KSbXkpARODypGRPGM9i0oemoPg1o4"}, {"nombre": "ILD15096_foto2.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQDSzaMNyf9fRK6mcnp7kCV1Ae7ZCFXvEQARMoFrMz9Sg-w"}, {"nombre": "ILD15096_foto3.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQB7A-VGxKCnSLlMV3DFuaMhAVHTSVgsL3Umj4YhS32XHC0"}, {"nombre": "ILD15096_foto4.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQDI6Y_oot7sS6CF0SFZcxfaAczGThTpxs2j1tjGqFw338o"}, {"nombre": "ILD15096_foto5.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQDN_1Dj3m9gTJyDvbhRmq0AAfhWJDWrUOTDjB9zSMtFsoA"}, {"nombre": "ILD15096_foto6.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQD22oa0Q5U0SZaYx5S4BVHFAQ7ZJb6-myneUuQ6uRo0roM"}, {"nombre": "ILD15096_foto7.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQAfgQ4CBqe1Q7stXcRlY3qyASS8w9NRHW95SETr3b9kax8"}, {"nombre": "ILD15096_foto8.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQBsRjsaUVmYQqv0druwCWWbAT9W4HpH1fIug7N5cetUHL8"}, {"nombre": "ILD15096_foto9.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQD6GuRZL6fFQrDZbouv0Sf9AVwrNmzPI2kG_xQZpkLDw2I"}, {"nombre": "ILD15096_foto10.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQBK7oZ0715eQKceKriPEeY9AQBU8FAv_3X1OreCVf9o6lE"}, {"nombre": "ILD15096_foto11.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQDI4Zpg9yE1RbDmuDxmH13hAdnoo9GRm3Q4-24Hvsj1gAM"}, {"nombre": "ILD15096_foto12.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQDCcTA77Sy1T4Zt4ig-SI5PATiG5XAnmKxLTEZxucreJcM"}, {"nombre": "ILD15096_foto13.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQA0upED-i5SSqXO-rjIEM7DAe0NkM7Gw59xYiKukFXVkcI"}], "obs": "", "estado": "Pendiente", "notaJef": "", "aprobador": "", "fechaAprobacion": "", "totalItems": 13, "completados": 13, "aprobadorEsperado": "Jefe de Operaciones", "Codigo": "ILD-15096", "importado": true}, {"id": 72324, "area": "Apertura Spa", "turno": "Apertura", "selecciones": {}, "usuario": "Maricela", "fecha": "2026-06-13T15:38:24.010Z", "checks": {"0": true, "1": true, "2": true, "3": true, "4": true, "5": true, "6": true, "7": true, "8": true, "9": true, "10": true, "11": true, "12": true}, "textos": {}, "fotos": [{"nombre": "ILD72324_foto1.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQAS562Q_USSRoAYoAmvb9zHASgwOCFVoILinnHVy82QPF8"}, {"nombre": "ILD72324_foto2.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQBU6paw2lhpRKTg9-KOauSuAUb5yrOW0JR6L54cYihNs6Y"}, {"nombre": "ILD72324_foto3.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQDgpbNkTNK0QbNHgnCT7U1rAe0izELrss7GwaghSrah-jg"}, {"nombre": "ILD72324_foto4.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQAqcJ32Ss8JQJ6kOt6YzEaUAWnxJa9Zs3JLL2wYfoUO5u4"}, {"nombre": "ILD72324_foto5.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQD9uoVdfcWaQ6KTSwrmKeEXAWfv9zfmqSd6AEI-hA-o_18"}, {"nombre": "ILD72324_foto6.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQCFC42iwZ1nSouglCPXcDdpATchcpAIjNmehEdqPah8Pi0"}, {"nombre": "ILD72324_foto7.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQCdgD9x1LJWRqtSbLLHVgGBAelRdHqdcFvzoYpED1H8w4E"}, {"nombre": "ILD72324_foto8.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQBtgXglTop8SISbGzvIkGQOAZxhTPXkqm9FUfLzZSNbCDQ"}, {"nombre": "ILD72324_foto9.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQDGRsKXZnfMTrQ5ffqxEjGLAResFC-BVWi73ApYSitR2KU"}, {"nombre": "ILD72324_foto10.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQC9he-eVdwtRrFT7sZcHxP4AYCzljxgbmeScuoh3upFWwM"}, {"nombre": "ILD72324_foto11.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQAxHLBMaUkcTqiqDj2kDgrvAQe2RGLcSFzv41Ua24m14x8"}, {"nombre": "ILD72324_foto12.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQAIhcoOh2YWR5qizWsAmFfEAd1JV-tHZEdoQ1vNYeKxkbI"}, {"nombre": "ILD72324_foto13.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQCpuOdfXig6TqQUJqULOmZSAXHr7Gcc4qdI_YD8cFKXRXs"}], "obs": "", "estado": "Pendiente", "notaJef": "", "aprobador": "", "fechaAprobacion": "", "totalItems": 13, "completados": 13, "aprobadorEsperado": "Jefe de Operaciones", "Codigo": "ILD-72324", "importado": true}, {"id": 49963, "area": "Cierre Spa", "turno": "Cierre", "selecciones": {}, "usuario": "Maricela", "fecha": "2026-06-13T00:34:47.147Z", "checks": {"0": true, "1": true, "2": true, "3": true, "4": true, "5": true, "6": true, "7": true, "8": true, "9": true, "10": true, "11": true, "12": true}, "textos": {}, "fotos": [{"nombre": "ILD49963_foto1.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQCV15hRvFcAQ6kvXuM_Lk8yATFCJkVKMBzrXUFnt_e7scY"}, {"nombre": "ILD49963_foto2.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQCELRAXuVRMSpAOZ7USrP7pAfM_nOXA0LIRVr4QM6Lz7MY"}, {"nombre": "ILD49963_foto3.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQC4I7yMAjtXSqOTVJE22BpkAbLT184n3qgBm89qYevfNco"}, {"nombre": "ILD49963_foto4.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQCJohP2YklnRqr6VtVMIL7JAQYeYSM1rRxJ3SyO1KzYwKI"}, {"nombre": "ILD49963_foto5.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQBMFCakXvytTKqEScRRMijAAfZSdpr6IZsUpf_-AZWannY"}, {"nombre": "ILD49963_foto6.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQCVNpIDz9TYQKr8IrPNbMvIATrz0Q08okYVoOM6UpOYT-4"}, {"nombre": "ILD49963_foto7.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQAuPYfnWM5TR4fZOMrtKjeAAa3pSIBCY7kFfpu559oXRZw"}, {"nombre": "ILD49963_foto8.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQA1zdC4CnP2Q5FnrcTNEf5yAVWV4mhNjiOjGnDEWN3zLsY"}, {"nombre": "ILD49963_foto9.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQB4ACnkZAoUSogbrlyRrTd2Ad9lEbPwJHpG8_djlG5fluU"}, {"nombre": "ILD49963_foto10.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQDbFG7WQKrSR5U3F_4_RCIdARSYjvWE-GlFBmGPdTuKXTA"}, {"nombre": "ILD49963_foto11.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQCCshBbypnWT6iaBBryvr9cAcvYlgMEls66rTma5ZI2RGw"}, {"nombre": "ILD49963_foto12.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQC4ZYXz6I97Q77TVQvGCC5YAYNY9MnE4D0DxsG-0X1HUd0"}, {"nombre": "ILD49963_foto13.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQAmDXoezMHNQJKKWn-614GNAcpGbXVNL61ZwijuHCFxTug"}], "obs": "", "estado": "Aprobado", "notaJef": "SIN OBSERVACIONES, GRACIAS MARICELA.", "aprobador": "Jefe de Operaciones", "fechaAprobacion": "2026-06-16T15:36:17.156Z", "totalItems": 13, "completados": 13, "aprobadorEsperado": "Jefe de Operaciones", "Codigo": "ILD-49963", "importado": true}, {"id": 84175, "area": "Sunset Bar", "turno": "Apertura", "selecciones": {}, "usuario": "Eventual", "fecha": "2026-06-11T17:46:52.514Z", "checks": {"0": true, "1": true, "2": true, "3": true, "4": true, "5": true}, "textos": {}, "fotos": [{"nombre": "ILD84175_foto1.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQD1iC1Cli2OSJe-KLnjN9a_AX28B5TBxlal6SD33AWiAVw"}, {"nombre": "ILD84175_foto2.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQDluQdKgF_4SrI64mXqi2rYAeC61BVYoqa8zBly67nuOvI"}, {"nombre": "ILD84175_foto3.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQBD-lmKTjEhQYA3Y2FDip-LAUa4WbaX--TJJloAHcmQJo4"}, {"nombre": "ILD84175_foto4.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQCXkjdmpr77Q6JQqXYzF9SnAVZga1koT8vynDsRPcynvV8"}, {"nombre": "ILD84175_foto5.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQD4i1GcosrcS5-yDM_siygwAUEL1wD1XwwsrUH8pH0lSWU"}, {"nombre": "ILD84175_foto6.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQC_1Meq9n5dTar6I5_vUSjGAWmVSAtlcbDUWAP0irgvWSo"}], "obs": "Jdjdjdjdjdjd", "estado": "Con observaciones", "notaJef": "Hdhdjsjsjsjsjsjs", "aprobador": "Jefe de Operaciones", "fechaAprobacion": "2026-06-11T17:49:52.902Z", "totalItems": 6, "completados": 6, "aprobadorEsperado": "Jefe de Operaciones", "Codigo": "ILD-84175", "importado": true}, {"id": 84174, "area": "Servicio A la Carta", "turno": "Diurno", "selecciones": {}, "usuario": "Shirley Fuentes", "fecha": "2026-06-11T17:45:03.766Z", "checks": {"0": true, "1": true, "2": true, "3": true, "4": true, "5": true}, "textos": {}, "fotos": [{"nombre": "ILD84174_foto1.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQAJTUVgGFuPSKpfEmD-ErQJARQvZGAdhC05D2s9cmwdo5g"}, {"nombre": "ILD84174_foto2.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQC2rQEFKkh8TZWnqnrrsRPHAbieWTIQP2E8DRo4Wxf0V5M"}, {"nombre": "ILD84174_foto3.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQBCUQLY_jbBQb3nUAxnIug9AcKf23MCtnyjs0urhCXAgm4"}, {"nombre": "ILD84174_foto4.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQCHCdak1In0TZKvhCKOCSIRATx-M-o0x8qZKOG-tvCglMA"}, {"nombre": "ILD84174_foto5.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQDJ7J2TBXvVQ7rQVXV2LcCFAWXLXgQ8kONl3ZWx3D4GgWc"}, {"nombre": "ILD84174_foto6.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQANaV7d7rSWRov3LB8YdTRkAX2L46zCtnpZLyeiGE-5_5k"}], "obs": "Ncjskdkxkdskslskxxkds", "estado": "Aprobado", "notaJef": "", "aprobador": "Jefe de Operaciones", "fechaAprobacion": "2026-06-11T17:48:52.702Z", "totalItems": 6, "completados": 6, "aprobadorEsperado": "Jefe de Operaciones", "Codigo": "ILD-84174", "importado": true}, {"id": 35169, "area": "Cocina Central", "usuario": "Shirley Fuentes", "fecha": "2026-06-06T00:23:50.911Z", "checks": {"0": true, "1": true, "2": true, "3": true, "4": true, "5": true, "6": true, "7": true}, "fotos": [{"nombre": "ILD35169_foto1.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQA17gv_hAlmR7SlTqjDN-xkAa-TmG2RgBLttEAYCuMwpL0"}, {"nombre": "ILD35169_foto2.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQD0PliJhHtOSbvLAgy3AO3lAU9tjZktlXajNc-RGvyHJYk"}, {"nombre": "ILD35169_foto3.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQCcL_UoU9KpT4ZB6wEhbMCsAQ3qqO3Jq4fuuf5BAkt5NeE"}, {"nombre": "ILD35169_foto4.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQDaEUu34ViKRa3JRyJLRg3rAXqEgTQ1HS27_FyDUp3rlAU"}, {"nombre": "ILD35169_foto5.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQBkqCO23F94S5yVDs1LKhYLAafID5it3smK62JRQDJN1Ds"}, {"nombre": "ILD35169_foto6.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQCGAkLMLeT5R4jearLo5EmTAbBBWsrTEHYxVoiX3rze_6w"}, {"nombre": "ILD35169_foto7.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQDSoVZszaCXSY35gNM4WaggAZqD2yUu-mGKbXP2qTN0qPw"}, {"nombre": "ILD35169_foto8.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQB39xmzqvY2QoVwkjoQapp9ATJcFi9QeqHsPi6o4Ae6G_E"}], "obs": "", "estado": "Aprobado", "notaJef": "Esta todo ok", "aprobador": "Jefe de Operaciones", "fechaAprobacion": "2026-06-10T14:13:56.766Z", "totalItems": 8, "completados": 8, "aprobadorEsperado": "Jefe de Operaciones", "Codigo": "ILD-35169", "importado": true}, {"id": 20115, "area": "Servicio Almeja Playera", "usuario": "Adriana", "fecha": "2026-06-05T23:25:07.090Z", "checks": {"0": true, "1": true, "2": true, "3": true, "4": true, "5": true, "6": true, "7": true}, "fotos": [{"nombre": "ILD20115_foto1.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQBRc08vXnT4TZbhv_OJWbrrAcWn-H980nQUk3o5prHjk9s"}, {"nombre": "ILD20115_foto2.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQBB8ZfxBcn7QJqaumrdeCaFAVHCibm-VJPsKu-ZvPXju48"}, {"nombre": "ILD20115_foto3.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQBcfNb6Qmo_Sb1nmAzfYjR5AbUWypBmpW81bMCjguzjRzE"}, {"nombre": "ILD20115_foto4.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQC9Xs8GO5-VR4cy1zcoMAI-AQPOMWdzBOingaa9W9YqzNA"}, {"nombre": "ILD20115_foto5.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQCLyHO_RT8gQLLDcpd0esxFAccNO1sGBz_IxZfbAr0dm2Q"}, {"nombre": "ILD20115_foto6.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQDdYboQvN_dTaX7A3v8IyyoAdGbhs_uO19zaZQp41RCFU4"}, {"nombre": "ILD20115_foto7.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQDvZsaaX81-QZgH02sRQLV8AROtMOqZXhz88b1VObQUffk"}, {"nombre": "ILD20115_foto8.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQBfZe8ibrcXS57IvY_j2YzLAaBlFaRnEwbTeI2tMEq_SGA"}], "obs": "", "estado": "Aprobado", "notaJef": "Jdjdjsjdjsjsjssj", "aprobador": "Jefe de Operaciones", "fechaAprobacion": "2026-06-11T17:49:29.152Z", "totalItems": 8, "completados": 8, "aprobadorEsperado": "Jefe de Operaciones", "Codigo": "ILD-20115", "importado": true}, {"id": 51838, "area": "Servicio Almeja Playera", "usuario": "Adriana", "fecha": "2026-06-05T21:46:38.755Z", "checks": {"0": true, "1": true, "2": true, "3": true, "4": true, "5": true, "6": true, "7": true}, "fotos": [{"nombre": "ILD51838_foto1.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQBCWRmXBSfvQKsFy2fUWsXCAUC6yYP-uD1yzIeeufiTBd0"}, {"nombre": "ILD51838_foto2.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQCgx5pTson5SIHnFYEeHmzPAcwcceHtqUMo68SQAnpQWr4"}, {"nombre": "ILD51838_foto3.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQBqq4-3qjk3QpqdTz6QJD_-AReK5oL7K4O5EMhQ6iCiHU8"}, {"nombre": "ILD51838_foto4.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQAMhfVXEuGDSJDfpUm-y9G9AYUL6oNCLd0zRMuHDUseC4w"}, {"nombre": "ILD51838_foto5.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQDhNz8jrFWuTYQRIIJeyseYAfBTsuti4ZIQRYtNXicyrvI"}, {"nombre": "ILD51838_foto6.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQBHEnDaF0ZER5jRyHem8cRhAX6H19R8e9wDDK3iqP_bhvU"}, {"nombre": "ILD51838_foto7.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQDEojnr-cWNRJl1YF1Xf3H-AUAqz0luLgcWiNi8Cr7H7Fk"}, {"nombre": "ILD51838_foto8.jpg", "spUrl": "https://playaparaiso.sharepoint.com/:i:/s/Prueba7/IQCtWdX9SuzfT5MZEMBRQ62MAd9phmuWjYCbNKkEcMOM6cM"}], "obs": "Prueba", "estado": "Con observaciones", "notaJef": "Se debe mejorar la toma de las fotos", "aprobador": "Desarrollador", "fechaAprobacion": "2026-06-05T21:47:49.665Z", "totalItems": 8, "completados": 8, "aprobadorEsperado": "Jefe de Operaciones", "notaGerencia": "ok", "notaGerenciaAutor": "Gerencia General", "notaGerenciaFecha": "2026-06-05T22:06:30.149Z", "Codigo": "ILD-51838", "importado": true}];
+
+/* ===== Extiende usuarios: jefes de módulo (ven todo lo suyo, cambian estado, rechazan) ===== */
+// Soporte de Sistemas (no es área de ILD): gestor del módulo Sistemas
+if(!USERS.find(u=>u.pin==='1006')) USERS.push(
+  {id:'a6',nombre:'Soporte Sistemas',pin:'1006',rol:'aprobador',areas:[],gestiona:['sistemas']});
+function applyGestiona(){ USERS.forEach(u=>{
+  if(u.nombre==='Jefe de Mantenimiento') u.gestiona=['mantenimiento'];
+  if(u.nombre==='Coordinador de Compras') u.gestiona=['compras'];
+  if(u.nombre==='Soporte Sistemas') u.gestiona=['sistemas']; }); }
+applyGestiona();
+
+/* ===== CONFIG ===== */
+const APP = {
+  version: "Playa Paraíso · App unificada v4.1 · SharePoint Prueba7(Listas)",
+  useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
+  ms: {
+    clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
+    tenantId: "36db945a-4d81-4bf8-ae41-c98438dc888c",
+    redirectUri: window.location.origin + window.location.pathname,
+    site: "https://playaparaiso.sharepoint.com/sites/Prueba7",
+    siteHost: "playaparaiso.sharepoint.com",
+    sitePath: "/sites/Prueba7",
+    lists: { ILD:"PP_ILD", Compras:"PP_Compras", Sistemas:"PP_Sistemas", Mantenimiento:"PP_Mantenimiento", Notif:"PP_Notif" },
+    base: "ILDS",
+    driveId: "b!O2-zgnw6nkyHGSME4wNWNvzktKvfz2RCve_Yy1z3ygbC7N4D__mdSLQmbhqhPa0o",
+    files: { ILD:"NEXO_ILD.json", Compras:"NEXO_Compras.json",
+             Sistemas:"NEXO_Sistemas.json", Mantenimiento:"NEXO_Mantenimiento.json", ILD_Config:"NEXO_Config.json", Notif:"NEXO_Notif.json" },
+    fotosFolder: "Fotos"
+  },
+};
+if(localStorage.getItem("pp_clientId")==="1a67d6b5-c2e8-4592-8dd0-b3e444d84687"){ localStorage.removeItem("pp_clientId"); }
+APP.ms.clientId = localStorage.getItem("pp_clientId") || APP.ms.clientId;
+APP.ms.tenantId = localStorage.getItem("pp_tenantId") || APP.ms.tenantId;
+
+/* ===== Capacidades por rol ===== */
+const esGD = u => u && ['gerencia','desarrollador'].includes(u.rol);
+const esDev = u => u && u.rol==='desarrollador';
+const ildAreasDe = u => esGD(u) ? Object.keys(AC) : (u.areas||[]);
+const puedeAprobarArea = (u,area) => esGD(u) || (u.rol==='aprobador' && (u.areas||[]).includes(area));
+const gestionaModulo = (u,m) => esDev(u) || (u.gestiona||[]).includes(m);
+let ACCESOS = null;     // {rol:{cap:bool}} configurable por el desarrollador
+let AMODO = {};         // {area:'normal'|'lista'} modo del ILD por área
+function defaultPuede(u,cap){
+  if(!u) return false;
+  const [mod,sub]=cap.split(".");
+  if(!sub){
+    if(cap==='compras') return u.rol!=='colaborador';
+    if(cap==='sistemas'||cap==='mantenimiento') return true;
+    if(cap==='ild') return ildAreasDe(u).length>0 || esGD(u);
+    if(cap==='kanban') return esGD(u) || ["compras","sistemas","mantenimiento"].some(m=>(u.gestiona||[]).includes(m));
+    return true;
+  }
+  if(sub==='gestion') return gestionaModulo(u,mod);
+  if(sub==='tablero') return gestionaModulo(u,mod) || esGD(u);
+  if(cap==='kanban.editar') return esDev(u) || (u.gestiona||[]).length>0;
+  return false;
+}
+function puede(u,cap){ if(esDev(u)) return true;
+  if(ACCESOS && ACCESOS[u.rol] && (cap in ACCESOS[u.rol])) return !!ACCESOS[u.rol][cap];
+  return defaultPuede(u,cap); }
+const areaModo = a => AMODO[a] || (a==='Áreas Públicas'?'lista':'normal');
+const equipoDe = u => { const a=new Set(u.areas||[]); return USERS.filter(x=>x.rol==='colaborador' && (x.areas||[]).some(ar=>a.has(ar))).map(x=>x.nombre); };
+
+/* ===== Helpers ===== */
+const nowISO = () => new Date().toISOString();
+const fmtDate = s => { if(!s) return "—"; const d=new Date(s); if(isNaN(d)) return s;
+  return d.toLocaleDateString("es-EC",{day:"2-digit",month:"short",year:"numeric"}); };
+const fmtDT = s => { if(!s) return "—"; const d=new Date(s); if(isNaN(d)) return s;
+  return d.toLocaleString("es-EC",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}); };
+const yr = () => new Date().getFullYear();
+let _seq = Date.now()%100000; const gid = () => ++_seq;
+const itemText = it => (typeof it==='object'&&it!==null)?it.t:it;
+const itemTipo = it => (typeof it==='object'&&it!==null&&it.tipo)?it.tipo:'foto';
+const fotosReq = area => (CL[area]||[]).filter(it=>itemTipo(it)==='foto').length;
+
+function comprimirImg(dataUrl,maxPx=900,q=0.75){
+  return new Promise(res=>{ const img=new Image();
+    img.onload=()=>{ let w=img.width,h=img.height;
+      if(w>maxPx||h>maxPx){const s=Math.min(maxPx/w,maxPx/h);w=Math.round(w*s);h=Math.round(h*s);}
+      const c=document.createElement('canvas');c.width=w;c.height=h;
+      c.getContext('2d').drawImage(img,0,0,w,h);res(c.toDataURL('image/jpeg',q)); };
+    img.onerror=()=>res(dataUrl); img.src=dataUrl; });
+}
+
+const cerrados=["Concluido","Cerrado","Entregado","Cerrada","Rechazada","Rechazado","Baja por presupuesto"];
+function isOverdue(it){ if(!it.FechaTentativa||cerrados.includes(it.Estado)) return false;
+  return new Date(it.FechaTentativa) < new Date(new Date().toDateString()); }
+
+const DEPTS = ["Seguridad","Mantenimiento","Recepción","Ama de Llaves","Alimentos y Bebidas","Enfermería","Administración","Cocina General","Operaciones","Ventas","Experiencia al cliente","Gerencia General"];
+const DEPTS_SIS = ["Seguridad","Mantenimiento","Recepción","Ama de Llaves","Cocina","Servicio","Gerencia General","Experiencia al cliente","Ventas","Operaciones","Administración"];
+const UNIDADES = ["Unidades","Litros","Metros","Kilogramos","Metro cuadrado","NA"];
+const TIEMPO_COMPRA = ["Urgente (máximo 7 días)","Media (máximo 15 días)","Plan de inversión (mensual)"];
+const TIPO_COMPRA = ["Bien (incluye insumos)","Servicio","Asesoría"];
+const URGENCIA_SIS = ["Alta (interrumpe actividades críticas)","Media (afecta actividades, pero se puede trabajar)","Baja (no afecta significativamente el trabajo)"];
+
+const STATUS = {
+  "Solicitado":{c:"--gray"},"En Gerencia":{c:"--amber"},"En compra":{c:"--blue"},
+  "Listo para entregar":{c:"--blue"},"Entregado":{c:"--green"},"Cerrada":{c:"--green"},"Rechazada":{c:"--red"},"Baja por presupuesto":{c:"--red"},
+  "Nuevo":{c:"--gray"},"Sin fecha asignada":{c:"--amber"},"En proceso":{c:"--blue"},
+  "Concluido":{c:"--green"},"Cerrado":{c:"--green"},"Rechazado":{c:"--red"}
+};
+const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const CERRADAS=["Cerrada","Cerrado","Rechazada","Rechazado","Baja por presupuesto"];
+const esCerrada=r=>CERRADAS.includes(r.Estado||r.estado);
+const colorOf = e => cssVar((STATUS[e]||{c:"--gray"}).c);
+const KANBAN = {
+  compras:["Solicitado","En Gerencia","En compra","Listo para entregar","Entregado","Cerrada","Rechazada","Baja por presupuesto"],
+  sistemas:["Nuevo","En proceso","Concluido","Cerrado","Rechazado"],
+  mantenimiento:["Nuevo","Sin fecha asignada","En proceso","Concluido","Cerrado","Rechazado"]
+};
+const ALL_ESTADOS = { Sistemas:KANBAN.sistemas, Mantenimiento:KANBAN.mantenimiento };
+
+/* ===== CAPA DE DATOS: read/write arreglo completo por "tabla" ===== */
+let msalApp=null, graphToken=null, graphUser="";
+let MODE = localStorage.getItem("pp_mode") || (APP.useGraph ? "graph" : "local");
+const Local = {
+  read:t=>{ try{return JSON.parse(localStorage.getItem("pp_"+t)||"[]")}catch{return[]} },
+  write:(t,arr)=>localStorage.setItem("pp_"+t,JSON.stringify(arr))
+};
+const GBASE="https://graph.microsoft.com/v1.0";
+async function gfetch(path,method="GET",body=null,raw=false,headers=null){
+  const h={Authorization:`Bearer ${graphToken}`};
+  if(headers) Object.assign(h,headers);
+  if(body && !(body instanceof ArrayBuffer)) h["Content-Type"]="application/json";
+  else if(body instanceof ArrayBuffer) h["Content-Type"]="application/octet-stream";
+  const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),30000);
+  let r; try{ r=await fetch(GBASE+path,{method,headers:h,body:body?(body instanceof ArrayBuffer?body:JSON.stringify(body)):null,signal:ctrl.signal}); }
+  catch(e){ clearTimeout(to); throw new Error("conexión: "+(e.name==="AbortError"?"tiempo de espera agotado":e.message)); }
+  clearTimeout(to);
+  if(r.status===204) return null;
+  if(!r.ok){ let extra=""; try{ const j=await r.json(); extra=j.error&&j.error.message?(" — "+j.error.message):""; }catch{} throw new Error(method+" "+path.split("?")[0]+": "+r.status+extra); }
+  return raw?r.arrayBuffer():r.json();
+}
+const GraphStore = {
+  fileName:t=>`${APP.ms.base}/${APP.ms.files[t]}`,
+  async read(t){ try{
+      const buf=await gfetch(`/drives/${APP.ms.driveId}/root:/${this.fileName(t)}:/content`,"GET",null,true);
+      return JSON.parse(new TextDecoder().decode(buf)); }catch{ return []; } },
+  async write(t,arr){
+    const buf=new TextEncoder().encode(JSON.stringify(arr));
+    await gfetch(`/drives/${APP.ms.driveId}/root:/${this.fileName(t)}:/content`,"PUT",buf.buffer); },
+  async ensureCarpeta(carpetaId){ const folder=`${APP.ms.base}/${APP.ms.fotosFolder}`;
+    try{ await gfetch(`/drives/${APP.ms.driveId}/root:/${folder}/${carpetaId}`); }
+    catch{ try{ await gfetch(`/drives/${APP.ms.driveId}/root:/${folder}:/children`,"POST",{name:carpetaId,folder:{},"@microsoft.graph.conflictBehavior":"replace"}); }catch(e){} } },
+  async putFoto(dataUrl,nombre,carpetaId){ const folder=`${APP.ms.base}/${APP.ms.fotosFolder}`;
+    const blob=await (await fetch(dataUrl)).arrayBuffer();
+    await gfetch(`/drives/${APP.ms.driveId}/root:/${folder}/${carpetaId}/${nombre}:/content`,"PUT",blob);
+    return {nombre,path:`${folder}/${carpetaId}/${nombre}`}; },
+  async uploadFoto(dataUrl,nombre,carpetaId){ await this.ensureCarpeta(carpetaId); return this.putFoto(dataUrl,nombre,carpetaId); },
+  async getImg(path){
+    const buf=await gfetch(`/drives/${APP.ms.driveId}/root:/${path}:/content`,"GET",null,true);
+    return URL.createObjectURL(new Blob([buf]));
+  }
+};
+// ===== Backend de LISTAS de SharePoint (un elemento por solicitud) =====
+const LIST_TABLES=["ILD","Compras","Sistemas","Mantenimiento","Notif"];
+let SP_SITE=null; const SP_LIST={}; const SP_MAP={}; const SP_COLS={};
+const PREFER_NX={Prefer:"HonorNonIndexedQueriesWarningMayFailRandomly"};
+const recFecha=r=>String(r.fecha||r.FechaSolicitud||r.FechaCreacion||"").slice(0,10);
+const recEstado=r=>String(r.estado||r.Estado||"");
+async function spSite(){ if(SP_SITE) return SP_SITE;
+  const s=await gfetch(`/sites/${APP.ms.siteHost}:${APP.ms.sitePath}`); SP_SITE=s.id; return SP_SITE; }
+async function spEnsureCols(site,lid,t){ if(SP_COLS[t]) return;
+  try{ const cols=await gfetch(`/sites/${site}/lists/${lid}/columns?$select=name`);
+    const have=new Set((cols.value||[]).map(c=>c.name));
+    for(const c of ["Fecha","Estado"]) if(!have.has(c)){ try{ await gfetch(`/sites/${site}/lists/${lid}/columns`,"POST",{name:c,text:{}}); }catch(e){} }
+  }catch(e){} SP_COLS[t]=true; }
+async function spEnsureList(t){ const site=await spSite();
+  if(SP_LIST[t]){ await spEnsureCols(site,SP_LIST[t],t); return SP_LIST[t]; }
+  const name=APP.ms.lists[t];
+  const all=await gfetch(`/sites/${site}/lists?$select=id,displayName&$top=200`);
+  let lid=(all.value||[]).find(l=>l.displayName===name)?.id;
+  if(!lid){ const created=await gfetch(`/sites/${site}/lists`,"POST",{displayName:name,
+    columns:[{name:"Data",text:{allowMultipleLines:true}},{name:"Fecha",text:{}},{name:"Estado",text:{}}],
+    list:{template:"genericList"}}); lid=created.id; }
+  SP_LIST[t]=lid; await spEnsureCols(site,lid,t); return lid; }
+function spMerge(t,items){ const map=SP_MAP[t]||new Map();
+  items.forEach(it=>{ const d=it.fields&&it.fields.Data; if(!d) return; let rec; try{rec=JSON.parse(d);}catch{return;}
+    map.set(rec.id,{spId:it.id,hash:d}); }); SP_MAP[t]=map; }
+async function spPages(t,query){ const site=await spSite(); const lid=await spEnsureList(t);
+  let url=`/sites/${site}/lists/${lid}/items?$expand=fields($select=Data)&$top=500${query?("&"+query):""}`;
+  const items=[]; while(url){ const page=await gfetch(url.replace(GBASE,""),"GET",null,false,PREFER_NX);
+    (page.value||[]).forEach(x=>items.push(x)); url=page["@odata.nextLink"]||null; } return items; }
+const ListStore={
+  async read(t){ const items=await spPages(t,""); spMerge(t,items);
+    return items.map(it=>{try{return JSON.parse(it.fields.Data);}catch{return null;}}).filter(Boolean); },
+  async readDesde(t,since){ try{ const items=await spPages(t,`$filter=fields/Fecha ge '${since}'`); spMerge(t,items);
+      return items.map(it=>{try{return JSON.parse(it.fields.Data);}catch{return null;}}).filter(Boolean);
+    }catch(e){ return (await this.read(t)).filter(r=>recFecha(r)>=since); } },
+  async readRango(t,desde,hasta){ try{ const items=await spPages(t,`$filter=fields/Fecha ge '${desde}' and fields/Fecha lt '${hasta}'`); spMerge(t,items);
+      return items.map(it=>{try{return JSON.parse(it.fields.Data);}catch{return null;}}).filter(Boolean);
+    }catch(e){ return (await this.read(t)).filter(r=>recFecha(r)>=desde&&recFecha(r)<hasta); } },
+  async write(t,arr){ const site=await spSite(); const lid=await spEnsureList(t);
+    if(!SP_MAP[t]) await this.read(t); const map=SP_MAP[t]||new Map();
+    for(const rec of arr){ const j=JSON.stringify(rec); const m=map.get(rec.id);
+      const full={Title:String(rec.Codigo||rec.id||"").slice(0,255),Data:j,Fecha:recFecha(rec),Estado:recEstado(rec)};
+      const basico={Title:full.Title,Data:j};
+      if(!m){ let c; try{ c=await gfetch(`/sites/${site}/lists/${lid}/items`,"POST",{fields:full}); }
+          catch(e){ c=await gfetch(`/sites/${site}/lists/${lid}/items`,"POST",{fields:basico}); }
+        map.set(rec.id,{spId:c.id,hash:j}); }
+      else if(m.hash!==j){ try{ await gfetch(`/sites/${site}/lists/${lid}/items/${m.spId}/fields`,"PATCH",full); }
+          catch(e){ await gfetch(`/sites/${site}/lists/${lid}/items/${m.spId}/fields`,"PATCH",basico); } m.hash=j; } }
+    SP_MAP[t]=map; },
+  async remove(t,id){ const site=await spSite(); const lid=await spEnsureList(t);
+    if(!SP_MAP[t]) await this.read(t); const m=(SP_MAP[t]||new Map()).get(id);
+    if(m){ try{ await gfetch(`/sites/${site}/lists/${lid}/items/${m.spId}`,"DELETE"); }catch(e){} SP_MAP[t].delete(id); } }
+};
+async function migrarAListas(){ if(localStorage.getItem("pp_lists_migrated")) return;
+  for(const t of LIST_TABLES){ try{ await spEnsureList(t); const cur=await ListStore.read(t);
+    if(!cur.length){ let old=[]; try{ old=await GraphStore.read(t); }catch{} if(Array.isArray(old)&&old.length) await ListStore.write(t,old); }
+  }catch(e){} } localStorage.setItem("pp_lists_migrated","1"); }
+const hoyISO=()=>new Date().toISOString().slice(0,10);
+const desdeDias=n=>{ const d=new Date(); d.setDate(d.getDate()-n); return d.toISOString().slice(0,10); };
+const Store = {
+  read(t){ if(MODE!=="graph") return Local.read(t); return LIST_TABLES.includes(t)?ListStore.read(t):GraphStore.read(t); },
+  write(t,a){ if(MODE!=="graph") return Local.write(t,a); return LIST_TABLES.includes(t)?ListStore.write(t,a):GraphStore.write(t,a); },
+  async remove(t,id){ if(MODE!=="graph"){ const a=Local.read(t); Local.write(t,a.filter(x=>(x.id||x.Codigo)!==id)); return; }
+    if(LIST_TABLES.includes(t)) return ListStore.remove(t,id);
+    const a=await GraphStore.read(t); await GraphStore.write(t,a.filter(x=>(x.id||x.Codigo)!==id)); },
+  async readDesde(t,since){ if(MODE!=="graph") return Local.read(t).filter(r=>recFecha(r)>=since);
+    return LIST_TABLES.includes(t)?ListStore.readDesde(t,since):(await GraphStore.read(t)).filter(r=>recFecha(r)>=since); },
+  async readMes(t,y,m){ const s=`${y}-${String(m+1).padStart(2,'0')}-01`; const e=m===11?`${y+1}-01-01`:`${y}-${String(m+2).padStart(2,'0')}-01`;
+    if(MODE!=="graph") return Local.read(t).filter(r=>recFecha(r)>=s&&recFecha(r)<e);
+    return LIST_TABLES.includes(t)?ListStore.readRango(t,s,e):(await GraphStore.read(t)).filter(r=>recFecha(r)>=s&&recFecha(r)<e); },
+  async readAnio(t,y){ const s=`${y}-01-01`,e=`${y+1}-01-01`;
+    if(MODE!=="graph") return Local.read(t).filter(r=>recFecha(r)>=s&&recFecha(r)<e);
+    return LIST_TABLES.includes(t)?ListStore.readRango(t,s,e):(await GraphStore.read(t)).filter(r=>recFecha(r)>=s&&recFecha(r)<e); }
+};
+
+async function subirFotos(fotos,carpetaId,prefijo){
+  if(MODE!=="graph") return fotos.map((d,i)=>({nombre:`${prefijo}_${i+1}.jpg`,data:d}));
+  try{ await GraphStore.ensureCarpeta(carpetaId); }catch(e){}
+  return Promise.all(fotos.map(async(d,i)=>{ const nombre=`${prefijo}_${i+1}.jpg`;
+    try{ return await GraphStore.putFoto(d,nombre,carpetaId); }catch(e){ return {nombre,error:true}; } }));
+}
+async function addNotif(para,texto,ildId,codigo){
+  if(!para) return;
+  try{ const arr=await Store.read("Notif");
+    arr.push({id:gid(),para,texto,ildId,codigo,fecha:nowISO()});
+    await Store.write("Notif",arr); }catch(e){}
+}
+
+let msErr="";
+const MS_SCOPES=["https://graph.microsoft.com/Files.ReadWrite.All","https://graph.microsoft.com/Sites.ReadWrite.All","https://graph.microsoft.com/User.Read"];
+async function msInitApp(){
+  if(msalApp) return;
+  msalApp=new msal.PublicClientApplication({auth:{clientId:APP.ms.clientId,
+    authority:`https://login.microsoftonline.com/${APP.ms.tenantId}`,redirectUri:APP.ms.redirectUri},
+    cache:{cacheLocation:"localStorage"}});
+  await msalApp.initialize();
+}
+async function setGraphUser(acc){ if(acc) graphUser=acc.username||acc.name||graphUser;
+  try{ const me=await gfetch("/me"); graphUser=me.mail||me.userPrincipalName||graphUser; }catch{} }
+// Al cargar: recupera token (de una redirección de vuelta o de sesión previa). No abre nada.
+async function msEnsure(){
+  if(typeof msal==="undefined"){ msErr="No se cargó MSAL (la red bloqueó la CDN)."; return false; }
+  try{ await msInitApp();
+    let resp=null; try{ resp=await msalApp.handleRedirectPromise(); }catch(e){ msErr=e.errorMessage||e.message||String(e); }
+    if(resp && resp.accessToken){ graphToken=resp.accessToken; await setGraphUser(resp.account); return true; }
+    const accs=msalApp.getAllAccounts();
+    if(accs.length){ try{ const r=await msalApp.acquireTokenSilent({scopes:MS_SCOPES,account:accs[0]});
+      graphToken=r.accessToken; await setGraphUser(accs[0]); return true; }catch(e){} }
+  }catch(e){ msErr=e.errorMessage||e.message||String(e); }
+  return false;
+}
+// Inicia sesión por redirección (debe llamarse desde un clic). Navega a Microsoft y vuelve.
+async function msSignIn(){ msErr=""; await msInitApp(); await msalApp.loginRedirect({scopes:MS_SCOPES}); }
+// Código legible por proceso/año a partir del arreglo existente
+function nextCode(prefix, arr){
+  const y=yr(); const n=arr.filter(x=>(x.Codigo||"").startsWith(prefix+"-"+y)).length+1;
+  return `${prefix}-${y}-${String(n).padStart(4,"0")}`;
+}
+
+
+/* ===== CONFIGURACIÓN ILD (checklist, áreas, aprobadores, usuarios, días esperados) ===== */
+const DIAS_CFG = { feriados:[], areas:{} };  // areas[area] = {patron:'diario'|'finde'|'vsd'|'personalizado', dias:[0..6]}
+function patronDias(p){ return p==='finde'?[0,6]:p==='vsd'?[0,5,6]:p==='diario'?[0,1,2,3,4,5,6]:null; }
+function diasEsperados(area,year,month,hastaHoy){
+  const cfg=DIAS_CFG.areas[area]||{patron:'diario'};
+  let set = cfg.patron==='personalizado' ? (cfg.dias||[]) : patronDias(cfg.patron);
+  if(!set) set=[0,1,2,3,4,5,6];
+  const hoy=new Date(); const lastDay=new Date(year,month+1,0).getDate();
+  const limit = (hastaHoy && hoy.getFullYear()===year && hoy.getMonth()===month) ? hoy.getDate() : lastDay;
+  const fer=(DIAS_CFG.feriados||[]).map(f=>new Date(f+"T00:00:00")).filter(d=>d.getFullYear()===year&&d.getMonth()===month).map(d=>d.getDate());
+  let n=0; for(let d=1; d<=limit; d++){ const wd=new Date(year,month,d).getDay(); if(set.includes(wd)||fer.includes(d)) n++; }
+  return n;
+}
+async function cfgRead(){ let c; try{ c=await Store.read("ILD_Config"); }catch{ c=null; }
+  if(!c || Array.isArray(c)) return null; return c; }
+function applyIldConfig(cfg){ if(!cfg) return;
+  if(cfg.areas) Object.assign(AC, cfg.areas);
+  if(cfg.checklist) Object.assign(CL, cfg.checklist);
+  if(cfg.aprobadores) Object.assign(APR, cfg.aprobadores);
+  if(cfg.diasCfg){ DIAS_CFG.feriados=cfg.diasCfg.feriados||[]; DIAS_CFG.areas=cfg.diasCfg.areas||{}; }
+  if(Array.isArray(cfg.usuarios) && cfg.usuarios.length){ USERS.length=0; cfg.usuarios.forEach(u=>USERS.push(u)); applyGestiona(); }
+  if(cfg.accesos) ACCESOS=cfg.accesos;
+  if(cfg.amodo) AMODO=cfg.amodo; }
+async function cfgSave(){ await Store.write("ILD_Config",{checklist:CL,areas:AC,aprobadores:APR,usuarios:USERS,diasCfg:DIAS_CFG,accesos:ACCESOS,amodo:AMODO}); }
+// Aplica configuración guardada en modo local (demo) al cargar
+try{ const raw=localStorage.getItem("pp_ILD_Config");
+  if(raw){ const c=JSON.parse(raw); if(c && !Array.isArray(c)) applyIldConfig(c); } }catch{}
+
+/* ===== EXPORTACIÓN A EXCEL ===== */
+function ildToRow(r){ return {
+  Codigo:r.Codigo||("ILD-"+r.id), Area:r.area, Turno:r.turno||"", Responsable:r.usuario,
+  Fecha:r.fecha?new Date(r.fecha).toLocaleString("es-EC"):"", Estado:r.estado,
+  Completados:r.completados, Total:r.totalItems,
+  Cumplimiento:r.totalItems?Math.round((r.completados/r.totalItems)*100)+"%":"",
+  Fotos:(r.fotos||[]).length, Aprobador:r.aprobador||"", FechaAprobacion:r.fechaAprobacion?new Date(r.fechaAprobacion).toLocaleString("es-EC"):"",
+  Observaciones:r.obs||"", NotaJefatura:r.notaJef||"", NotaGerencia:r.notaGerencia||"" }; }
+function exportXLSX(rows,sheet,filename){
+  if(!rows||!rows.length) return false;
+  const clean=rows.map(r=>{ const o={...r}; delete o.Fotos; delete o.fotos; delete o.checks; delete o.textos; delete o.selecciones;
+    Object.keys(o).forEach(k=>{ if(o[k]&&typeof o[k]==="object") o[k]=JSON.stringify(o[k]); }); return o; });
+  if(window.XLSX && !window.__noXlsx){
+    const ws=XLSX.utils.json_to_sheet(clean); const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,(sheet||"Datos").slice(0,31)); XLSX.writeFile(wb,filename+".xlsx"); return true; }
+  const head=[...new Set(clean.flatMap(o=>Object.keys(o)))];
+  const csv=[head.join(",")].concat(clean.map(r=>head.map(h=>`"${String(r[h]??"").replace(/"/g,'""')}"`).join(","))).join("\n");
+  const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob(["\ufeff"+csv],{type:"text/csv"})); a.download=filename+".csv"; a.click(); return true;
+}
+
+/* ===== UI BASE ===== */
+function Pill({estado,overdue}){
+  if(overdue) return <span className="pill" style={{background:"#fbe6e6",color:"#a83232"}}>
+    <span className="pdot" style={{background:cssVar("--red")}}></span>Vencido</span>;
+  const col=colorOf(estado);
+  return <span className="pill" style={{background:col+"22",color:col}}>
+    <span className="pdot" style={{background:col}}></span>{estado}</span>;
+}
+function Field({label,req,children,hint}){
+  return <div className="field"><label>{label} {req&&<span className="req">*</span>}</label>{children}
+    {hint&&<div className="hint">{hint}</div>}</div>;
+}
+function Modal({title,onClose,children}){
+  return <div className="ovl" onClick={onClose}>
+    <div className="modal" onClick={e=>e.stopPropagation()}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+        <h3 style={{margin:0}}>{title}</h3>
+        <button className="iconbtn" style={{background:"#eee",color:"#333"}} onClick={onClose}>✕</button>
+      </div>{children}</div></div>;
+}
+function Stars({value,onChange}){
+  return <div className="stars">{[1,2,3,4,5,6,7,8,9,10].map(n=>
+    <span key={n} className={n<=value?"on":""} onClick={()=>onChange(n)}>★</span>)}</div>;
+}
+function FotoModal({src,onClose}){
+  if(!src) return null;
+  return <div className="fotomodal" onClick={onClose}><button className="x">✕</button><img src={src}/></div>;
+}
+
+function PhotoField({fotos,setFotos,multiple=true,label,req,hint,setFoto}){
+  const ref=useRef();
+  async function onFiles(e){ const files=Array.from(e.target.files); e.target.value="";
+    const srcs=await Promise.all(files.map(f=>new Promise(r=>{const rd=new FileReader();rd.onload=ev=>r(ev.target.result);rd.readAsDataURL(f);})));
+    const comp=await Promise.all(srcs.map(s=>comprimirImg(s,1000,.7)));
+    setFotos(multiple?[...fotos,...comp]:comp.slice(0,1)); }
+  return <Field label={label} req={req} hint={hint}>
+    <input ref={ref} type="file" accept="image/*" capture="environment" multiple={multiple} style={{display:"none"}} onChange={onFiles}/>
+    <button className="btn ghost block" onClick={()=>ref.current.click()}>📷 {fotos.length?`${fotos.length} foto(s) — agregar más`:"Subir foto"}</button>
+    <div className="fgrid">{fotos.map((s,i)=><div key={i} className="fthumb"><img src={s} onClick={()=>setFoto&&setFoto(s)}/>
+      <button className="fdel" onClick={()=>setFotos(fotos.filter((_,j)=>j!==i))}>✕</button><span className="fnum">{i+1}</span></div>)}</div>
+  </Field>;
+}
+
+/* ===== LOGIN (rediseñado) ===== */
+function Login({onLogin}){
+  const [step,setStep]=useState("choice"); // choice | pin | libre
+  const pinUsers=USERS.filter(u=>u.pin);
+  const colabs=USERS.filter(u=>u.rol==='colaborador').sort((a,b)=>a.nombre.localeCompare(b.nombre));
+  const [name,setName]=useState(""); const [pin,setPin]=useState(""); const [err,setErr]=useState("");
+  const press=d=>{ setErr(""); setPin(p=> p.length<4 ? p+d : p); };
+  useEffect(()=>{ if(step==='pin'&&pin.length===4){
+    const u=pinUsers.find(x=>x.nombre===name&&x.pin===pin);
+    if(u){ setTimeout(()=>onLogin(u),120); } else { setErr("PIN incorrecto"); setTimeout(()=>setPin(""),450); }
+  }},[pin]);
+  return <div className="login">
+    <div className="sun"></div><div className="wave"></div>
+    <div className="lcard">
+      <div className="lbrand"><span className="dot"></span>Playa Paraíso</div>
+      <div className="ltag">Gestión operativa del hotel</div>
+
+      {step==="choice" && <div className="lchoice">
+        <button className="lbig pri" onClick={()=>{setStep("pin");setName(pinUsers[0]?.nombre||"");setPin("");setErr("");}}>
+          <span className="e" style={{background:"var(--ocean)"}}>🔐</span>
+          <span><span className="tt">Ingresar con PIN</span><span className="dd">Jefaturas · Aprobadores · Gerencia</span></span></button>
+        <button className="lbig" onClick={()=>{setStep("libre");setName("");setErr("");}}>
+          <span className="e" style={{background:"var(--coral)"}}>👤</span>
+          <span><span className="tt">Soy colaborador</span><span className="dd">Sin PIN — solo elige tu nombre</span></span></button>
+      </div>}
+
+      {step==="pin" && <div>
+        <select className="lsel" value={name} onChange={e=>{setName(e.target.value);setPin("");setErr("");}}>
+          {pinUsers.map(u=><option key={u.id} value={u.nombre}>{u.nombre}</option>)}</select>
+        <div className="ldots">{[0,1,2,3].map(i=><i key={i} className={i<pin.length?"f":""}/>)}</div>
+        <div className="lpad">
+          {[1,2,3,4,5,6,7,8,9].map(n=><button key={n} onClick={()=>press(""+n)}>{n}</button>)}
+          <button className="fn" onClick={()=>setPin(p=>p.slice(0,-1))}>Borrar</button>
+          <button onClick={()=>press("0")}>0</button>
+          <button className="fn" onClick={()=>setPin("")}>Limpiar</button>
+        </div>
+        <div className="lerr">{err}</div>
+        <button className="lback" onClick={()=>{setStep("choice");setPin("");setErr("");}}>← Volver</button>
+      </div>}
+
+      {step==="libre" && <div>
+        <select className="lsel" value={name} onChange={e=>{setName(e.target.value);setErr("");}}>
+          <option value="">Selecciona tu nombre…</option>
+          {colabs.map(u=><option key={u.id} value={u.nombre}>{u.nombre}</option>)}</select>
+        <button className="btn primary block" onClick={()=>{ const u=colabs.find(x=>x.nombre===name);
+          if(!u){setErr("Selecciona tu nombre");return;} onLogin(u); }}>Entrar</button>
+        <div className="lerr">{err}</div>
+        <button className="lback" onClick={()=>{setStep("choice");setErr("");}}>← Volver</button>
+      </div>}
+    </div>
+    <div className="lfoot">{APP.version}</div>
+  </div>;
+}
+
+/* ===== HOME ===== */
+function Home({user,go,counts}){
+  const tiles=[];
+  if(puede(user,'ild')) tiles.push({id:"ild",t:"ILD",d:"Inspección de lista diaria",ico:"📋",col:"--ocean"});
+  if(puede(user,'compras')) tiles.push({id:"compras",t:"Compras",d:"Solicitar bienes o insumos",ico:"🛒",col:"--coral"});
+  if(puede(user,'sistemas')) tiles.push({id:"sistemas",t:"Sistemas",d:"Soporte de TI",ico:"💻",col:"--blue"});
+  if(puede(user,'mantenimiento')) tiles.push({id:"mantenimiento",t:"Mantenimiento",d:"Reportar una avería",ico:"🔧",col:"--amber"});
+  if(puede(user,'kanban')) tiles.push({id:"kanban",t:"Tablero Kanban",d:"Avance de los procesos",ico:"🗂️",col:"--ocean-d"});
+  if(esDev(user)) tiles.push({id:"admin",t:"Configuración",d:"Usuarios y conexión",ico:"⚙️",col:"--muted"});
+  return <div>
+    <h1 className="h1">Hola, {user.nombre.split(" ")[0]} 👋</h1>
+    <p className="sub">¿Qué necesitas hacer hoy?</p>
+    <div style={{height:14}}/>
+    <div className="grid">
+      {tiles.map(x=><button key={x.id} className="tile" onClick={()=>go(x.id)}>
+        <div className="ico" style={{background:cssVar(x.col)}}>{x.ico}</div>
+        <div className="t">{x.t}</div><div className="d">{x.d}</div>
+        {counts[x.id]>0 && <span className="badge">{counts[x.id]} pendiente{counts[x.id]>1?"s":""}</span>}
+      </button>)}
+    </div>
+    <div className="ver">{APP.version} · Modo {MODE==="graph"?"en vivo (SharePoint)":"local (demo)"}</div>
+  </div>;
+}
+
+/* ===== MÓDULO ILD ===== */
+function ILD({user,toast,setFoto,bump}){
+  const esDevv = esDev(user); const esGer = user.rol==='gerencia';
+  const puedeRevisar = esGD(user) || user.rol==='aprobador';
+  const showNuevo = !esGer;                                  // Gerencia no ingresa ILD
+  const showChecklist = (user.rol==='aprobador' || esDevv);  // Gerencia no edita checklist
+  const [tab,setTab]=useState(esGer?"bandeja":"nuevo");
+  const [regs,setRegs]=useState([]);
+  const load=async()=>setRegs(await Store.readDesde("ILD", desdeDias(150)));
+  useEffect(()=>{load();},[]);
+  const guardarCfg=()=>{ cfgSave(); bump&&bump(); };
+  return <div>
+    <h1 className="h1">ILD · Inspección diaria</h1>
+    <p className="sub">Lista de verificación por área y turno.</p>
+    {(showNuevo||puedeRevisar||showChecklist||esDevv) && <div className="seg">
+      {showNuevo && <button className={tab==="nuevo"?"on":""} onClick={()=>setTab("nuevo")}>Nuevo</button>}
+      {showNuevo && <button className={tab==="mios"?"on":""} onClick={()=>{setTab("mios");load();}}>Mis ILD</button>}
+      {puedeRevisar && <button className={tab==="bandeja"?"on":""} onClick={()=>{setTab("bandeja");load();}}>{esGD(user)?"Todos":"Por aprobar"}</button>}
+      {puedeRevisar && <button className={tab==="dash"?"on":""} onClick={()=>{setTab("dash");load();}}>Dashboard</button>}
+      {showChecklist && <button className={tab==="check"?"on":""} onClick={()=>setTab("check")}>Checklist</button>}
+      {esDevv && <button className={tab==="conf"?"on":""} onClick={()=>setTab("conf")}>Configurar</button>}
+    </div>}
+    {tab==="nuevo" && showNuevo && <ILDForm user={user} toast={toast} onSaved={()=>{load();setTab("mios");}} setFoto={setFoto}/>}
+    {tab==="mios" && showNuevo && <ILDMios user={user} regs={regs} setFoto={setFoto}/>}
+    {tab==="bandeja" && <ILDPanel user={user} regs={regs} reload={load} toast={toast} setFoto={setFoto}/>}
+    {tab==="dash" && <ILDDash user={user} regs={regs}/>}
+    {tab==="check" && showChecklist && <ChecklistEditor user={user} toast={toast} onSave={guardarCfg}/>}
+    {tab==="conf" && esDevv && <ILDConfig user={user} toast={toast} onSave={guardarCfg}/>}
+  </div>;
+}
+
+function ILDForm({user,toast,onSaved,setFoto}){
+  const areas=ildAreasDe(user);
+  const [area,setArea]=useState(""); const [turno,setTurno]=useState("");
+  const [checks,setChecks]=useState({}); const [sel,setSel]=useState({}); const [txt,setTxt]=useState({});
+  const [fotos,setFotos]=useState([]); const [obs,setObs]=useState(""); const [busy,setBusy]=useState(false);
+  const [zona,setZona]=useState("");
+  const modo=area?areaModo(area):'normal';
+  const needsTurno=area && AC[area]?.turno && modo!=='lista';
+  const items=area?(CL[area]||[]):[];
+  function resetCampos(){ setChecks({});setSel({});setTxt({});setFotos([]);setObs("");setZona(""); }
+  useEffect(()=>{ resetCampos(); setTurno(""); },[area]);
+  const req=fotosReq(area);
+  // progreso
+  let total=0,done=0;
+  items.forEach((it,i)=>{ const t=itemTipo(it);
+    if(t==='foto'){total++; if(checks[i])done++;}
+    else if(t==='sino'){total++; if(checks['yn-'+i])done++;}
+    else if(t==='apertura_cierre'||t==='comida'){total++; if(sel[i])done++;} });
+  const pct=total?Math.round(done/total*100):0;
+  async function onFiles(e){
+    const files=Array.from(e.target.files); e.target.value="";
+    const srcs=await Promise.all(files.map(f=>new Promise(r=>{const rd=new FileReader();rd.onload=ev=>r(ev.target.result);rd.readAsDataURL(f);})));
+    const comp=await Promise.all(srcs.map(s=>comprimirImg(s)));
+    setFotos(prev=>[...prev,...comp].slice(0,Math.max(req,1)+4));
+  }
+  async function enviar(){
+    if(!area){toast("Selecciona un área");return;}
+    if(modo==='lista'){
+      if(!zona){toast("Elige una zona de la lista");return;}
+      if(fotos.length<3){toast("Adjunta al menos 3 fotos");return;}
+      if(fotos.length>5){toast("Máximo 5 fotos");return;}
+      if(busy) return; setBusy(true);
+      try{ const id=gid();
+        const fotosData=await subirFotos(fotos,`ILD_${id}`,`ILD${id}`);
+        const arr=await Store.read("ILD"); const Codigo=nextCode("ILD",arr);
+        const nuevo={id,Codigo,area,turno:"",zona,selecciones:{},usuario:user.nombre,fecha:nowISO(),
+          checks:{},textos:{},fotos:fotosData,obs,estado:"Pendiente",notaJef:"",aprobador:"",fechaAprobacion:"",
+          notaGerencia:"",totalItems:1,completados:1,aprobadorEsperado:APR[area]||"—"};
+        await Store.write("ILD",[nuevo,...arr]);
+        toast("ILD enviado: "+Codigo+" · "+zona); resetCampos(); setArea(""); onSaved();
+      }catch(e){ toast("No se pudo enviar: "+(e.message||"error")); }
+      finally{ setBusy(false); }
+      return;
+    }
+    if(needsTurno && !turno){toast("Selecciona el turno");return;}
+    const selFaltan=items.map((it,i)=>({it,i})).filter(o=>(itemTipo(o.it)==='apertura_cierre'||itemTipo(o.it)==='comida')&&!sel[o.i]);
+    if(selFaltan.length){toast("Elige una opción en: "+itemText(selFaltan[0].it));return;}
+    if(done<total && !confirm(`${total-done} ítems sin responder. ¿Enviar igual?`)) return;
+    if(fotos.length<req && !confirm(`Solo ${fotos.length}/${req} fotos. ¿Continuar?`)) return;
+    if(busy) return; setBusy(true);
+    try{
+      const id=gid();
+      const fotosData=await subirFotos(fotos,`ILD_${id}`,`ILD${id}`);
+      const arr=await Store.read("ILD");
+      const Codigo=nextCode("ILD",arr);
+      const nuevo={id,Codigo,area,turno:turno||AC[area]?.t||"",selecciones:{...sel},usuario:user.nombre,
+        fecha:nowISO(),checks:{...checks},textos:{...txt},fotos:fotosData,obs,estado:"Pendiente",
+        notaJef:"",aprobador:"",fechaAprobacion:"",notaGerencia:"",totalItems:items.length,
+        completados:done,aprobadorEsperado:APR[area]||"—"};
+      await Store.write("ILD",[nuevo,...arr]);
+      toast("ILD enviado: "+Codigo); resetCampos(); setArea(""); onSaved();
+    }catch(e){ toast("No se pudo enviar: "+(e.message||"error")); }
+    finally{ setBusy(false); }
+  }
+  return <div>
+    <div className="card">
+      <Field label="Área" req>
+        <select className="inp" value={area} onChange={e=>setArea(e.target.value)}>
+          <option value="">Selecciona…</option>
+          {areas.map(a=><option key={a}>{a}</option>)}</select></Field>
+      {area && <div className="hint">Aprobador: <b>{APR[area]||"—"}</b></div>}
+    </div>
+    {needsTurno && <div className="card"><h3>🔄 Turno</h3>
+      <div className="opts">
+        <button className={"opt"+(turno==="Apertura"?" on":"")} onClick={()=>{setTurno("Apertura");resetCampos();}}>🌅 Apertura</button>
+        <button className={"opt"+(turno==="Cierre"?" on":"")} onClick={()=>{setTurno("Cierre");resetCampos();}}>🌙 Cierre</button>
+      </div></div>}
+    {area && modo==='lista' && <>
+      <div className="card"><h3>🧹 Zona limpiada</h3>
+        <div className="hint">Elige la zona que acabas de limpiar y adjunta de 3 a 5 fotos. Puedes registrar varias a lo largo del día.</div>
+        <div className="opts" style={{flexDirection:"column",alignItems:"stretch",gap:6,marginTop:8}}>
+          {items.map((it,i)=>{ const tx=itemText(it);
+            return <button key={i} className={"opt"+(zona===tx?" on":"")} style={{textAlign:"left"}} onClick={()=>setZona(tx)}>{zona===tx?"🔘":"⚪"} {tx}</button>; })}
+        </div></div>
+      <div className="card"><h3>📷 Fotos — {fotos.length}/3–5</h3>
+        <input id="ild-file-l" type="file" accept="image/*" capture="environment" multiple style={{display:"none"}} onChange={onFiles}/>
+        <button className="btn ghost block" onClick={()=>document.getElementById("ild-file-l").click()}>
+          {fotos.length>=3?(fotos.length>=5?"📸 Máximo (5) ✓":"📸 Agregar más (hasta 5)"):`📸 Subir (faltan ${3-fotos.length})`}</button>
+        <div className="fgrid">{fotos.map((s,i)=><div key={i} className="fthumb">
+          <img src={s} onClick={()=>setFoto(s)}/>
+          <button className="fdel" onClick={()=>setFotos(f=>f.filter((_,j)=>j!==i))}>✕</button>
+          <span className="fnum">{i+1}</span></div>)}</div></div>
+      <div className="card"><Field label="Observaciones (opcional)">
+        <textarea className="inp" value={obs} onChange={e=>setObs(e.target.value)} placeholder="Novedades de la zona…"/></Field>
+        <button className="btn primary block" disabled={busy} onClick={enviar}>{busy?"Enviando…":"Enviar ILD de zona"}</button></div>
+    </>}
+    {area && modo!=='lista' && (!needsTurno||turno) && <>
+      <div className="card">
+        <h3>Checklist — {done}/{total}</h3>
+        <div className="pbar"><i style={{width:pct+"%",background:pct===100?"var(--green)":"var(--ocean)"}}/></div>
+        {items.map((it,i)=>{ const tx=itemText(it),tp=itemTipo(it);
+          if(tp==='sino') return <div key={i} className="qcard"><div className="qt">{i+1}. {tx}</div>
+            <div className="opts">
+              <button className={"opt si"+(checks['yn-'+i]==='si'?" on":"")} onClick={()=>setChecks(c=>({...c,['yn-'+i]:'si'}))}>✅ Sí</button>
+              <button className={"opt no"+(checks['yn-'+i]==='no'?" on":"")} onClick={()=>setChecks(c=>({...c,['yn-'+i]:'no'}))}>❌ No</button>
+            </div></div>;
+          if(tp==='apertura_cierre'||tp==='comida'){ const ops=tp==='apertura_cierre'?['Apertura','Cierre']:['Desayuno','Almuerzo','Cena'];
+            return <div key={i} className="qcard"><div className="qt">{i+1}. {tx}</div>
+              <div className="opts">{ops.map(op=><button key={op} className={"opt"+(sel[i]===op?" on":"")} onClick={()=>setSel(s=>({...s,[i]:op}))}>{op}</button>)}</div></div>; }
+          if(tp==='texto') return <div key={i} className="qcard"><div className="qt">{i+1}. {tx}</div>
+            <textarea className="inp" placeholder="Escribe aquí (opcional)…" value={txt[i]||""} onChange={e=>setTxt(s=>({...s,[i]:e.target.value}))}/></div>;
+          return <div key={i} className={"crow"+(checks[i]?" on":"")} onClick={()=>setChecks(c=>({...c,[i]:!c[i]}))}>
+            <div className="cbox">{checks[i]?"✓":""}</div><span className="ctext">{i+1}. {tx}</span></div>;
+        })}
+      </div>
+      {req>0 && <div className="card"><h3>📷 Fotos — {fotos.length}/{req}</h3>
+        <input id="ild-file" type="file" accept="image/*" capture="environment" multiple style={{display:"none"}} onChange={onFiles}/>
+        <button className="btn ghost block" onClick={()=>document.getElementById("ild-file").click()}>
+          {fotos.length>=req?"📸 Completo ✓":`📸 Subir (${req-fotos.length} restantes)`}</button>
+        <div className="fgrid">{fotos.map((s,i)=><div key={i} className="fthumb">
+          <img src={s} onClick={()=>setFoto(s)}/>
+          <button className="fdel" onClick={()=>setFotos(f=>f.filter((_,j)=>j!==i))}>✕</button>
+          <span className="fnum">{i+1}</span></div>)}</div></div>}
+      <div className="card"><Field label="Observaciones (opcional)">
+        <textarea className="inp" value={obs} onChange={e=>setObs(e.target.value)} placeholder="Novedades del turno…"/></Field>
+        <button className="btn primary block" disabled={busy} onClick={enviar}>{busy?"Enviando…":"Enviar ILD"}</button>
+      </div>
+    </>}
+  </div>;
+}
+
+function ILDPanel({user,regs,reload,toast,setFoto}){
+  const [filtro,setFiltro]=useState("todos"); const [per,setPer]=useState(90); const [det,setDet]=useState(null);
+  const lim=new Date(); lim.setDate(lim.getDate()-per);
+  let base=regs.filter(r=>new Date(r.fecha)>=lim);
+  if(!esGD(user)) base=base.filter(r=>(user.areas||[]).includes(r.area));
+  if(filtro!=="todos") base=base.filter(r=>r.estado===filtro);
+  // Histórico completo de la jefatura (para exportar, sin filtro de período)
+  const mios=esGD(user)?regs:regs.filter(r=>(user.areas||[]).includes(r.area));
+  function exportar(){ if(!mios.length){toast("No hay ILD para exportar");return;}
+    const ok=exportXLSX(mios.map(ildToRow),"ILD",`ILD_${esGD(user)?"General":user.nombre.replace(/\s+/g,"_")}_${yr()}`);
+    if(ok) toast("Exportando "+mios.length+" ILD…"); }
+  return <div>
+    <div className="row" style={{justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+      <span style={{color:"var(--muted)",fontSize:13}}>{mios.length} ILD en tu histórico</span>
+      <button className="btn green" style={{padding:"9px 14px"}} onClick={exportar}>⬇ Exportar Excel</button>
+    </div>
+    <div className="seg">
+      {[["todos","Todos"],["Pendiente","Pendientes"],["Aprobado","Aprobados"],["Con observaciones","Con obs."]].map(([k,l])=>
+        <button key={k} className={filtro===k?"on":""} onClick={()=>setFiltro(k)}>{l}</button>)}
+    </div>
+    <div className="row" style={{marginBottom:12}}>
+      {[[30,"30d"],[90,"90d"],[365,"1 año"]].map(([d,l])=>
+        <button key={d} className={"btn "+(per===d?"ocean":"ghost")} style={{padding:"8px 14px"}} onClick={()=>setPer(d)}>{l}</button>)}
+    </div>
+    {!base.length && <div className="empty"><div className="e">📭</div>No hay ILD en este período</div>}
+    {base.map(r=><div key={r.id} className="item" onClick={()=>setDet(r)}>
+      <div className="top"><div>
+        <div className="code">{r.Codigo||("ILD #"+r.id)}</div>
+        <div className="ttl">{r.area}{r.turno?` · ${r.turno}`:""}</div>
+        <div className="meta">{r.usuario} · {fmtDT(r.fecha)} · 📷 {(r.fotos||[]).length} · ✓ {r.completados}/{r.totalItems}</div>
+      </div><Pill estado={r.estado==="Con observaciones"?"Con observaciones":r.estado==="Aprobado"?"Aprobado":"Solicitado"}/></div></div>)}
+    {det && <ILDDetail user={user} r={det} onClose={()=>setDet(null)} reload={reload} toast={toast} setFoto={setFoto}/>}
+  </div>;
+}
+
+function ILDMios({user,regs,setFoto}){
+  const [det,setDet]=useState(null);
+  const mios=regs.filter(r=>r.usuario===user.nombre).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+  const ap=mios.filter(r=>r.estado==='Aprobado').length, ob=mios.filter(r=>r.estado==='Con observaciones').length, pe=mios.filter(r=>r.estado==='Pendiente').length;
+  return <div>
+    <div className="kpis">
+      {[["Total",mios.length,"--blue"],["Aprobados",ap,"--green"],["Con obs.",ob,"--purple"],["Pendientes",pe,"--amber"]].map(([l,v,c])=>
+        <div className="kpi" key={l} style={{borderTop:"3px solid "+cssVar(c)}}><div className="kn" style={{color:cssVar(c)}}>{v}</div><div className="kl">{l}</div></div>)}
+    </div>
+    {!mios.length && <div className="empty"><div className="e">📋</div>Aún no has subido ILD</div>}
+    {mios.map(r=><div key={r.id} className="item" onClick={()=>setDet(r)} style={{cursor:"pointer"}}>
+      <div className="top"><div>
+        <div className="code">{r.Codigo||("ILD-"+r.id)}</div>
+        <div className="ttl">{r.area}{r.turno?` · ${r.turno}`:""}</div>
+        <div className="meta">{fmtDT(r.fecha)}{r.aprobador?` · revisó: ${r.aprobador}`:""}</div></div>
+        <Pill estado={r.estado==="Con observaciones"?"Con observaciones":r.estado==="Aprobado"?"Aprobado":"Solicitado"}/></div>
+      {(r.notaJef||r.notaGerencia) && <div className="meta" style={{marginTop:6}}>💬 Toca para ver el comentario</div>}</div>)}
+    {det && <ILDDetail user={user} r={det} onClose={()=>setDet(null)} reload={()=>{}} toast={()=>{}} setFoto={setFoto}/>}
+  </div>;
+}
+function SpImg({foto,idx,onClick}){
+  const [src,setSrc]=useState(foto.data||"");
+  useEffect(()=>{ let url; let vivo=true;
+    if(!foto.data && foto.path && MODE==="graph"){
+      (async()=>{ try{ url=await GraphStore.getImg(foto.path); if(vivo) setSrc(url); }catch(e){} })(); }
+    return ()=>{ vivo=false; if(url) URL.revokeObjectURL(url); };
+  },[]);
+  if(src) return <div className="fthumb"><img src={src} onClick={()=>onClick&&onClick(src)}/><span className="fnum">{idx}</span></div>;
+  if(foto.spUrl) return <a className="fthumb" href={foto.spUrl} target="_blank" rel="noreferrer" style={{display:"grid",placeItems:"center",background:"#eef3f6",color:"var(--ocean-d)",fontSize:11,fontWeight:700,textDecoration:"none",textAlign:"center"}}>🔗<br/>Foto {idx}</a>;
+  if(foto.error) return <div className="fthumb" style={{display:"grid",placeItems:"center",background:"#f6efe9",fontSize:11,color:"#b06a4a",textAlign:"center"}}>⚠️<br/>No subió</div>;
+  if(!foto.data && !foto.path) return <div className="fthumb" style={{display:"grid",placeItems:"center",background:"#f3efe6",fontSize:11,color:"#999"}}>—</div>;
+  return <div className="fthumb" style={{display:"grid",placeItems:"center",background:"#f3efe6",fontSize:18}}>⏳</div>;
+}
+function actaILD(r){
+  const esc=s=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const f=d=>d?new Date(d).toLocaleString('es-EC'):'—';
+  const items=CL[r.area]||[];
+  const filas=items.map((it,i)=>{ const tx=itemText(it),tp=itemTipo(it); let val="—";
+    if(tp==='sino'){ const v=(r.checks&&r.checks['yn-'+i])||""; val=v==='si'?'Sí':v==='no'?'No':'—'; }
+    else if(tp==='texto'){ val=(r.textos&&r.textos[i])||'—'; }
+    else if(tp==='apertura_cierre'||tp==='comida'){ val=(r.selecciones&&r.selecciones[i])||'—'; }
+    else { val=(r.checks&&r.checks[i])?'✓':'○'; }
+    return `<tr><td>${i+1}. ${esc(tx)}</td><td style="text-align:center;font-weight:700">${esc(val)}</td></tr>`; }).join("");
+  const cod=r.Codigo||("ILD-"+r.id);
+  const html=`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>ILD ${esc(cod)}</title>
+  <style>body{font-family:'Segoe UI',Arial,sans-serif;color:#1b2a32;max-width:760px;margin:26px auto;padding:0 26px;line-height:1.5}
+  h1{font-size:21px;margin:6px 0 4px}.tag{display:inline-block;background:#dff3e6;color:#1c7a4a;padding:4px 12px;border-radius:7px;font-weight:700;font-size:13px}
+  .kv{display:flex;justify-content:space-between;border-bottom:1px solid #eee;padding:4px 0;font-size:14px}.kv b{color:#0b3b46}
+  table{width:100%;border-collapse:collapse;margin-top:10px}td{border-bottom:1px solid #f0f0f0;padding:6px 4px;font-size:13px}
+  th{text-align:left;border-bottom:2px solid #0b6b7a;padding:6px 4px;font-size:13px}
+  .note{margin-top:12px;padding:10px;border-radius:8px;background:#f6f4ee;font-size:13px}</style></head><body>
+  <div class="tag">${esc(r.estado)}</div>
+  <h1>ILD No. ${esc(cod)} — ${esc(r.area)}${r.turno?` · ${esc(r.turno)}`:""}</h1>
+  <div class="kv"><b>Responsable</b><span>${esc(r.usuario)}</span></div>
+  <div class="kv"><b>Fecha</b><span>${f(r.fecha)}</span></div>
+  <div class="kv"><b>Aprobado por</b><span>${esc(r.aprobador||'—')}</span></div>
+  <div class="kv"><b>Fecha de aprobación</b><span>${f(r.fechaAprobacion)}</span></div>
+  <div class="kv"><b>Ítems completados</b><span>${esc((r.completados||0)+"/"+(r.totalItems||0))}</span></div>
+  <table><tr><th>Ítem del checklist</th><th style="text-align:center">Resultado</th></tr>${filas}</table>
+  ${r.obs?`<div class="note"><b>Nota del colaborador:</b> ${esc(r.obs)}</div>`:""}
+  ${r.notaJef?`<div class="note"><b>Comentario de ${esc(r.aprobador)}:</b> ${esc(r.notaJef)}</div>`:""}
+  ${r.notaGerencia?`<div class="note"><b>Gerencia:</b> ${esc(r.notaGerencia)}</div>`:""}
+  </body></html>`;
+  const w=window.open("","_blank"); if(!w){ alert("Permite ventanas emergentes para exportar el PDF."); return; }
+  w.document.write(html); w.document.close(); w.focus(); setTimeout(function(){ try{ w.print(); }catch(e){} },350);
+}
+function ILDDetail({user,r,onClose,reload,toast,setFoto}){
+  const items=CL[r.area]||[];
+  const esApro=user.rol==='aprobador'&&(user.areas||[]).includes(r.area);
+  const esGer=user.rol==='gerencia', esDevv=user.rol==='desarrollador';
+  const puedeAprobar=esDevv||esApro||esGer;
+  const puedeReAprobar=esApro && r.estado!=='Pendiente';
+  const puedeNotaGer=(esGer||esDevv) && r.estado!=='Pendiente';
+  const [nota,setNota]=useState(r.notaJef||""); const [notaGer,setNotaGer]=useState(r.notaGerencia||"");
+  async function setEstado(ok){
+    const arr=await Store.read("ILD");
+    const upd=arr.map(x=>x.id===r.id?{...x,estado:ok?"Aprobado":"Con observaciones",notaJef:nota,aprobador:user.nombre,fechaAprobacion:nowISO()}:x);
+    await Store.write("ILD",upd);
+    const cod=r.Codigo||("ILD-"+r.id);
+    await addNotif(r.usuario, nota?`${user.nombre} realizó un comentario sobre el ILD No. ${cod}`:`${user.nombre} revisó tu ILD No. ${cod}`, r.id, cod);
+    toast(ok?"ILD aprobado":"Con observaciones"); reload(); onClose();
+  }
+  async function guardarGer(){
+    const arr=await Store.read("ILD");
+    const upd=arr.map(x=>x.id===r.id?{...x,notaGerencia:notaGer,notaGerenciaAutor:user.nombre,notaGerenciaFecha:nowISO()}:x);
+    await Store.write("ILD",upd);
+    const cod=r.Codigo||("ILD-"+r.id);
+    const txt=`${user.nombre} realizó un comentario sobre el ILD No. ${cod}`;
+    await addNotif(r.usuario, txt, r.id, cod);
+    if(r.aprobador && r.aprobador!==r.usuario) await addNotif(r.aprobador, txt, r.id, cod);
+    toast("Nota de gerencia guardada"); reload(); onClose();
+  }
+  return <Modal title={(r.Codigo||("ILD #"+r.id))} onClose={onClose}>
+    {[["Área",r.area+(r.turno?` · ${r.turno}`:"")],["Responsable",r.usuario],["Fecha",fmtDT(r.fecha)],
+      ["Aprobador esperado",r.aprobadorEsperado||"—"],["Ítems",`${r.completados}/${r.totalItems}`],
+      ["Estado",r.estado]].map(([k,v])=><div className="kv" key={k}><b>{k}</b><span>{v}</span></div>)}
+    {r.estado==='Aprobado' && <button className="btn ocean block" style={{margin:"10px 0"}} onClick={()=>actaILD(r)}>📄 Descargar PDF del ILD</button>}
+    <h3 style={{margin:"14px 0 6px"}}>Checklist</h3>
+    {items.map((it,i)=>{ const tx=itemText(it),tp=itemTipo(it);
+      let val;
+      if(tp==='sino'){ const v=(r.checks&&r.checks['yn-'+i])||""; val=v==='si'?<b style={{color:"var(--green)"}}>✅ Sí</b>:v==='no'?<b style={{color:"var(--red)"}}>❌ No</b>:<span style={{color:"#bbb"}}>—</span>; }
+      else if(tp==='texto'){ const v=(r.textos&&r.textos[i])||""; val=<span style={{color:v?"#333":"#bbb",fontStyle:"italic"}}>{v||"—"}</span>; }
+      else if(tp==='apertura_cierre'||tp==='comida'){ const v=(r.selecciones&&r.selecciones[i])||""; val=v?<b style={{color:"var(--ocean)"}}>{v}</b>:<span style={{color:"#bbb"}}>—</span>; }
+      else { val=<span style={{color:r.checks&&r.checks[i]?"var(--green)":"#ccc"}}>{r.checks&&r.checks[i]?"✓":"○"}</span>; }
+      return <div key={i} style={{display:"flex",justifyContent:"space-between",gap:10,padding:"7px 0",borderBottom:"1px solid #f3efe6",fontSize:13}}>
+        <span style={{flex:1}}>{i+1}. {tx}</span>{val}</div>;
+    })}
+    {(r.fotos||[]).length>0 && <><h3 style={{margin:"14px 0 6px"}}>📷 Fotos ({r.fotos.length})</h3>
+      <div className="fgrid">{r.fotos.map((f,i)=><SpImg key={i} foto={f} idx={i+1} onClick={setFoto}/>)}</div></>}
+    {r.obs && <div className="note obs"><b>📝 Nota del colaborador</b><div>{r.obs}</div></div>}
+    {r.notaJef && <div className="note jef"><b>💬 {r.aprobador} · {fmtDT(r.fechaAprobacion)}</b><div>{r.notaJef}</div></div>}
+    {r.notaGerencia && <div className="note ger"><b>🏢 Gerencia</b><div>{r.notaGerencia}</div></div>}
+
+    {puedeAprobar && r.estado==='Pendiente' && <div className="card" style={{marginTop:12}}>
+      <h3>👔 Aprobación</h3>
+      <textarea className="inp" placeholder="Observación (opcional)…" value={nota} onChange={e=>setNota(e.target.value)}/>
+      <div className="row" style={{marginTop:10}}>
+        <button className="btn green" onClick={()=>setEstado(true)}>✅ Aprobar</button>
+        <button className="btn amber" onClick={()=>setEstado(false)}>📝 Con obs.</button></div></div>}
+    {puedeReAprobar && <div className="card" style={{marginTop:12}}><h3>🔄 Modificar evaluación</h3>
+      <textarea className="inp" value={nota} onChange={e=>setNota(e.target.value)}/>
+      <div className="row" style={{marginTop:10}}>
+        <button className="btn green" onClick={()=>setEstado(true)}>Cambiar a Aprobado</button>
+        <button className="btn amber" onClick={()=>setEstado(false)}>Cambiar a Con obs.</button></div></div>}
+    {puedeNotaGer && <div className="card" style={{marginTop:12}}><h3>🏢 Nota de Gerencia</h3>
+      <textarea className="inp" value={notaGer} onChange={e=>setNotaGer(e.target.value)}/>
+      <button className="btn ocean block" style={{marginTop:10}} onClick={guardarGer}>Guardar nota</button></div>}
+  </Modal>;
+}
+
+function colorCumpl(p){ return p>=85?"--green":p>=50?"--amber":"--red"; }
+function ILDDash({user,regs}){
+  const meses=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+  const hoy=new Date();
+  const areasUser = esGD(user)?Object.keys(AC):(user.areas||[]);
+  const grupos=[...new Set(areasUser.map(a=>AC[a]?.g).filter(Boolean))];
+  const [grp,setGrp]=useState("todas"); const [mes,setMes]=useState(hoy.getMonth()); const year=hoy.getFullYear();
+  const esMesActual = mes===hoy.getMonth();
+  // filas por grupo -> área -> turno
+  const filasDe=area=>{ const ac=AC[area]; if(!ac) return [];
+    const turnos = ac.turno ? ["Apertura","Cierre"] : [ac.t||"Diurno"]; return turnos; };
+  function rowData(area,turno){
+    const recs=regs.filter(r=>r.area===area && (AC[area]?.turno ? r.turno===turno : true)
+      && new Date(r.fecha).getFullYear()===year && new Date(r.fecha).getMonth()===mes);
+    const ap=recs.filter(r=>r.estado==='Aprobado').length;
+    const ob=recs.filter(r=>r.estado==='Con observaciones').length;
+    const pe=recs.filter(r=>r.estado==='Pendiente').length;
+    const dias=diasEsperados(area,year,mes,esMesActual);
+    const diasMes=diasEsperados(area,year,mes,false);
+    const cumpl=dias?Math.round(((ap+ob)/dias)*100):0;
+    const aprob=recs.filter(r=>r.fechaAprobacion);
+    const horas=aprob.length?(aprob.reduce((s,r)=>s+(new Date(r.fechaAprobacion)-new Date(r.fecha)),0)/aprob.length/3600000):0;
+    return {area,turno,subidos:recs.length,ap,ob,pe,dias,diasMes,cumpl,horas};
+  }
+  const gruposVis=(grp==="todas"?grupos:[grp]);
+  const tablas=gruposVis.map(g=>{ const areasG=areasUser.filter(a=>AC[a]?.g===g);
+    const rows=[]; areasG.forEach(a=>filasDe(a).forEach(t=>rows.push(rowData(a,t))));
+    return {g,rows};
+  }).filter(t=>t.rows.length);
+  // resumen global del mes
+  const allRows=tablas.flatMap(t=>t.rows);
+  const tot=allRows.reduce((s,r)=>s+r.subidos,0), tAp=allRows.reduce((s,r)=>s+r.ap,0),
+        tOb=allRows.reduce((s,r)=>s+r.ob,0), tPe=allRows.reduce((s,r)=>s+r.pe,0),
+        tDias=allRows.reduce((s,r)=>s+r.dias,0), cumGlobal=tDias?Math.round(((tAp+tOb)/tDias)*100):0;
+  function exportar(){ const rows=allRows.map(r=>({Grupo:AC[r.area]?.g,Area:r.area,Turno:r.turno,
+    DiasEsperados:r.dias,DiasMes:r.diasMes,Subidos:r.subidos,Aprobados:r.ap,ConObs:r.ob,Pendientes:r.pe,
+    Cumplimiento:r.cumpl+"%",TiempoPromHoras:r.horas.toFixed(2)}));
+    exportXLSX(rows,"Dashboard",`Dashboard_ILD_${meses[mes]}_${year}`); }
+  return <div>
+    <div className="row" style={{marginBottom:12}}>
+      <select className="inp" style={{flex:1}} value={grp} onChange={e=>setGrp(e.target.value)}>
+        <option value="todas">Todos los grupos</option>{grupos.map(g=><option key={g}>{g}</option>)}</select>
+      <select className="inp" style={{flex:1}} value={mes} onChange={e=>setMes(Number(e.target.value))}>
+        {meses.map((m,i)=><option key={i} value={i}>{m}</option>)}</select>
+    </div>
+    <div className="row" style={{justifyContent:"flex-end",marginBottom:10}}>
+      <button className="btn green" style={{padding:"8px 14px"}} onClick={exportar}>⬇ Excel</button></div>
+    <div className="kpis">
+      {[["Total",tot,"--blue"],["Aprobados",tAp,"--green"],["Con obs.",tOb,"--purple"],
+        ["Pendientes",tPe,"--amber"],["% Cumplimiento",tDias?cumGlobal+"%":"—",colorCumpl(cumGlobal)]].map(([l,v,c])=>
+        <div className="kpi" key={l} style={{borderTop:"3px solid "+cssVar(c)}}>
+          <div className="kn" style={{color:cssVar(c)}}>{v}</div><div className="kl">{l}</div></div>)}
+    </div>
+    <div className="hint" style={{margin:"-4px 0 12px"}}>Cumplimiento = (Aprobados + Con obs.) ÷ días esperados{esMesActual?` hasta hoy (día ${hoy.getDate()})`:" del mes"}.</div>
+    {!tablas.length && <div className="empty"><div className="e">📭</div>Sin ILD en {meses[mes]}</div>}
+    {tablas.map(({g,rows})=><div className="dgrp" key={g}>
+      <div className="ghead">📁 {g.toUpperCase()}</div>
+      <div className="dscroll"><table className="dtable">
+        <thead><tr><th>Turno</th><th>Días</th><th>Subidos</th><th>Aprob.</th><th>Obs.</th><th>Cumpl.</th><th>Tiempo (h)</th></tr></thead>
+        <tbody>{rows.map((r,i)=><tr key={i}>
+          <td>{r.turno}<div className="ddias">{r.area}</div></td>
+          <td><span className="dnum">{r.dias}</span><div className="ddias">/{r.diasMes} mes</div></td>
+          <td><span className="dnum">{r.subidos}</span></td>
+          <td><span className="dnum g">{r.ap}</span></td>
+          <td>{r.ob?<span className="dnum p">{r.ob}</span>:<span style={{color:"#ccc"}}>–</span>}</td>
+          <td><span className="dcirc" style={{borderColor:cssVar(colorCumpl(r.cumpl)),color:cssVar(colorCumpl(r.cumpl))}}>{r.cumpl}%</span></td>
+          <td>{r.horas?r.horas.toFixed(2):"0.00"}</td></tr>)}</tbody>
+      </table></div>
+    </div>)}
+  </div>;
+}
+
+/* ===== EDITOR DE CHECKLIST (jefaturas / gerencia / desarrollador) ===== */
+function ChecklistEditor({user,toast,onSave}){
+  const areas = esGD(user)?Object.keys(AC):(user.areas||[]);
+  const norm = it => (typeof it==='object'&&it)?{t:it.t,tipo:it.tipo||'foto'}:{t:it,tipo:'foto'};
+  const [area,setArea]=useState(areas[0]||"");
+  const [items,setItems]=useState(()=> (CL[area]||[]).map(norm));
+  useEffect(()=>{ setItems((CL[area]||[]).map(norm)); },[area]);
+  const TIPOS=[["foto","📷 Foto"],["sino","✅ Sí/No"],["texto","📝 Texto"],["apertura_cierre","🔁 Apertura/Cierre"],["comida","🍽️ Desayuno/Almuerzo/Cena"]];
+  const upd=(i,k,v)=>setItems(arr=>arr.map((it,j)=>j===i?{...it,[k]:v}:it));
+  const del=i=>setItems(arr=>arr.filter((_,j)=>j!==i));
+  const mover=(i,d)=>setItems(arr=>{ const j=i+d; if(j<0||j>=arr.length)return arr; const c=[...arr]; [c[i],c[j]]=[c[j],c[i]]; return c; });
+  const add=()=>setItems(arr=>[...arr,{t:"",tipo:"foto"}]);
+  async function guardar(){ const prev=(CL[area]||[]).map(norm);
+    const clean=items.filter(it=>String(it.t).trim()).map(it=>({t:it.t.trim(),tipo:it.tipo}));
+    const pT=prev.map(x=>x.t), nT=clean.map(x=>x.t);
+    const agreg=nT.filter(t=>!pT.includes(t)), elim=pT.filter(t=>!nT.includes(t));
+    CL[area]=clean; onSave(); toast("Checklist actualizado: "+area);
+    if(user.rol!=='desarrollador'){
+      let det=[]; if(agreg.length) det.push(`agregó ${agreg.length} ítem(s): ${agreg.slice(0,3).join(", ")}${agreg.length>3?"…":""}`);
+      if(elim.length) det.push(`eliminó ${elim.length} ítem(s): ${elim.slice(0,3).join(", ")}${elim.length>3?"…":""}`);
+      if(!det.length) det.push("modificó ítems o tipos");
+      await addNotif("Desarrollador", `${user.nombre} cambió el checklist de "${area}" (${det.join("; ")}).`, "", area);
+    }
+  }
+  const [modo,setModo]=useState(()=>areaModo(area));
+  useEffect(()=>{ setModo(areaModo(area)); },[area]);
+  function cambiarModo(v){ setModo(v); AMODO[area]=v; }
+  if(!areas.length) return <div className="empty"><div className="e">🔒</div>No tienes áreas asignadas para personalizar.</div>;
+  const nFotos=items.filter(it=>it.tipo==='foto').length;
+  return <div>
+    <div className="card"><Field label="Área a personalizar">
+      <select className="inp" value={area} onChange={e=>setArea(e.target.value)}>{areas.map(a=><option key={a}>{a}</option>)}</select></Field>
+      <Field label="Modo del ILD" hint="'Lista' = el usuario elige UNA opción de la lista y sube de 3 a 5 fotos (ideal Áreas Públicas). 'Normal' = checklist completo.">
+        <select className="inp" value={modo} onChange={e=>cambiarModo(e.target.value)}>
+          <option value="normal">Checklist normal</option>
+          <option value="lista">Lista (elegir una opción + 3 a 5 fotos)</option></select></Field>
+      <div className="hint">{items.length} {modo==='lista'?"opciones de la lista":"ítems"} · {modo==='lista'?"el usuario elige una opción":`Fotos requeridas = ${nFotos}`}.</div></div>
+    {items.map((it,i)=><div key={i} className="card" style={{padding:12}}>
+      <div className="row" style={{gap:8,alignItems:"flex-start"}}>
+        <div style={{flex:"0 0 20px",color:"var(--muted)",fontWeight:700,paddingTop:11}}>{i+1}</div>
+        <div style={{flex:1}}>
+          <input className="inp" value={it.t} onChange={e=>upd(i,"t",e.target.value)} placeholder="Texto del ítem"/>
+          <select className="inp" style={{marginTop:8}} value={it.tipo} onChange={e=>upd(i,"tipo",e.target.value)}>{TIPOS.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select>
+          <div className="row" style={{marginTop:8,gap:6}}>
+            <button className="btn ghost" style={{padding:"6px 11px"}} onClick={()=>mover(i,-1)}>↑</button>
+            <button className="btn ghost" style={{padding:"6px 11px"}} onClick={()=>mover(i,1)}>↓</button>
+            <button className="btn red" style={{padding:"6px 11px"}} onClick={()=>del(i)}>🗑 Quitar</button>
+          </div>
+        </div></div></div>)}
+    <button className="btn ghost block" onClick={add}>➕ Agregar ítem</button>
+    <button className="btn primary block" style={{marginTop:10}} onClick={guardar}>💾 Guardar checklist</button>
+  </div>;
+}
+
+/* ===== CONFIGURACIÓN ILD (solo Desarrollador) ===== */
+function ILDConfig({user,toast,onSave}){
+  const [sec,setSec]=useState("usuarios");
+  return <div>
+    <div className="seg">
+      <button className={sec==="usuarios"?"on":""} onClick={()=>setSec("usuarios")}>Usuarios</button>
+      <button className={sec==="aprob"?"on":""} onClick={()=>setSec("aprob")}>Aprobadores</button>
+      <button className={sec==="dias"?"on":""} onClick={()=>setSec("dias")}>Días esperados</button>
+      <button className={sec==="nuevo"?"on":""} onClick={()=>setSec("nuevo")}>Nuevo ILD</button>
+      <button className={sec==="accesos"?"on":""} onClick={()=>setSec("accesos")}>Accesos</button>
+    </div>
+    {sec==="usuarios" && <UsuariosEditor toast={toast} onSave={onSave}/>}
+    {sec==="aprob" && <AprobadoresEditor toast={toast} onSave={onSave}/>}
+    {sec==="dias" && <DiasEsperadosEditor user={user} toast={toast} onSave={onSave}/>}
+    {sec==="nuevo" && <NuevoILD toast={toast} onSave={onSave}/>}
+    {sec==="accesos" && <AccesosEditor toast={toast} onSave={onSave}/>}
+  </div>;
+}
+function AccesosEditor({toast,onSave}){
+  const roles=[["gerencia","Gerencia General"],["aprobador","Jefaturas / Aprobadores"],["colaborador","Colaboradores"]];
+  const caps=[["compras","Ver módulo Compras"],["sistemas","Ver módulo Sistemas"],["mantenimiento","Ver módulo Mantenimiento"],
+    ["kanban","Ver Tablero Kanban"],["kanban.editar","Editar (mover) en Kanban"],
+    ["compras.tablero","Compras · Tablero"],["sistemas.tablero","Sistemas · Tablero"],["mantenimiento.tablero","Mantenimiento · Tablero"]];
+  const [rol,setRol]=useState("gerencia"); const [,force]=useState(0);
+  const fake={rol,areas:[],gestiona:[]};
+  const valor=cap=>(ACCESOS&&ACCESOS[rol]&&(cap in ACCESOS[rol]))?!!ACCESOS[rol][cap]:defaultPuede(fake,cap);
+  const overridden=cap=>!!(ACCESOS&&ACCESOS[rol]&&(cap in ACCESOS[rol]));
+  function set(cap,v){ ACCESOS=ACCESOS||{}; ACCESOS[rol]=ACCESOS[rol]||{}; ACCESOS[rol][cap]=v; force(x=>x+1); }
+  function reset(cap){ if(ACCESOS&&ACCESOS[rol]) delete ACCESOS[rol][cap]; force(x=>x+1); }
+  async function guardar(){ onSave(); toast("Accesos guardados"); }
+  return <div>
+    <div className="card"><Field label="Rol a configurar"><select className="inp" value={rol} onChange={e=>setRol(e.target.value)}>{roles.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></Field>
+      <div className="hint">Activa o desactiva qué pantallas y tableros ve cada rol, sin actualizar la app. El Desarrollador siempre tiene acceso total. La "Gestión" de cada módulo se mantiene para el jefe responsable de ese módulo.</div></div>
+    {caps.map(([cap,l])=><div key={cap} className="card" style={{padding:12,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+      <div><div style={{fontWeight:700}}>{l}</div>{overridden(cap)&&<div className="meta">Personalizado · <span style={{cursor:"pointer",color:"var(--ocean-d)"}} onClick={()=>reset(cap)}>volver a predeterminado</span></div>}</div>
+      <button className={"btn "+(valor(cap)?"green":"ghost")} style={{flex:"0 0 auto"}} onClick={()=>set(cap,!valor(cap))}>{valor(cap)?"Sí ✓":"No"}</button></div>)}
+    <button className="btn primary block" onClick={guardar}>💾 Guardar accesos</button>
+  </div>;
+}
+function DiasEsperadosEditor({user,toast,onSave}){
+  const [,force]=useState(0); const re=()=>force(x=>x+1);
+  const areas=esGD(user)?Object.keys(AC):(user.areas||[]);
+  const [fer,setFer]=useState(""); const hoy=new Date();
+  const setPatron=(a,p)=>{ DIAS_CFG.areas[a]={...(DIAS_CFG.areas[a]||{}),patron:p}; re(); };
+  const toggleDia=(a,d)=>{ const c=DIAS_CFG.areas[a]||{patron:'personalizado',dias:[]}; const dias=c.dias||[];
+    DIAS_CFG.areas[a]={patron:'personalizado',dias:dias.includes(d)?dias.filter(x=>x!==d):[...dias,d]}; re(); };
+  const addFer=()=>{ if(fer && !DIAS_CFG.feriados.includes(fer)){ DIAS_CFG.feriados=[...DIAS_CFG.feriados,fer].sort(); setFer(""); re(); } };
+  const delFer=f=>{ DIAS_CFG.feriados=DIAS_CFG.feriados.filter(x=>x!==f); re(); };
+  const dnames=["D","L","M","X","J","V","S"];
+  const PAT=[["diario","Todos los días del mes"],["finde","Solo fines de semana"],["vsd","Viernes · Sábado · Domingo"],["personalizado","Personalizado"]];
+  return <div>
+    <div className="card"><h3>📅 Feriados (se suman a los días esperados)</h3>
+      <div className="row"><input type="date" className="inp" style={{flex:1}} value={fer} onChange={e=>setFer(e.target.value)}/>
+        <button className="btn ocean" onClick={addFer}>Agregar</button></div>
+      <div className="fgrid" style={{marginTop:10}}>{DIAS_CFG.feriados.map(f=><span key={f} className="pill" style={{background:"#fff3d6",color:"#8a6512"}}>{f}<b style={{cursor:"pointer",marginLeft:4}} onClick={()=>delFer(f)}>✕</b></span>)}</div>
+      {!DIAS_CFG.feriados.length && <div className="hint">Sin feriados configurados.</div>}
+    </div>
+    {areas.map(a=>{ const c=DIAS_CFG.areas[a]||{patron:'diario'};
+      const dias=diasEsperados(a,hoy.getFullYear(),hoy.getMonth(),false);
+      return <div className="card" key={a} style={{padding:12}}>
+        <div style={{fontWeight:700,fontSize:13.5,marginBottom:8}}>{a} <span className="ddias">· {dias} días este mes</span></div>
+        <select className="inp" value={c.patron} onChange={e=>setPatron(a,e.target.value)}>{PAT.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select>
+        {c.patron==='personalizado' && <div className="row" style={{marginTop:8,gap:6}}>{dnames.map((dn,d)=>
+          <button key={d} className={"opt"+((c.dias||[]).includes(d)?" on":"")} style={{minWidth:40,padding:"8px 0"}} onClick={()=>toggleDia(a,d)}>{dn}</button>)}</div>}
+      </div>;})}
+    <button className="btn primary block" onClick={()=>{onSave();toast("Días esperados guardados");}}>💾 Guardar días esperados</button>
+  </div>;
+}
+function rolesAprobadores(){ return [...new Set(USERS.filter(u=>['aprobador','gerencia','desarrollador'].includes(u.rol)).map(u=>u.nombre))]; }
+
+function UsuariosEditor({toast,onSave}){
+  const [,force]=useState(0); const re=()=>force(x=>x+1);
+  const [edit,setEdit]=useState(null);
+  const colabs=USERS.filter(u=>u.rol==='colaborador');
+  const jefes=USERS.filter(u=>u.rol!=='colaborador');
+  function saveUser(u){
+    if(u._new){ USERS.push({id:"c"+Date.now(),nombre:u.nombre,pin:u.pin||"",rol:"colaborador",areas:u.areas||[]}); }
+    else { const t=USERS.find(x=>x.id===u.id); if(t){ t.nombre=u.nombre; t.pin=u.pin; t.areas=u.areas; } }
+    applyGestiona(); onSave(); setEdit(null); re(); toast("Usuario guardado");
+  }
+  function delUser(id){ if(!confirm("¿Eliminar este colaborador?"))return; const i=USERS.findIndex(x=>x.id===id);
+    if(i>=0){ USERS.splice(i,1); onSave(); re(); toast("Colaborador eliminado"); } }
+  return <div>
+    <button className="btn primary block" onClick={()=>setEdit({_new:true,areas:[]})}>➕ Nuevo colaborador</button>
+    <div className="card" style={{marginTop:14}}><h3>Jefatura y gerencia</h3>
+      {jefes.map(u=><div className="kv" key={u.id}>
+        <span><b style={{color:"var(--ink)"}}>{u.nombre}</b> · {u.rol}{u.pin?` · PIN ${u.pin}`:""}</span>
+        <button className="btn ghost" style={{padding:"6px 10px"}} onClick={()=>setEdit({...u})}>✎ Editar</button></div>)}</div>
+    <div className="card"><h3>Colaboradores ({colabs.length})</h3>
+      {!colabs.length && <div className="hint">Aún no hay colaboradores.</div>}
+      {colabs.map(u=><div className="kv" key={u.id} style={{alignItems:"flex-start"}}>
+        <span style={{flex:1}}><b style={{color:"var(--ink)"}}>{u.nombre}</b><br/>
+          <span style={{fontSize:12,color:"var(--muted)"}}>{(u.areas||[]).join(", ")||"sin áreas asignadas"}</span></span>
+        <span className="row" style={{gap:6,flex:"0 0 auto"}}>
+          <button className="btn ghost" style={{padding:"6px 10px"}} onClick={()=>setEdit({...u})}>✎</button>
+          <button className="btn red" style={{padding:"6px 10px"}} onClick={()=>delUser(u.id)}>🗑</button></span></div>)}</div>
+    {edit && <UserModal u={edit} onClose={()=>setEdit(null)} onSave={saveUser}/>}
+  </div>;
+}
+function UserModal({u,onClose,onSave}){
+  const [nombre,setNombre]=useState(u.nombre||""); const [pin,setPin]=useState(u.pin||"");
+  const [areas,setAreas]=useState(u.areas||[]);
+  const esColab=(u.rol||"colaborador")==="colaborador";
+  const toggle=a=>setAreas(s=>s.includes(a)?s.filter(x=>x!==a):[...s,a]);
+  return <Modal title={u._new?"Nuevo colaborador":"Editar usuario"} onClose={onClose}>
+    <Field label="Nombre y apellido" req><input className="inp" value={nombre} onChange={e=>setNombre(e.target.value)}/></Field>
+    {!esColab && <Field label="PIN (4 dígitos)" hint="Solo jefaturas/gerencia usan PIN."><input className="inp" inputMode="numeric" value={pin} onChange={e=>setPin(e.target.value.replace(/\D/g,'').slice(0,4))}/></Field>}
+    <Field label="ILD / áreas que realiza">
+      <div style={{maxHeight:280,overflow:"auto",border:"1px solid var(--line)",borderRadius:12,padding:"4px 10px"}}>
+        {Object.keys(AC).map(a=><label key={a} style={{display:"flex",gap:9,alignItems:"center",padding:"7px 0",fontSize:13.5,borderBottom:"1px solid #f3efe6"}}>
+          <input type="checkbox" checked={areas.includes(a)} onChange={()=>toggle(a)}/> {a}</label>)}</div></Field>
+    <div className="row end"><button className="btn ghost" onClick={onClose}>Cancelar</button>
+      <button className="btn primary" onClick={()=>{ if(!nombre.trim())return; onSave({...u,nombre:nombre.trim(),pin,areas}); }}>Guardar</button></div>
+  </Modal>;
+}
+
+function AprobadoresEditor({toast,onSave}){
+  const [,force]=useState(0); const roles=rolesAprobadores();
+  const set=(area,val)=>{ APR[area]=val; force(x=>x+1); };
+  return <div>
+    <div className="card"><div className="hint">Define quién aprueba cada ILD. Afecta a los registros nuevos.</div></div>
+    {Object.keys(AC).map(a=><div className="card" key={a} style={{padding:12}}>
+      <div style={{fontWeight:700,fontSize:13.5,marginBottom:6}}>{a}</div>
+      <select className="inp" value={APR[a]||""} onChange={e=>set(a,e.target.value)}>
+        <option value="">— sin asignar —</option>{roles.map(r=><option key={r}>{r}</option>)}</select></div>)}
+    <button className="btn primary block" onClick={()=>{onSave();toast("Aprobadores guardados");}}>💾 Guardar aprobadores</button>
+  </div>;
+}
+
+function NuevoILD({toast,onSave}){
+  const grupos=[...new Set(Object.values(AC).map(v=>v.g))];
+  const roles=rolesAprobadores();
+  const [nombre,setNombre]=useState(""); const [g,setG]=useState(grupos[0]||"");
+  const [gNuevo,setGNuevo]=useState(""); const [t,setT]=useState("Diurno"); const [turno,setTurno]=useState(false);
+  const [apr,setApr]=useState(roles[0]||"");
+  function crear(){ const n=nombre.trim(); const grupo=(g==="__nuevo"?gNuevo.trim():g)||"General";
+    if(!n){toast("Escribe el nombre del ILD");return;} if(AC[n]){toast("Ya existe un ILD con ese nombre");return;}
+    AC[n]={r:0,g:grupo,t,turno}; APR[n]=apr; if(!CL[n]) CL[n]=[];
+    onSave(); toast("ILD creado: "+n+". Ahora personaliza su checklist."); setNombre(""); }
+  return <div className="card">
+    <Field label="Nombre del ILD / área" req><input className="inp" value={nombre} onChange={e=>setNombre(e.target.value)} placeholder="Ej. Recepción Nocturno"/></Field>
+    <Field label="Grupo"><select className="inp" value={g} onChange={e=>setG(e.target.value)}>
+      {grupos.map(x=><option key={x} value={x}>{x}</option>)}<option value="__nuevo">+ Nuevo grupo…</option></select></Field>
+    {g==="__nuevo" && <Field label="Nombre del nuevo grupo" req><input className="inp" value={gNuevo} onChange={e=>setGNuevo(e.target.value)}/></Field>}
+    <Field label="Turno por defecto"><select className="inp" value={t} onChange={e=>setT(e.target.value)}><option>Apertura</option><option>Cierre</option><option>Diurno</option></select></Field>
+    <label style={{display:"flex",gap:9,alignItems:"center",marginBottom:13,fontSize:14}}>
+      <input type="checkbox" checked={turno} onChange={e=>setTurno(e.target.checked)}/> Preguntar turno (Apertura/Cierre) al iniciar el ILD</label>
+    <Field label="Aprobador"><select className="inp" value={apr} onChange={e=>setApr(e.target.value)}>{roles.map(r=><option key={r}>{r}</option>)}</select></Field>
+    <button className="btn primary block" onClick={crear}>➕ Crear ILD</button>
+  </div>;
+}
+/* ===== TABLEROS EN TIEMPO REAL (Compras / Sistemas / Mantenimiento) ===== */
+function dFiltro(rows,campo,anio,mes){
+  return rows.filter(r=>{ const d=r[campo]?new Date(r[campo]):null; if(!d||isNaN(d)) return false;
+    if(anio && d.getFullYear()!==anio) return false;
+    if(mes!=null && d.getMonth()!==mes) return false; return true; });
+}
+function dCuenta(rows,campo){ const m={}; rows.forEach(r=>{ const k=(r[campo]||"—"); m[k]=(m[k]||0)+1; });
+  return Object.entries(m).map(([label,value])=>({label,value})).sort((a,b)=>b.value-a.value); }
+function dPromDias(rows,ini,fin){ const ds=rows.map(r=>{ if(!r[ini]||!r[fin])return null; const a=new Date(r[ini]),b=new Date(r[fin]);
+    if(isNaN(a)||isNaN(b))return null; return (b-a)/86400000; }).filter(x=>x!=null);
+  return ds.length?(ds.reduce((s,x)=>s+x,0)/ds.length).toFixed(1):"—"; }
+function fmtDur(min){ if(min==null||isNaN(min)) return "—"; let m=Math.round(min);
+  const d=Math.floor(m/1440); m-=d*1440; const h=Math.floor(m/60); m-=h*60;
+  const p=[]; if(d) p.push(d+"d"); if(h) p.push(h+"h"); p.push(m+"min"); return p.join(" "); }
+function dPromMin(rows,ini,fin){ const ds=rows.map(r=>{ if(!r[ini]||!r[fin])return null; const a=new Date(r[ini]),b=new Date(r[fin]);
+    if(isNaN(a)||isNaN(b))return null; return (b-a)/60000; }).filter(x=>x!=null);
+  return ds.length?fmtDur(ds.reduce((s,x)=>s+x,0)/ds.length):"—"; }
+function dPromCal(rows){ const cs=rows.map(r=>Number(r.EncuestaCal)).filter(x=>x>0);
+  return cs.length?(cs.reduce((s,x)=>s+x,0)/cs.length).toFixed(2):"—"; }
+function KpiBox({label,value,color}){ return <div className="kpi" style={{borderTop:"3px solid "+(color||"var(--ocean)")}}>
+  <div className="kn" style={{color:color||"var(--ocean)"}}>{value}</div><div className="kl">{label}</div></div>; }
+function BarsH({data,color}){ const max=Math.max(1,...data.map(d=>d.value));
+  if(!data.length) return <div className="hint">Sin datos en el período</div>;
+  return <div style={{display:"flex",flexDirection:"column",gap:8}}>{data.map(d=>
+    <div key={d.label} style={{display:"flex",alignItems:"center",gap:8}}>
+      <div style={{flex:"0 0 40%",fontSize:12,textAlign:"right",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={d.label}>{d.label}</div>
+      <div style={{flex:1,background:"#eef1f3",borderRadius:6,height:18}}><div style={{width:(d.value/max*100)+"%",background:color||"var(--ocean)",height:"100%",borderRadius:6,minWidth:d.value?4:0}}></div></div>
+      <div style={{flex:"0 0 30px",fontWeight:800,fontSize:13}}>{d.value}</div></div>)}</div>;
+}
+function Tablero({tipo}){
+  const isCom=tipo==="Compras"; const isSis=tipo==="Sistemas";
+  const now=new Date();
+  const [anio,setAnio]=useState(now.getFullYear()); const [mes,setMes]=useState(null);
+  const [f,setF]=useState([]); const [cargando,setCargando]=useState(true);
+  const anios=[now.getFullYear()-2,now.getFullYear()-1,now.getFullYear()];
+  const MESES=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+  useEffect(()=>{ let vivo=true; (async()=>{ setCargando(true);
+    try{ const data=mes==null?await Store.readAnio(tipo,anio):await Store.readMes(tipo,anio,mes); if(vivo) setF(data); }
+    catch(e){ if(vivo) setF([]); } finally{ if(vivo) setCargando(false); } })(); return ()=>{vivo=false;}; },[anio,mes]);
+  let kpis=[], extra=null;
+  if(isCom){
+    const aprob=f.filter(r=>["En compra","Listo para entregar","Entregado","Cerrada"].includes(r.Estado)).length;
+    const rech=f.filter(r=>r.Estado==="Rechazada").length;
+    const pend=f.filter(r=>["Solicitado","En Gerencia"].includes(r.Estado)).length;
+    const entr=f.filter(r=>["Entregado","Cerrada"].includes(r.Estado)).length;
+    kpis=[["Recibidas",f.length,"--ocean"],["Aprobadas",aprob,"--green"],["Rechazadas",rech,"--coral"],["Pendientes",pend,"--amber"],
+      ["Entregadas",entr,"--blue"],["T. prom. aprobación",dPromMin(f,"FechaSolicitud","FechaAprob"),"--purple"],
+      ["Calificación",dPromCal(f),"--green"],["Encuestas",f.filter(r=>r.EncuestaCal).length,"--blue"]];
+    extra=<div className="card"><h3>Solicitudes por departamento</h3><BarsH data={dCuenta(f,"Area")} color="var(--ocean)"/></div>;
+  } else {
+    const concl=f.filter(r=>["Concluido","Cerrado"].includes(r.Estado)).length;
+    const validas=f.filter(r=>r.Estado!=="Rechazado");
+    const cumpl=validas.length?Math.round(concl/validas.length*100):0;
+    kpis=[["Recibidas",f.length,"--ocean"],["Concluidas",concl,"--green"],["Cumplimiento",cumpl+"%",cumpl>=100?"--green":"--amber"],
+      ["T. prom. respuesta",dPromMin(f,"FechaCreacion","FechaConcluido"),"--purple"],
+      ["Calificación",dPromCal(f),"--green"],["Encuestas",f.filter(r=>r.EncuestaCal).length,"--blue"]];
+    const prioCampo=isSis?"Urgencia":"TipoSolicitud";
+    extra=<>
+      <div className="card"><h3>Solicitudes por departamento</h3><BarsH data={dCuenta(f,"Departamento")} color="var(--ocean)"/></div>
+      <div className="card"><h3>Por prioridad</h3><BarsH data={dCuenta(f,prioCampo)} color="var(--blue)"/></div>
+      {!isSis && <div className="card"><h3>Cumplimiento de cierre</h3><BarsH data={dCuenta(f.filter(r=>r.CierreCumplimiento),"CierreCumplimiento")} color="var(--green)"/></div>}
+    </>;
+  }
+  return <div>
+    <div className="seg" style={{flexWrap:"wrap"}}>{anios.map(a=><button key={a} className={anio===a?"on":""} onClick={()=>setAnio(a)}>{a}</button>)}</div>
+    <div className="seg" style={{flexWrap:"wrap"}}>
+      <button className={mes==null?"on":""} onClick={()=>setMes(null)}>Año</button>
+      {MESES.map((m,i)=><button key={m} className={mes===i?"on":""} onClick={()=>setMes(i)}>{m}</button>)}</div>
+    {cargando ? <div className="hint" style={{padding:"20px 0"}}>Cargando datos del período…</div>
+      : <><div className="kpis">{kpis.map(([l,v,c])=><KpiBox key={l} label={l} value={v} color={cssVar(c)}/>)}</div>{extra}</>}
+  </div>;
+}
+
+/* ===== COMPRAS (campos exactos del Form de Requerimiento de Compra No Operacional) ===== */
+function Compras({user,toast,setFoto}){
+  const chief=gestionaModulo(user,'compras');
+  const canGG=esGD(user)||user.rol==='gerencia';
+  const [tab,setTab]=useState("nueva"); const [rows,setRows]=useState([]); const [modal,setModal]=useState(null);
+  const load=async()=>setRows(await Store.read("Compras")); useEffect(()=>{load();},[]);
+  const vacio={Area:DEPTS[0],TiempoCompra:TIEMPO_COMPRA[1],TipoCompra:TIPO_COMPRA[0],FechaNecesidad:"",
+    Presupuesto:"",Justificacion:"",Cantidad:"",Unidad:UNIDADES[0],Modelo:"",Descripcion:"",Proveedores:""};
+  const [f,setF]=useState(vacio); const [fotos,setFotos]=useState([]); const [busy,setBusy]=useState(false);
+  const ch=(k,v)=>setF(s=>({...s,[k]:v}));
+  async function crear(){
+    for(const [k,lbl] of [["Area","Área"],["TiempoCompra","Tiempo de compra"],["TipoCompra","Tipo de compra"],
+      ["FechaNecesidad","¿Para cuándo la necesitas?"],["Presupuesto","Presupuesto"],["Justificacion","Justificación"],
+      ["Cantidad","Cantidad"],["Unidad","Unidad"],["Modelo","Modelo"],["Descripcion","Descripción"],["Proveedores","Posibles proveedores"]])
+      if(!String(f[k]).trim()){ toast("Falta: "+lbl); return; }
+    if(!fotos.length){ toast("Falta la foto del producto"); return; }
+    if(busy) return; setBusy(true);
+    try{
+      const arr=await Store.read("Compras"); const Codigo=nextCode("COM",arr);
+      const fotosC=await subirFotos(fotos,`COM_${Codigo}`,Codigo);
+      const nuevo={Codigo,id:gid(),FechaSolicitud:nowISO(),Solicitante:user.nombre,...f,
+        Fotos:fotosC,
+        Estado:"Solicitado",FechaTentativa:"",Aprobador:"",FechaAprob:"",Comentario:"",
+        EnviadoGG:"No",AprobadorGG:"",FechaGG:"",ComentarioGG:"",ActaEntrega:"",ComentarioActa:"",
+        FechaEntrega:"",FechaCierre:"",EncuestaCal:"",EncuestaComentario:"",FechaEncuesta:""};
+      await Store.write("Compras",[nuevo,...arr]); toast("Solicitud creada: "+Codigo);
+      setF(vacio); setFotos([]); load(); setTab("mias");
+    } finally { setBusy(false); }
+  }
+  async function apply(code,patch){ const arr=await Store.read("Compras");
+    await Store.write("Compras",arr.map(x=>x.Codigo===code?{...x,...patch}:x)); load(); }
+  const mias=rows.filter(r=>r.Solicitante===user.nombre);
+  const verGestion=puede(user,'compras.gestion')||canGG;
+  const esChiefCompras=puede(user,'compras.gestion');
+  const gestionRows=esChiefCompras?rows:rows.filter(r=>r.Estado==="En Gerencia");
+  return <div>
+    <h1 className="h1">Compras</h1><p className="sub">Requerimiento de compra no operacional.</p>
+    <div className="seg">
+      <button className={tab==="nueva"?"on":""} onClick={()=>setTab("nueva")}>Nueva</button>
+      <button className={tab==="mias"?"on":""} onClick={()=>{setTab("mias");load();}}>Mis solicitudes</button>
+      {verGestion&&<button className={tab==="gestion"?"on":""} onClick={()=>{setTab("gestion");load();}}>Gestión {esDev(user)?"(todo)":esChiefCompras?"":"(Gerencia)"}</button>}
+      {puede(user,'compras.tablero')&&<button className={tab==="tablero"?"on":""} onClick={()=>{setTab("tablero");load();}}>📊 Tablero</button>}
+    </div>
+    {tab==="nueva" && <div className="card">
+      <Field label="Nombres y apellidos"><input className="inp" value={user.nombre} disabled/></Field>
+      <Field label="Área" req><select className="inp" value={f.Area} onChange={e=>ch("Area",e.target.value)}>{DEPTS.map(d=><option key={d}>{d}</option>)}</select></Field>
+      <Field label="Tiempo de compra" req><select className="inp" value={f.TiempoCompra} onChange={e=>ch("TiempoCompra",e.target.value)}>{TIEMPO_COMPRA.map(d=><option key={d}>{d}</option>)}</select></Field>
+      <Field label="Tipo de compra" req><select className="inp" value={f.TipoCompra} onChange={e=>ch("TipoCompra",e.target.value)}>{TIPO_COMPRA.map(d=><option key={d}>{d}</option>)}</select></Field>
+      <Field label="¿Para cuándo necesitas la compra?" req hint="Fecha de vencimiento / fecha en que la necesitas."><input type="date" className="inp" value={f.FechaNecesidad} onChange={e=>ch("FechaNecesidad",e.target.value)}/></Field>
+      <Field label="Presupuesto referencial" req><input className="inp" inputMode="decimal" value={f.Presupuesto} onChange={e=>ch("Presupuesto",e.target.value)} placeholder="Ej. 25000"/></Field>
+      <Field label="Justificación del requerimiento" req><textarea className="inp" value={f.Justificacion} onChange={e=>ch("Justificacion",e.target.value)}/></Field>
+      <div className="row"><div style={{flex:1}}><Field label="Cantidad" req><input className="inp" inputMode="decimal" value={f.Cantidad} onChange={e=>ch("Cantidad",e.target.value)}/></Field></div>
+        <div style={{flex:1}}><Field label="Unidad de medida" req><select className="inp" value={f.Unidad} onChange={e=>ch("Unidad",e.target.value)}>{UNIDADES.map(d=><option key={d}>{d}</option>)}</select></Field></div></div>
+      <Field label="Modelo" req><input className="inp" value={f.Modelo} onChange={e=>ch("Modelo",e.target.value)} placeholder="Ej. Computadora"/></Field>
+      <Field label="Descripción del requerimiento (marca, serie, proveedor, detalles)" req><textarea className="inp" value={f.Descripcion} onChange={e=>ch("Descripcion",e.target.value)}/></Field>
+      <PhotoField fotos={fotos} setFotos={setFotos} label="Foto del producto" req setFoto={setFoto}/>
+      <Field label="Posibles proveedores" req><input className="inp" value={f.Proveedores} onChange={e=>ch("Proveedores",e.target.value)} placeholder="Ej. Super Paco"/></Field>
+      <button className="btn primary block" disabled={busy} onClick={crear}>{busy?"Enviando…":"Crear solicitud"}</button></div>}
+    {tab==="mias" && <Listado items={mias} empty="Aún no tienes solicitudes"
+      render={r=><ComprasCard r={r} chief={false} canGG={false} onAction={(t)=>setModal({t,item:r})}/>}/>}
+    {tab==="gestion" && <Listado items={gestionRows} empty={esChiefCompras?"No hay solicitudes":"No hay solicitudes pendientes de Gerencia"}
+      render={r=><ComprasCard r={r} chief={chief} canGG={canGG} onAction={(t)=>setModal({t,item:r})}/>}/>}
+    {tab==="tablero" && <Tablero tipo="Compras"/>}
+    {modal && <ComprasModal modal={modal} user={user} onClose={()=>setModal(null)} apply={apply} toast={toast} setFoto={setFoto}/>}
+  </div>;
+}
+function actaCompra(item){
+  const f=(d)=>d?new Date(d).toLocaleString('es-EC'):'—';
+  const conf=item.ActaEntrega||'Recibido conforme';
+  const esc=s=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const html=`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Acta ${esc(item.Codigo)}</title>
+  <style>body{font-family:'Segoe UI',Arial,sans-serif;color:#1b2a32;max-width:720px;margin:28px auto;padding:0 26px;line-height:1.55}
+  h1{font-size:21px;margin:8px 0 16px}.tag{display:inline-block;background:#fbeec4;color:#7a5b00;padding:4px 12px;border-radius:7px;font-weight:700;font-size:13px}
+  .r{margin:3px 0}b{color:#0b3b46}.firmas{margin-top:22px}.firma{margin:10px 0;padding-left:12px;border-left:3px solid #0b6b7a}
+  .meta{color:#5b6b72;font-size:13px}p{margin:12px 0}</style></head><body>
+  <div class="tag">${esc(conf)}</div>
+  <h1>Solicitud de compras No. ${esc(item.Codigo)} - Acta de Entrega</h1>
+  <p>Con la presente acta HOTELERA PARAISO S.A. hace la entrega de lo siguiente:</p>
+  <div class="r"><b>Tipo de Compra:</b> ${esc(item.TipoCompra)}</div>
+  <div class="r"><b>Justificación del requerimiento:</b> ${esc(item.Justificacion)}</div>
+  <div class="r"><b>Cantidad:</b> ${esc(item.Cantidad)}</div>
+  <div class="r"><b>Medida:</b> ${esc(item.Unidad)}</div>
+  <div class="r"><b>Modelo:</b> ${esc(item.Modelo)}</div>
+  <div class="r"><b>Descripción del requerimiento:</b> ${esc(item.Descripcion)}</div>
+  <p>El colaborador manifiesta que se entregó el requerimiento en perfectas condiciones, y será utilizada dentro de la jornada laboral establecidos por la empresa.</p>
+  <p>En caso de daño o pérdida o falta de devolución del equipo, el colaborador autoriza el descuento de valores de reposición en sus haberes pendientes.</p>
+  ${item.ComentarioActa?`<p class="meta"><b>Observaciones:</b> ${esc(item.ComentarioActa)}</p>`:''}
+  <div class="firmas"><b>Estado final: ${esc(conf)}</b>
+    <div class="firma"><b>Recibido por (área solicitante):</b> ${esc(item.Receptor||item.Solicitante)}<br><span class="meta">${f(item.FechaCierre)}</span></div>
+    ${item.Aprobador?`<div class="firma"><b>Aprobó / entregó:</b> ${esc(item.Aprobador)}<br><span class="meta">${f(item.FechaAprob)}</span></div>`:''}
+    <div class="firma"><b>Solicitado por:</b> ${esc(item.Solicitante)}<br><span class="meta">${f(item.FechaSolicitud)}</span></div>
+  </div>
+  </body></html>`;
+  const w=window.open("","_blank");
+  if(!w){ alert("Permite ventanas emergentes para exportar el acta en PDF."); return; }
+  w.document.write(html); w.document.close(); w.focus();
+  setTimeout(function(){ try{ w.print(); }catch(e){} },350);
+}
+function ComprasCard({r,chief,canGG,onAction}){
+  return <div className="item">
+    <div className="top"><div><div className="code">{r.Codigo}</div><div className="ttl">{r.Modelo}</div>
+      <div className="meta">{r.Cantidad} {r.Unidad} · {r.Area} · {r.Solicitante}</div></div>
+      <Pill estado={r.Estado} overdue={isOverdue(r)}/></div>
+    <div className="meta" style={{marginTop:6}}>🗓️ Necesaria: {fmtDate(r.FechaNecesidad)}{r.FechaTentativa?` · 📅 Tentativa: ${fmtDate(r.FechaTentativa)}`:""}</div>
+    <div className="acts">
+      <button className="btn ghost" onClick={()=>onAction("ver")}>Ver</button>
+      {chief && r.Estado==="Solicitado" && <>
+        <button className="btn green" onClick={()=>onAction("aprobar")}>Aprobar</button>
+        <button className="btn ocean" onClick={()=>onAction("enviarGG")}>Enviar a Gerencia</button>
+        <button className="btn red" onClick={()=>onAction("rechazar")}>Rechazar</button></>}
+      {canGG && r.Estado==="En Gerencia" && <>
+        <button className="btn green" onClick={()=>onAction("aprobarGG")}>Aprobar (GG)</button>
+        <button className="btn red" onClick={()=>onAction("rechazarGG")}>Rechazar (GG)</button></>}
+      {chief && r.Estado==="En compra" && <button className="btn ocean" onClick={()=>onAction("listo")}>Marcar listo</button>}
+      {!chief && r.Estado==="Listo para entregar" && <button className="btn primary" onClick={()=>onAction("recibir")}>Confirmar recibido</button>}
+      {chief && ["En compra","Listo para entregar"].includes(r.Estado) && <>
+        <button className="btn amber" onClick={()=>onAction("reprogramar")}>Reprogramar fecha</button>
+        <button className="btn red" onClick={()=>onAction("baja")}>Dar de baja</button></>}
+      {["Entregado","Cerrada"].includes(r.Estado) && <button className="btn ocean" onClick={()=>actaCompra(r)}>📄 Acta (PDF)</button>}
+      {!chief && r.Estado==="Entregado" && !r.EncuestaCal && <button className="btn primary" onClick={()=>onAction("encuesta")}>Calificar</button>}
+    </div></div>;
+}
+function ComprasModal({modal,user,onClose,apply,toast,setFoto}){
+  const {t,item}=modal;
+  const [com,setCom]=useState(""); const [fecha,setFecha]=useState(item.FechaTentativa||""); const [cal,setCal]=useState(0);
+  const [acta,setActa]=useState("Recibido conforme");
+  async function go(){
+    if(t==="aprobar"){ await apply(item.Codigo,{Estado:"En compra",Aprobador:user.nombre,FechaAprob:nowISO(),Comentario:com,FechaTentativa:fecha}); toast("Aprobada por Compras"); }
+    else if(t==="enviarGG"){ await apply(item.Codigo,{Estado:"En Gerencia",EnviadoGG:"Si",Aprobador:user.nombre,FechaAprob:nowISO(),Comentario:com}); toast("Enviada a Gerencia"); }
+    else if(t==="aprobarGG"){ await apply(item.Codigo,{Estado:"En compra",AprobadorGG:user.nombre,FechaGG:nowISO(),ComentarioGG:com}); toast("Aprobada por Gerencia · Compras asignará la fecha"); }
+    else if(t==="rechazar"){ if(!com.trim()){toast("El motivo es obligatorio");return;} await apply(item.Codigo,{Estado:"Rechazada",Aprobador:user.nombre,FechaAprob:nowISO(),Comentario:com}); toast("Rechazada"); }
+    else if(t==="rechazarGG"){ if(!com.trim()){toast("El motivo es obligatorio");return;} await apply(item.Codigo,{Estado:"Rechazada",AprobadorGG:user.nombre,FechaGG:nowISO(),ComentarioGG:com}); toast("Rechazada por Gerencia"); }
+    else if(t==="reprogramar"){ if(!fecha){toast("Indica la nueva fecha de entrega");return;} await apply(item.Codigo,{FechaTentativa:fecha,Comentario:com?("Reprogramada — "+com):item.Comentario,Reprogramada:"Si"}); toast("Fecha reprogramada"); }
+    else if(t==="baja"){ if(!com.trim()){toast("Indica el motivo de la baja");return;} await apply(item.Codigo,{Estado:"Baja por presupuesto",Comentario:com,FechaCierre:nowISO()}); toast("Solicitud dada de baja"); }
+    else if(t==="listo"){ await apply(item.Codigo,{Estado:"Listo para entregar",FechaEntrega:nowISO()}); toast("Listo para entregar"); }
+    else if(t==="recibir"){ await apply(item.Codigo,{Estado:"Entregado",ActaEntrega:acta,ComentarioActa:com,Receptor:user.nombre,FechaCierre:nowISO()}); toast("Recibido registrado · acta generada"); }
+    else if(t==="encuesta"){ if(!cal){toast("Selecciona calificación");return;} await apply(item.Codigo,{Estado:"Cerrada",EncuestaCal:cal,EncuestaComentario:com,FechaEncuesta:nowISO()}); toast("¡Gracias por calificar!"); }
+    onClose();
+  }
+  const titles={ver:"Detalle de la solicitud",aprobar:"Aprobar (Compras)",enviarGG:"Enviar a Gerencia General",aprobarGG:"Aprobar (Gerencia)",rechazar:"Rechazar",rechazarGG:"Rechazar (Gerencia)",reprogramar:"Reprogramar fecha de entrega",baja:"Dar de baja por presupuesto",listo:"Marcar listo",recibir:"Confirmar recibido · Acta de entrega",encuesta:"Calificar el servicio"};
+  const needCom = t.startsWith("rechazar")||t==="baja";
+  return <Modal title={titles[t]} onClose={onClose}>
+    {t==="ver" ? <div>
+      {[["Código",item.Codigo],["Solicitante",item.Solicitante],["Área",item.Area],["Tiempo de compra",item.TiempoCompra],
+        ["Tipo de compra",item.TipoCompra],["Necesaria para",fmtDate(item.FechaNecesidad)],["Presupuesto",item.Presupuesto],
+        ["Cantidad",`${item.Cantidad} ${item.Unidad}`],["Modelo",item.Modelo],["Descripción",item.Descripcion],
+        ["Justificación",item.Justificacion],["Proveedores",item.Proveedores],["Estado",item.Estado],
+        ["Tentativa entrega",fmtDate(item.FechaTentativa)],["Aprobó Compras",item.Aprobador||"—"],["Comentario",item.Comentario||"—"],
+        ["Decisión Gerencia",item.AprobadorGG?`${item.AprobadorGG} · ${item.ComentarioGG||""}`:"—"],
+        ["Acta",item.ActaEntrega||"—"],["Recibió",item.Receptor||"—"],["Calificación",item.EncuestaCal?item.EncuestaCal+"/10":"—"]].map(([k,v])=>
+        <div className="kv" key={k}><b>{k}</b><span style={{textAlign:"right",maxWidth:"62%"}}>{v}</span></div>)}
+      {(item.Fotos||[]).length>0 && <><h3 style={{margin:"12px 0 6px"}}>📷 Foto</h3>
+        <div className="fgrid">{item.Fotos.map((f,i)=><SpImg key={i} foto={f} idx={i+1} onClick={setFoto}/>)}</div></>}
+      {["Entregado","Cerrada"].includes(item.Estado) && <button className="btn ocean block" style={{marginTop:12}} onClick={()=>actaCompra(item)}>📄 Exportar Acta de Entrega (PDF)</button>}
+    </div> : <div>
+      {(t==="aprobar"||t==="reprogramar") && <Field label="Fecha tentativa de entrega" req={t==="reprogramar"} hint="La asigna el Coordinador de Compras. Vacía = no se marca como vencida."><input type="date" className="inp" value={fecha} onChange={e=>setFecha(e.target.value)}/></Field>}
+      {t==="recibir" && <><Field label="Resultado de la entrega"><select className="inp" value={acta} onChange={e=>setActa(e.target.value)}><option>Recibido conforme</option><option>Recibido con observaciones</option></select></Field>
+        <div className="hint">Al confirmar, el ítem queda como <b>Entregado</b> y podrás exportar el Acta en PDF.</div></>}
+      {t==="encuesta" && <Field label="Calificación (1-10)"><Stars value={cal} onChange={setCal}/></Field>}
+      <Field label={t.startsWith("rechazar")?"Motivo del rechazo":t==="baja"?"Motivo de la baja (p. ej. falta de presupuesto)":t==="reprogramar"?"Motivo de la reprogramación (opcional)":"Comentario"} req={needCom}><textarea className="inp" value={com} onChange={e=>setCom(e.target.value)}/></Field>
+      <div className="row end"><button className="btn ghost" onClick={onClose}>Cancelar</button>
+        <button className={"btn "+(needCom?"red":"primary")} onClick={go}>Confirmar</button></div></div>}
+  </Modal>;
+}
+
+/* ===== TICKETS (Sistemas / Mantenimiento) con campos exactos del Form ===== */
+function Tickets({tipo,user,toast,setFoto}){
+  const isSis=tipo==="Sistemas";
+  const chief=gestionaModulo(user,tipo.toLowerCase());
+  const [tab,setTab]=useState("nuevo"); const [rows,setRows]=useState([]); const [modal,setModal]=useState(null);
+  const load=async()=>setRows(await Store.read(tipo)); useEffect(()=>{load();},[]);
+  const hoy=new Date().toISOString().slice(0,10);
+  const vacioSis={Departamento:DEPTS_SIS[0],Urgencia:URGENCIA_SIS[1],Titulo:"",Descripcion:""};
+  const vacioMto={Departamento:DEPTS[0],FechaSolicitud:hoy,TipoSolicitud:"Normal",Descripcion:""};
+  const [f,setF]=useState(isSis?vacioSis:vacioMto); const [fotos,setFotos]=useState([]); const [busy,setBusy]=useState(false);
+  const ch=(k,v)=>setF(s=>({...s,[k]:v}));
+  async function crear(){
+    if(isSis){ if(!f.Titulo.trim()){toast("Falta el título de la tarea");return;} if(!f.Descripcion.trim()){toast("Falta la descripción");return;} }
+    else { if(!f.Descripcion.trim()){toast("Falta la descripción de la novedad");return;} }
+    if(busy) return; setBusy(true);
+    try{
+      const arr=await Store.read(tipo); const Codigo=nextCode(isSis?"SIS":"MTO",arr);
+      const fotosT=await subirFotos(fotos,`${isSis?'SIS':'MTO'}_${Codigo}`,Codigo);
+      const base={Codigo,id:gid(),FechaCreacion:nowISO(),Solicitante:user.nombre,...f,
+        Fotos:fotosT,
+        Estado:"Nuevo",FechaTentativa:"",Asignado:"",ComentarioSoporte:"",FechaConcluido:"",
+        EncuestaCal:"",EncuestaComentario:"",FechaEncuesta:""};
+      await Store.write(tipo,[base,...arr]); toast("Ticket creado: "+Codigo);
+      setF(isSis?vacioSis:vacioMto); setFotos([]); load(); setTab("mios");
+    } finally { setBusy(false); }
+  }
+  async function apply(code,patch){ const arr=await Store.read(tipo);
+    await Store.write(tipo,arr.map(x=>x.Codigo===code?{...x,...patch}:x)); load(); }
+  const mios=rows.filter(r=>r.Solicitante===user.nombre);
+  const equipo=equipoDe(user); const verEquipo=user.rol==='aprobador' && equipo.length>0;
+  const delEquipo=rows.filter(r=>equipo.includes(r.Solicitante));
+  const asignadas=rows.filter(r=>r.Asignado===user.nombre && !isSis && !["Cerrado","Rechazado"].includes(r.Estado));
+  const verTareas=!isSis && ildAreasDe(user).includes('Mantenimiento') && user.rol==='colaborador';
+  const [soloHoy,setSoloHoy]=useState(false); const [gHoy,setGHoy]=useState(false);
+  const hoyStr=new Date().toISOString().slice(0,10);
+  const tareasMostrar=soloHoy?asignadas.filter(r=>(r.FechaTentativa||"").slice(0,10)===hoyStr):asignadas;
+  const gestionRows=gHoy?rows.filter(r=>(r.FechaTentativa||"").slice(0,10)===hoyStr):rows;
+  return <div>
+    <h1 className="h1">{isSis?"Soporte de Sistemas":"Mantenimiento"}</h1>
+    <p className="sub">{isSis?"Requerimiento de TI.":"Requerimiento de mantenimiento."}</p>
+    <div className="seg" style={{flexWrap:"wrap"}}>
+      <button className={tab==="nuevo"?"on":""} onClick={()=>setTab("nuevo")}>Nuevo</button>
+      <button className={tab==="mios"?"on":""} onClick={()=>{setTab("mios");load();}}>Mis tickets</button>
+      {verTareas&&<button className={tab==="tareas"?"on":""} onClick={()=>{setTab("tareas");load();}}>Mis tareas{asignadas.length?` (${asignadas.length})`:""}</button>}
+      {verEquipo&&<button className={tab==="equipo"?"on":""} onClick={()=>{setTab("equipo");load();}}>Mi equipo</button>}
+      {puede(user,`${tipo.toLowerCase()}.gestion`)&&<button className={tab==="gestion"?"on":""} onClick={()=>{setTab("gestion");load();}}>Gestión {esDev(user)?"(todo)":""}</button>}
+      {puede(user,`${tipo.toLowerCase()}.tablero`)&&<button className={tab==="tablero"?"on":""} onClick={()=>{setTab("tablero");load();}}>📊 Tablero</button>}
+    </div>
+    {tab==="nuevo" && <div className="card">
+      <Field label={isSis?"Nombre del solicitante":"Solicitante"}><input className="inp" value={user.nombre} disabled/></Field>
+      <Field label="Departamento" req><select className="inp" value={f.Departamento} onChange={e=>ch("Departamento",e.target.value)}>{(isSis?DEPTS_SIS:DEPTS).map(d=><option key={d}>{d}</option>)}</select></Field>
+      {isSis ? <>
+        <Field label="Urgencia / Prioridad" req><select className="inp" value={f.Urgencia} onChange={e=>ch("Urgencia",e.target.value)}>{URGENCIA_SIS.map(d=><option key={d}>{d}</option>)}</select></Field>
+        <Field label="Título de la tarea" req><input className="inp" value={f.Titulo} onChange={e=>ch("Titulo",e.target.value)} placeholder="Ej. Creación de usuario"/></Field>
+        <Field label="Descripción del problema o solicitud" req hint="Describe con el mayor detalle posible."><textarea className="inp" value={f.Descripcion} onChange={e=>ch("Descripcion",e.target.value)}/></Field>
+        <PhotoField fotos={fotos} setFotos={setFotos} label="Adjuntos (opcional)" setFoto={setFoto}/>
+      </> : <>
+        <Field label="Fecha de solicitud" req><input type="date" className="inp" value={f.FechaSolicitud} onChange={e=>ch("FechaSolicitud",e.target.value)}/></Field>
+        <Field label="Tipo de solicitud" req><select className="inp" value={f.TipoSolicitud} onChange={e=>ch("TipoSolicitud",e.target.value)}><option>Normal</option><option>Urgente</option></select></Field>
+        <Field label="Descripción de la novedad" req><textarea className="inp" value={f.Descripcion} onChange={e=>ch("Descripcion",e.target.value)} placeholder="Describe la novedad…"/></Field>
+        <PhotoField fotos={fotos} setFotos={setFotos} label="Imagen de la novedad (opcional)" setFoto={setFoto}/>
+      </>}
+      <button className="btn primary block" disabled={busy} onClick={crear}>{busy?"Enviando…":"Crear ticket"}</button></div>}
+    {tab==="mios" && <Listado items={mios} empty="Aún no tienes tickets" render={r=><TicketCard r={r} isSis={isSis} chief={false} onAction={(t)=>setModal({t,item:r})}/>}/>}
+    {tab==="equipo" && <Listado items={delEquipo} empty="Tu equipo aún no ha subido tickets" render={r=><TicketCard r={r} isSis={isSis} chief={false} onAction={(t)=>setModal({t,item:r})}/>}/>}
+    {tab==="tareas" && <div>
+      <div className="row" style={{margin:"0 0 12px",gap:8}}>
+        <button className={"btn "+(soloHoy?"ghost":"primary")} onClick={()=>setSoloHoy(false)}>Todas ({asignadas.length})</button>
+        <button className={"btn "+(soloHoy?"primary":"ghost")} onClick={()=>setSoloHoy(true)}>📅 Hoy ({asignadas.filter(r=>(r.FechaTentativa||"").slice(0,10)===hoyStr).length})</button></div>
+      <Listado items={tareasMostrar} empty={soloHoy?"No tienes tareas para hoy":"No tienes tareas asignadas"}
+        render={r=><TareaCard r={r} onAction={(t)=>setModal({t,item:r})}/>}/></div>}
+    {tab==="gestion" && <div>
+      <div className="row" style={{margin:"0 0 12px",gap:8,flexWrap:"wrap"}}>
+        <button className={"btn "+(gHoy?"ghost":"primary")} onClick={()=>setGHoy(false)}>Todas ({rows.length})</button>
+        <button className={"btn "+(gHoy?"primary":"ghost")} onClick={()=>setGHoy(true)}>📅 Hoy ({rows.filter(r=>(r.FechaTentativa||"").slice(0,10)===hoyStr).length})</button>
+        <button className="btn ocean" onClick={()=>{ if(!exportXLSX(gestionRows,tipo,`${tipo}_${gHoy?"Hoy_":""}PlayaParaiso`)) toast("No hay datos para exportar"); else toast("Exportando…"); }}>⬇️ Exportar</button></div>
+      <Listado items={gestionRows} empty="No hay tickets" render={r=><TicketCard r={r} isSis={isSis} chief={chief} equipo={equipo} onAction={(t)=>setModal({t,item:r})}/>}/></div>}
+    {tab==="tablero" && <Tablero tipo={tipo}/>}
+    {modal && <TicketModal tipo={tipo} isSis={isSis} modal={modal} user={user} equipo={equipo} onClose={()=>setModal(null)} apply={apply} toast={toast} setFoto={setFoto}/>}
+  </div>;
+}
+function TareaCard({r,onAction}){
+  const venc = r.FechaTentativa && (r.FechaTentativa||"").slice(0,10) < new Date().toISOString().slice(0,10) && !["Concluido","Cerrado"].includes(r.Estado);
+  return <div className="item">
+    <div className="top"><div><div className="code">{r.Codigo}</div><div className="ttl">{r.Descripcion}</div>
+      <div className="meta">{r.Departamento} · {r.TipoSolicitud} · solicitó: {r.Solicitante}</div></div>
+      <Pill estado={r.Estado} overdue={venc}/></div>
+    {r.FechaTentativa && <div className="meta" style={{marginTop:6}}>📅 Para: {fmtDate(r.FechaTentativa)}{venc?" · ⚠️ vencida":""}</div>}
+    {r.CierreCumplimiento && <div className="meta" style={{marginTop:4,fontWeight:700,color:r.CierreCumplimiento.includes("atraso")?"var(--coral)":"var(--green)"}}>{r.CierreCumplimiento}</div>}
+    <div className="acts">
+      <button className="btn ghost" onClick={()=>onAction("ver")}>Ver</button>
+      {!["Concluido","Cerrado"].includes(r.Estado) && <button className="btn green" onClick={()=>onAction("concluirTarea")}>✅ Concluir tarea</button>}
+    </div></div>;
+}
+function TicketCard({r,isSis,chief,equipo,onAction}){
+  const titulo=isSis?r.Titulo:r.Descripcion;
+  return <div className="item">
+    <div className="top"><div><div className="code">{r.Codigo}</div><div className="ttl">{titulo}</div>
+      <div className="meta">{r.Solicitante} · {r.Departamento} · {isSis?(r.Urgencia||"").split(" ")[0]:r.TipoSolicitud}</div></div>
+      <Pill estado={r.Estado} overdue={isOverdue(r)}/></div>
+    {r.FechaTentativa && <div className="meta" style={{marginTop:6}}>📅 {fmtDate(r.FechaTentativa)}</div>}
+    {r.Asignado && <div className="meta" style={{marginTop:4}}>👤 Asignado a: {r.Asignado}</div>}
+    {r.CierreCumplimiento && <div className="meta" style={{marginTop:4,fontWeight:700,color:r.CierreCumplimiento.includes("atraso")?"var(--coral)":"var(--green)"}}>{r.CierreCumplimiento}</div>}
+    <div className="acts">
+      <button className="btn ghost" onClick={()=>onAction("ver")}>Ver</button>
+      {chief && !isSis && !["Concluido","Cerrado","Rechazado"].includes(r.Estado) && <button className="btn ocean" onClick={()=>onAction("asignar")}>👤 Asignar tarea</button>}
+      {chief && isSis && ["Nuevo","Sin fecha asignada"].includes(r.Estado) && <button className="btn ocean" onClick={()=>onAction("tomar")}>Asignar fecha</button>}
+      {chief && r.Estado==="En proceso" && <button className="btn green" onClick={()=>onAction("concluir")}>Concluir</button>}
+      {chief && !["Concluido","Cerrado","Rechazado"].includes(r.Estado) && <button className="btn red" onClick={()=>onAction("rechazar")}>Rechazar</button>}
+      {!chief && r.Estado==="Concluido" && !r.EncuestaCal && <button className="btn primary" onClick={()=>onAction("encuesta")}>Calificar</button>}
+    </div></div>;
+}
+function TicketModal({tipo,isSis,modal,user,equipo,onClose,apply,toast,setFoto}){
+  const {t,item}=modal;
+  const opciones=(equipo&&equipo.length)?equipo:[];
+  const [com,setCom]=useState(""); const [fecha,setFecha]=useState(item.FechaTentativa||""); const [cal,setCal]=useState(0);
+  const [tecnico,setTecnico]=useState(item.Asignado||opciones[0]||""); const [fotos,setFotos]=useState([]); const [busy,setBusy]=useState(false);
+  function cumplimiento(){ if(!item.FechaTentativa) return "Concluida"; const lim=(item.FechaTentativa||"").slice(0,10);
+    return (new Date().toISOString().slice(0,10) <= lim) ? "Concluida a tiempo" : "Concluida con atraso"; }
+  async function go(){
+    if(t==="tomar"){ await apply(item.Codigo,{Estado:fecha?"En proceso":"Sin fecha asignada",Asignado:user.nombre,FechaTentativa:fecha}); toast(fecha?"En proceso":"Guardado sin fecha"); }
+    else if(t==="asignar"){ if(!tecnico){toast("Selecciona un técnico");return;} if(!fecha){toast("Indica la fecha límite de la tarea");return;}
+      await apply(item.Codigo,{Estado:"Asignada",Asignado:tecnico,FechaTentativa:fecha,ComentarioJefe:com});
+      await addNotif(tecnico,`Se te asignó la tarea de mantenimiento ${item.Codigo} (para el ${fmtDate(fecha)}).`,"",item.Codigo);
+      toast("Tarea asignada a "+tecnico); }
+    else if(t==="concluir"){ if(!com.trim()){toast("El comentario de cierre es obligatorio");return;} setBusy(true);
+      const fc=fotos.length?await subirFotos(fotos,`MTO_${item.Codigo}`,item.Codigo+"_cierre"):(item.FotosCierre||[]);
+      await apply(item.Codigo,{Estado:"Concluido",ComentarioSoporte:com,FechaConcluido:nowISO(),CierreCumplimiento:cumplimiento(),FotosCierre:fc}); toast("Concluido"); }
+    else if(t==="concluirTarea"){ if(!com.trim()){toast("Escribe un comentario de la tarea");return;}
+      if(!fotos.length){toast("Adjunta al menos una foto de la tarea concluida");return;} setBusy(true);
+      const fc=await subirFotos(fotos,`MTO_${item.Codigo}`,item.Codigo+"_cierre"); const cmp=cumplimiento();
+      await apply(item.Codigo,{Estado:"Concluido",ComentarioSoporte:com,FechaConcluido:nowISO(),CierreCumplimiento:cmp,FotosCierre:fc});
+      toast(cmp); }
+    else if(t==="rechazar"){ if(!com.trim()){toast("El motivo es obligatorio");return;} await apply(item.Codigo,{Estado:"Rechazado",ComentarioSoporte:com,Asignado:user.nombre,FechaConcluido:nowISO()}); toast("Rechazado"); }
+    else if(t==="encuesta"){ if(!cal){toast("Selecciona calificación");return;} await apply(item.Codigo,{Estado:"Cerrado",EncuestaCal:cal,EncuestaComentario:com,FechaEncuesta:nowISO()}); toast("¡Gracias por calificar!"); }
+    onClose();
+  }
+  const titles={ver:"Detalle del ticket",tomar:"Asignar fecha tentativa",asignar:"Asignar tarea al equipo",concluir:"Concluir ticket",concluirTarea:"Concluir tarea",rechazar:"Rechazar",encuesta:"Calificar el servicio"};
+  return <Modal title={titles[t]} onClose={onClose}>
+    {t==="ver" ? <div>
+      {[["Código",item.Codigo],["Solicitante",item.Solicitante],["Departamento",item.Departamento],
+        isSis?["Urgencia",item.Urgencia]:["Tipo",item.TipoSolicitud],
+        isSis?["Título",item.Titulo]:["Fecha solicitud",fmtDate(item.FechaSolicitud)],
+        ["Descripción",item.Descripcion],["Estado",item.Estado],["Fecha límite",fmtDate(item.FechaTentativa)],
+        ["Asignado",item.Asignado||"—"],["Cumplimiento",item.CierreCumplimiento||"—"],["Cierre",item.ComentarioSoporte||"—"],["Calificación",item.EncuestaCal?item.EncuestaCal+"/10":"—"]].map(([k,v])=>
+        <div className="kv" key={k}><b>{k}</b><span style={{textAlign:"right",maxWidth:"62%"}}>{v}</span></div>)}
+      {(item.Fotos||[]).length>0 && <><h3 style={{margin:"12px 0 6px"}}>📷 Adjuntos</h3>
+        <div className="fgrid">{item.Fotos.map((f,i)=><SpImg key={i} foto={f} idx={i+1} onClick={setFoto}/>)}</div></>}
+      {(item.FotosCierre||[]).length>0 && <><h3 style={{margin:"12px 0 6px"}}>📷 Fotos de cierre</h3>
+        <div className="fgrid">{item.FotosCierre.map((f,i)=><SpImg key={i} foto={f} idx={i+1} onClick={setFoto}/>)}</div></>}
+    </div> : <div>
+      {t==="asignar" && <><Field label="Técnico responsable" req><select className="inp" value={tecnico} onChange={e=>setTecnico(e.target.value)}>
+        {!opciones.length && <option value="">(sin miembros de equipo)</option>}
+        {opciones.map(n=><option key={n}>{n}</option>)}</select></Field>
+        <Field label="Fecha límite de la tarea" req hint="Según esta fecha se marcará 'a tiempo' o 'con atraso'."><input type="date" className="inp" value={fecha} onChange={e=>setFecha(e.target.value)}/></Field></>}
+      {t==="tomar" && <Field label="Fecha tentativa de solución" hint="Sin fecha: queda 'Sin fecha asignada' y NO se marca vencido."><input type="date" className="inp" value={fecha} onChange={e=>setFecha(e.target.value)}/></Field>}
+      {t==="encuesta" && <Field label="Calificación (1-10)"><Stars value={cal} onChange={setCal}/></Field>}
+      {["rechazar","concluir","concluirTarea","encuesta","asignar"].includes(t) && <Field label={t==="rechazar"?"Motivo del rechazo":t==="concluir"||t==="concluirTarea"?"Comentario de la tarea / soporte":t==="asignar"?"Indicaciones para el técnico (opcional)":"Comentario (opcional)"} req={["rechazar","concluir","concluirTarea"].includes(t)}>
+        <textarea className="inp" value={com} onChange={e=>setCom(e.target.value)}/></Field>}
+      {(t==="concluirTarea"||t==="concluir") && <PhotoField fotos={fotos} setFotos={setFotos} label={t==="concluirTarea"?"Foto de la tarea concluida":"Foto de cierre (opcional)"} req={t==="concluirTarea"} setFoto={setFoto}/>}
+      <div className="row end"><button className="btn ghost" onClick={onClose}>Cancelar</button>
+        <button className={"btn "+(t==="rechazar"?"red":"primary")} disabled={busy} onClick={go}>{busy?"Guardando…":"Confirmar"}</button></div></div>}
+  </Modal>;
+}
+
+/* ===== LISTADO genérico ===== */
+function Listado({items,render,empty}){
+  if(!items.length) return <div className="empty"><div className="e">🗒️</div><div>{empty}</div></div>;
+  return <div>{items.map((r,i)=><div key={r.Codigo||r.id||i}>{render(r)}</div>)}</div>;
+}
+
+/* ===== KANBAN ===== */
+function KanModal({proc,tabla,r,canEdit,cols,onClose,onSaved,toast,setFoto}){
+  const isCom=tabla==="Compras", isSis=tabla==="Sistemas";
+  const titulo=isCom?r.Modelo:isSis?r.Titulo:r.Descripcion;
+  const area=isCom?r.Area:r.Departamento;
+  const [estado,setEstado]=useState(r.Estado); const [com,setCom]=useState(""); const [fecha,setFecha]=useState(r.FechaTentativa||"");
+  async function guardar(){ const arr=await Store.read(tabla);
+    const upd=arr.map(x=>{ if(x.Codigo!==r.Codigo) return x; const o={...x,Estado:estado};
+      if(com.trim()){ o.ComentarioKanban=com; if(isCom)o.ComentarioGG=com; else o.ComentarioSoporte=com; }
+      if(fecha) o.FechaTentativa=fecha; return o; });
+    await Store.write(tabla,upd); toast("Solicitud actualizada"); onSaved(); onClose();
+  }
+  return <Modal title={r.Codigo} onClose={onClose}>
+    {[["Solicitante",r.Solicitante],["Área/Depto",area||"—"],["Detalle",titulo||"—"],
+      isCom?["Tipo",r.TipoCompra||"—"]:["Prioridad",(isSis?r.Urgencia:r.TipoSolicitud)||"—"],
+      ["Descripción",r.Descripcion||r.Justificacion||"—"],["Estado",r.Estado],
+      ["Asignado",r.Asignado||"—"],["Fecha",fmtDate(r.FechaTentativa)]].map(([k,v])=>
+      <div className="kv" key={k}><b>{k}</b><span style={{textAlign:"right",maxWidth:"62%"}}>{v}</span></div>)}
+    {(r.Fotos||[]).length>0 && <><h3 style={{margin:"12px 0 6px"}}>📷 Adjuntos</h3>
+      <div className="fgrid">{r.Fotos.map((f,i)=><SpImg key={i} foto={f} idx={i+1} onClick={setFoto}/>)}</div></>}
+    {["Entregado","Cerrada","Cerrado"].includes(r.Estado) && <button className="btn ocean block" style={{marginTop:10}} onClick={()=>isCom?actaCompra(r):null} disabled={!isCom}>{isCom?"📄 Acta (PDF)":""}</button>}
+    {canEdit ? <div className="card" style={{marginTop:12}}>
+      <h3>✎ Gestionar</h3>
+      <Field label="Estado"><select className="inp" value={estado} onChange={e=>setEstado(e.target.value)}>{cols.map(c=><option key={c}>{c}</option>)}</select></Field>
+      <Field label="Fecha"><input type="date" className="inp" value={fecha} onChange={e=>setFecha(e.target.value)}/></Field>
+      <Field label="Comentario"><textarea className="inp" value={com} onChange={e=>setCom(e.target.value)}/></Field>
+      <button className="btn primary block" onClick={guardar}>Guardar</button>
+    </div> : <div className="hint" style={{marginTop:12}}>Solo lectura.</div>}
+  </Modal>;
+}
+function Kanban({user,toast,setFoto}){
+  const mods=["compras","sistemas","mantenimiento"];
+  const [proc,setProc]=useState(mods[0]);
+  const tabla={compras:"Compras",sistemas:"Sistemas",mantenimiento:"Mantenimiento"}[proc];
+  const [rows,setRows]=useState([]); const [over,setOver]=useState(null); const drag=useRef(null);
+  const [fArea,setFArea]=useState(""); const [fSolic,setFSolic]=useState(""); const [det,setDet]=useState(null);
+  const load=async()=>setRows(await Store.read(tabla)); useEffect(()=>{load();setFArea("");setFSolic("");},[proc]);
+  const cols=KANBAN[proc];
+  const areaOf=r=>tabla==="Compras"?r.Area:r.Departamento;
+  const titleOf=r=>tabla==="Compras"?r.Modelo:tabla==="Sistemas"?r.Titulo:r.Descripcion;
+  const prioOf=r=>tabla==="Compras"?(r.TiempoCompra||""):tabla==="Sistemas"?(r.Urgencia||""):(r.TipoSolicitud||"");
+  const isUrg=r=>{const p=prioOf(r).toLowerCase();return p.includes("urgente")||p.includes("alta");};
+  const areas=[...new Set(rows.map(areaOf).filter(Boolean))].sort();
+  const solics=[...new Set(rows.map(r=>r.Solicitante).filter(Boolean))].sort();
+  const visibles=rows.filter(r=>(!fArea||areaOf(r)===fArea)&&(!fSolic||r.Solicitante===fSolic));
+  function canEditCard(r){ if(esCerrada(r)) return false; if(esDev(user)) return true;
+    if(gestionaModulo(user,proc)) return true;
+    if(user.rol==='gerencia' && proc==='compras' && r.Estado==='En Gerencia') return true;
+    return false; }
+  async function move(code,estado){ const r=rows.find(x=>x.Codigo===code); if(!r||!canEditCard(r)) return;
+    const arr=await Store.read(tabla);
+    await Store.write(tabla,arr.map(x=>x.Codigo===code?{...x,Estado:estado}:x)); load(); toast("Movido a "+estado); }
+  return <div>
+    <h1 className="h1">Tablero Kanban</h1><p className="sub">Toca una tarjeta para abrirla. Podrás editar solo las que te corresponden.</p>
+    <div className="seg">{mods.map(m=><button key={m} className={proc===m?"on":""} onClick={()=>setProc(m)}>{({compras:"Compras",sistemas:"Sistemas",mantenimiento:"Mantenimiento"})[m]}</button>)}</div>
+    <div className="kfilters">
+      <select value={fArea} onChange={e=>setFArea(e.target.value)}><option value="">Todas las áreas</option>{areas.map(a=><option key={a}>{a}</option>)}</select>
+      <select value={fSolic} onChange={e=>setFSolic(e.target.value)}><option value="">Todos los solicitantes</option>{solics.map(s=><option key={s}>{s}</option>)}</select>
+      {(fArea||fSolic) && <button className="btn ghost" style={{flex:"0 0 auto"}} onClick={()=>{setFArea("");setFSolic("");}}>Limpiar</button>}
+    </div>
+    <div className="kcount">{visibles.length} de {rows.length} tarjeta(s){fArea?` · ${fArea}`:""}{fSolic?` · ${fSolic}`:""}</div>
+    <div className="kan">{cols.map(col=>{ const cards=visibles.filter(r=>r.Estado===col);
+      return <div key={col} className={"kcol"+(over===col?" over":"")} onDragOver={e=>{e.preventDefault();setOver(col);}}
+        onDragLeave={()=>setOver(null)} onDrop={e=>{e.preventDefault();setOver(null); if(drag.current) move(drag.current,col);}}>
+        <h4><span><span className="dotc" style={{background:colorOf(col)}}></span>{col}</span><span className="cnt">{cards.length}</span></h4>
+        {cards.map(r=>{ const ed=canEditCard(r);
+          return <div key={r.Codigo} className="kcard" draggable={ed}
+          style={{borderLeft:`4px solid ${isOverdue(r)?cssVar("--red"):colorOf(r.Estado)}`,cursor:"pointer"}}
+          onClick={()=>setDet(r)} onDragStart={()=>{ if(ed) drag.current=r.Codigo; }} onDragEnd={()=>drag.current=null}>
+          <div className="kc">{r.Codigo}{isOverdue(r)?" · ⚠ vencido":""}{esCerrada(r)?" · 🔒":""}</div>
+          <div className="kt">{titleOf(r)}</div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",margin:"6px 0 2px"}}>
+            <span className="kchip">{areaOf(r)||"—"}</span>
+            {prioOf(r) && <span className={"kchip"+(isUrg(r)?" urg":"")}>{prioOf(r).split(" ")[0]}</span>}</div>
+          <div className="km">👤 {r.Solicitante}{r.FechaTentativa?` · 📅 ${fmtDate(r.FechaTentativa)}`:""}</div>
+          <div className="kchip" style={{marginTop:6,display:"inline-block"}}>{ed?"✎ Abrir / editar":"👁 Abrir"}</div></div>;})}
+        {!cards.length && <div style={{color:"#aab2b3",fontSize:12,textAlign:"center",padding:"14px 0"}}>—</div>}
+      </div>;})}</div>
+    {det && <KanModal proc={proc} tabla={tabla} r={det} canEdit={canEditCard(det)} cols={cols}
+      onClose={()=>setDet(null)} onSaved={load} toast={toast} setFoto={setFoto}/>}
+  </div>;
+}
+
+/* ===== ADMIN ===== */
+function ClientIdForm({toast}){
+  const [cid,setCid]=useState(localStorage.getItem("pp_clientId")||APP.ms.clientId);
+  const [tid,setTid]=useState(localStorage.getItem("pp_tenantId")||APP.ms.tenantId);
+  function guardar(){ const c=cid.trim(); if(!c){toast("Pega el Client ID");return;}
+    localStorage.setItem("pp_clientId",c); if(tid.trim()) localStorage.setItem("pp_tenantId",tid.trim());
+    if(!confirm("Guardar y reiniciar la app para conectar con tu App Registration?"))return;
+    location.reload(); }
+  function restaurar(){ localStorage.removeItem("pp_clientId"); localStorage.removeItem("pp_tenantId"); location.reload(); }
+  return <div style={{marginTop:8}}>
+    <Field label="Client ID (Application ID)"><input className="inp" value={cid} onChange={e=>setCid(e.target.value)} placeholder="00000000-0000-0000-0000-000000000000"/></Field>
+    <Field label="Tenant ID (opcional)"><input className="inp" value={tid} onChange={e=>setTid(e.target.value)}/></Field>
+    <div className="row"><button className="btn primary" onClick={guardar}>Guardar y reiniciar</button>
+      <button className="btn ghost" onClick={restaurar}>Restaurar por defecto</button></div></div>;
+}
+function DeleteRecords({toast}){
+  const [mod,setMod]=useState("ILD"); const [rows,setRows]=useState([]);
+  const load=async()=>setRows(await Store.read(mod)); useEffect(()=>{load();},[mod]);
+  const idOf=r=>r.id||r.Codigo;
+  const codeOf=r=>r.Codigo||("#"+r.id);
+  const titleOf=r=> mod==="ILD"?`${r.area} · ${r.usuario}` : mod==="Compras"?r.Modelo : mod==="Sistemas"?r.Titulo : r.Descripcion;
+  async function del(id){ if(!confirm("¿Eliminar este registro de prueba? Es permanente y no afectará los índices del resto."))return;
+    await Store.remove(mod, id); load(); toast("Registro eliminado"); }
+  return <div className="card"><h3>🗑 Borrar registros de prueba</h3>
+    <div className="hint">Elimina registros de prueba para que no afecten los indicadores. Acción permanente.</div>
+    <select className="inp" style={{margin:"10px 0"}} value={mod} onChange={e=>setMod(e.target.value)}>
+      {["ILD","Compras","Sistemas","Mantenimiento"].map(m=><option key={m}>{m}</option>)}</select>
+    {!rows.length && <div className="hint">Sin registros en {mod}.</div>}
+    <div style={{maxHeight:320,overflow:"auto"}}>
+    {rows.map(r=><div className="kv" key={idOf(r)}>
+      <span style={{flex:1}}><b style={{color:"var(--ink)"}}>{codeOf(r)}</b> · {titleOf(r)}</span>
+      <button className="btn red" style={{padding:"6px 11px",flex:"0 0 auto"}} onClick={()=>del(idOf(r))}>Eliminar</button></div>)}
+    </div></div>;
+}
+function Admin({user,toast}){
+  const [counts,setCounts]=useState({}); const [reloadKey,setReloadKey]=useState(0);
+  useEffect(()=>{(async()=>{ const o={}; for(const t of ["ILD","Compras","Sistemas","Mantenimiento"]) o[t]=(await Store.read(t)).length; setCounts(o); })();},[reloadKey]);
+  async function exportar(t){ const data=await Store.read(t);
+    if(!data.length){toast("Sin datos en "+t);return;}
+    const rows = t==="ILD" ? data.map(ildToRow) : data;
+    exportXLSX(rows,t,`${t}_PlayaParaiso_${yr()}`); toast("Exportando "+t+"…"); }
+  function toggleMode(){ const nm=MODE==="graph"?"local":"graph";
+    if(!confirm(nm==="graph"?"Cambiar a modo SharePoint (en vivo)? Se recargará la app.":"Cambiar a modo local (demo)? Se recargará la app.")) return;
+    localStorage.setItem("pp_mode",nm); location.reload(); }
+  async function cargarHistorico(){
+    if(!confirm("Cargar el histórico de ILD ("+ILD_SEED.length+" registros)? No se duplican los ya cargados.")) return;
+    try{
+      const cur=await Store.read("ILD"); const ids=new Set(cur.map(r=>r.id));
+      const add=ILD_SEED.filter(r=>!ids.has(r.id));
+      if(!add.length){ toast("El histórico ya está cargado"); return; }
+      await Store.write("ILD",[...add,...cur].sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)));
+      toast("Histórico cargado: "+add.length+" ILD"); setReloadKey(k=>k+1);
+    }catch(e){ toast("No se pudo cargar el histórico ("+(e.message||"")+")"); }
+  }
+  return <div>
+    <h1 className="h1">Configuración</h1><p className="sub">Conexión, datos y mantenimiento.</p>
+    <div className="card"><h3>☁️ Conexión SharePoint · Prueba7</h3>
+      <div className="kv"><b>Modo</b><span>{MODE==="graph"?"En vivo (SharePoint)":"Local (demo)"}</span></div>
+      {MODE==="graph" && <div className="kv"><b>Cuenta Microsoft</b><span>{graphUser||"—"}</span></div>}
+      <div className="kv"><b>Registros</b><span>ILD {counts.ILD||0} · Com {counts.Compras||0} · Sis {counts.Sistemas||0} · Mto {counts.Mantenimiento||0}</span></div>
+      <div className="kv"><b>Versión</b><span>{APP.version}</span></div>
+      <div className="kv" style={{flexDirection:"column",alignItems:"flex-start",gap:4}}><b>Redirect URI (regístralo en Azure)</b>
+        <code style={{fontSize:12,wordBreak:"break-all",background:"#f3efe6",padding:"4px 8px",borderRadius:8,width:"100%"}}>{APP.ms.redirectUri}</code></div>
+      <div className="row" style={{marginTop:10}}>
+        <button className="btn ocean" onClick={()=>setReloadKey(k=>k+1)}>🔄 Sincronizar</button>
+        <button className="btn ghost" onClick={toggleMode}>{MODE==="graph"?"Cambiar a demo local":"Conectar a SharePoint"}</button></div>
+      <div className="hint" style={{marginTop:8}}>El histórico se guarda en {MODE==="graph"?"SharePoint y se abre desde cualquier dispositivo al iniciar sesión.":"este navegador (modo demo)."}</div>
+    </div>
+    <div className="card"><h3>🪪 App Registration propia</h3>
+      <div className="hint">Pega aquí el <b>Client ID</b> de tu propia App Registration de Azure (queda separada de la del ILD). El Tenant ID es opcional (por defecto usa el mismo).</div>
+      <ClientIdForm toast={toast}/></div>
+    <div className="card"><h3>📊 Exportar histórico a Excel</h3>
+      <div className="row">{["ILD","Compras","Sistemas","Mantenimiento"].map(t=><button key={t} className="btn green" onClick={()=>exportar(t)}>⬇ {t}</button>)}</div>
+      <div className="hint" style={{marginTop:8}}>Cada jefatura también puede exportar sus ILD desde ILD → bandeja.</div></div>
+    <div className="card"><h3>📥 Histórico de ILD</h3>
+      <div className="hint">Carga los <b>{typeof ILD_SEED!=="undefined"?ILD_SEED.length:0} ILD reales</b> (junio) en el almacenamiento, sin duplicar los ya cargados.</div>
+      <button className="btn ocean block" style={{marginTop:10}} onClick={cargarHistorico}>📥 Cargar histórico de ILD</button></div>
+    <DeleteRecords toast={toast}/>
+    <div className="card"><h3>👥 Usuarios y aprobadores</h3>
+      <div className="hint">La gestión de colaboradores, áreas asignadas, PINs y aprobadores se hace en <b>ILD → Configurar</b> (rol Desarrollador). Personalización de checklists en <b>ILD → Checklist</b>.</div></div>
+  </div>;
+}
+
+/* ===== APP ROOT ===== */
+function App(){
+  const [user,setUser]=useState(()=>{ try{return JSON.parse(sessionStorage.getItem("pp_user"))}catch{return null} });
+  const [view,setView]=useState("home"); const [toastMsg,setToastMsg]=useState(""); const [counts,setCounts]=useState({});
+  const [foto,setFoto]=useState(null); const [gerr,setGerr]=useState(""); const [cfgVer,setCfgVer]=useState(0);
+  const [connected,setConnected]=useState(MODE!=="graph"); const [checking,setChecking]=useState(MODE==="graph");
+  const [notifs,setNotifs]=useState([]); const [notifOpen,setNotifOpen]=useState(false); const [detailIld,setDetailIld]=useState(null);
+  const bump=()=>setCfgVer(v=>v+1);
+  async function loadNotifs(u){ const who=u||user; if(!who) return;
+    try{ const all=await Store.read("Notif"); setNotifs(all.filter(n=>n.para===who.nombre)); }catch{} }
+  async function abrirNotif(n){
+    try{ await Store.remove("Notif", n.id); }catch{}
+    try{ const ilds=await Store.read("ILD"); const rec=ilds.find(r=>r.id===n.ildId); if(rec) setDetailIld(rec); }catch{}
+    setNotifOpen(false); loadNotifs();
+  }
+  useEffect(()=>{ (async()=>{
+    if(MODE==="graph"){ const ok=await msEnsure(); setConnected(ok);
+      if(ok){ try{ applyIldConfig(await cfgRead()); }catch{}
+        try{ await migrarAListas(); }catch(e){}
+        try{ if(!localStorage.getItem("pp_seeded_ild")){ const ild=await Store.read("ILD");
+          if(!ild.length){ await Store.write("ILD",ILD_SEED); } localStorage.setItem("pp_seeded_ild","1"); } }catch{}
+        bump(); } }
+    setChecking(false);
+  })(); },[]);
+  const toast=m=>{ setToastMsg(m); setTimeout(()=>setToastMsg(""),2600); };
+  async function reloadCounts(u){ const who=u||user; if(!who) return;
+    const c=await Store.read("Compras"), s=await Store.read("Sistemas"), m=await Store.read("Mantenimiento"), il=await Store.read("ILD");
+    const pendChief=(arr,mod,abiertos)=> gestionaModulo(who,mod) ? arr.filter(r=>abiertos.includes(r.Estado)).length
+      : arr.filter(r=>r.Solicitante===who.nombre&&!cerrados.includes(r.Estado)).length;
+    setCounts({
+      compras:pendChief(c,"compras",["Solicitado","En Gerencia","En compra","Listo para entregar"]),
+      sistemas:pendChief(s,"sistemas",["Nuevo","Sin fecha asignada","En proceso"]),
+      mantenimiento:pendChief(m,"mantenimiento",["Nuevo","Sin fecha asignada","En proceso"]),
+      ild:(esGD(who)||who.rol==='aprobador')?il.filter(r=>r.estado==='Pendiente'&&(esGD(who)||(who.areas||[]).includes(r.area))).length:0
+    });
+  }
+  useEffect(()=>{ if(user){ reloadCounts(); loadNotifs(); } },[user,view,cfgVer]);
+  async function onLogin(u){ sessionStorage.setItem("pp_user",JSON.stringify(u)); setUser(u); setView("home"); }
+  function logout(){ sessionStorage.removeItem("pp_user"); setUser(null); setView("home"); }
+  if(MODE==="graph" && checking) return <div className="login"><div className="sun"></div><div className="lcard">
+    <div className="lbrand"><span className="dot"></span>Playa Paraíso</div>
+    <div className="ltag" style={{marginBottom:0}}>Conectando con SharePoint…</div></div></div>;
+  if(MODE==="graph" && !connected) return <div className="login"><div className="sun"></div><div className="lcard">
+    <div className="lbrand"><span className="dot"></span>Playa Paraíso</div>
+    <div className="ltag">Inicia sesión con tu cuenta Microsoft para usar la app. El histórico se guarda en SharePoint (Prueba7).</div>
+    <button className="btn ocean block" onClick={()=>msSignIn()}>🔗 Iniciar sesión con Microsoft</button>
+    {msErr && <div className="lerr" style={{marginTop:12,whiteSpace:"normal"}}>{msErr}</div>}
+    <button className="lback" onClick={()=>{localStorage.setItem("pp_mode","local");location.reload();}}>Usar modo demo local</button>
+  </div></div>;
+  if(!user) return <Login onLogin={onLogin}/>;
+  const rolLbl={desarrollador:"Desarrollador",gerencia:"Gerencia",aprobador:"Aprobador",colaborador:"Colaborador"}[user.rol]||user.rol;
+  const titles={ild:"ILD",compras:"Compras",sistemas:"Sistemas",mantenimiento:"Mantenimiento",kanban:"Kanban",admin:"Configuración"};
+  return <div className="app">
+    <div className="topbar"><div className="brand"><span className="dot"></span>Playa Paraíso</div><div className="sp"></div>
+      <div className="who">{user.nombre}<br/><span style={{opacity:.85}}>{rolLbl}</span></div>
+      <button className="iconbtn" title="Notificaciones" style={{position:"relative"}} onClick={()=>setNotifOpen(true)}>🔔
+        {notifs.length>0 && <span style={{position:"absolute",top:-4,right:-4,background:"var(--coral)",color:"#fff",borderRadius:"999px",fontSize:10,fontWeight:800,minWidth:18,height:18,display:"grid",placeItems:"center",padding:"0 4px"}}>{notifs.length}</span>}</button>
+      <button className="iconbtn" title="Salir" onClick={logout}>⎋</button></div>
+    <div className="content">
+      {gerr && <div className="banner">⚠️ {gerr}</div>}
+      {view!=="home" && <div className="backrow"><button className="backbtn" onClick={()=>setView("home")}>← Inicio</button>
+        <span style={{color:"var(--muted)",fontWeight:600}}>{titles[view]}</span></div>}
+      {view==="home" && <Home user={user} go={setView} counts={counts}/>}
+      {view==="ild" && <ILD key={cfgVer} user={user} toast={toast} setFoto={setFoto} bump={bump}/>}
+      {view==="compras" && <Compras user={user} toast={toast} setFoto={setFoto}/>}
+      {view==="sistemas" && <Tickets tipo="Sistemas" user={user} toast={toast} setFoto={setFoto}/>}
+      {view==="mantenimiento" && <Tickets tipo="Mantenimiento" user={user} toast={toast} setFoto={setFoto}/>}
+      {view==="kanban" && <Kanban user={user} toast={toast} setFoto={setFoto}/>}
+      {view==="admin" && <Admin user={user} toast={toast}/>}
+    </div>
+    {toastMsg && <div className="toast">{toastMsg}</div>}
+    <FotoModal src={foto} onClose={()=>setFoto(null)}/>
+    {notifOpen && <Modal title="🔔 Notificaciones" onClose={()=>setNotifOpen(false)}>
+      {!notifs.length && <div className="empty"><div className="e">📭</div>No tienes notificaciones</div>}
+      {notifs.map(n=><div key={n.id} className="item" style={{cursor:"pointer"}} onClick={()=>abrirNotif(n)}>
+        <div className="ttl" style={{fontSize:14}}>{n.texto}</div>
+        <div className="meta">{fmtDT(n.fecha)} · toca para ver el ILD</div></div>)}
+      {notifs.length>0 && <div className="hint">Al abrir una notificación, se marca como leída y desaparece.</div>}
+    </Modal>}
+    {detailIld && <ILDDetail user={user} r={detailIld} onClose={()=>{setDetailIld(null);loadNotifs();}} reload={()=>{}} toast={toast} setFoto={setFoto}/>}
+  </div>;
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+<script>
+(function(){
+  function show(msg){ var r=document.getElementById("root"); if(r&&r.children.length>0)return;
+    r.innerHTML='<div style="max-width:560px;margin:40px auto;padding:20px;font-family:Inter,system-ui,sans-serif;color:#1f2a2c">'+
+      '<h2 style="color:#0d6e75">Playa Paraíso no pudo cargar</h2><p style="color:#6c7a7c">'+msg+'</p>'+
+      '<p style="color:#6c7a7c;font-size:13px">Si lo ves en la vista previa, descarga el archivo y ábrelo en tu navegador o súbelo a Netlify.</p></div>'; }
+  window.addEventListener("error",function(e){ show("Detalle: "+(e.message||"error al cargar un recurso")); });
+  window.addEventListener("load",function(){ setTimeout(function(){
+    if(typeof React==="undefined") return show("No se cargó React (la red bloqueó la CDN).");
+    show("La aplicación no se inició. Abre la consola (F12) para más detalle."); },1800); });
+})();
+</script>
+</body>
+</html>
