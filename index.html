@@ -639,7 +639,7 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v5.1 · SharePoint Prueba7(Listas)",
+  version: "Playa Paraíso · App unificada v5.2 · SharePoint Prueba7(Listas)",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -1544,14 +1544,20 @@ function ChecklistEditor({user,toast,onSave}){
   const [modo,setModo]=useState(()=>areaModo(area));
   useEffect(()=>{ setModo(areaModo(area)); },[area]);
   function cambiarModo(v){ setModo(v); AMODO[area]=v; }
-  function renombrarArea(a){ const nv=prompt("Nuevo nombre del ILD:", a); if(nv==null) return;
+  async function renombrarArea(a){ const nv=prompt("Nuevo nombre del ILD:", a); if(nv==null) return;
     const v=nv.trim(); if(!v||v===a) return; if(AC[v]){ toast("Ya existe un ILD con ese nombre"); return; }
     AC[v]=AC[a]; delete AC[a];
     if(APR[a]!==undefined){ APR[v]=APR[a]; delete APR[a]; }
     if(CL[a]!==undefined){ CL[v]=CL[a]; delete CL[a]; }
     if(AMODO[a]!==undefined){ AMODO[v]=AMODO[a]; delete AMODO[a]; }
     USERS.forEach(u=>{ if(u.areas) u.areas=u.areas.map(x=>x===a?v:x); });
-    onSave(); if(area===a) setArea(v); force(x=>x+1); toast("ILD renombrado a: "+v); }
+    onSave(); if(area===a) setArea(v); force(x=>x+1);
+    if(confirm(`ILD renombrado. ¿Actualizar también los registros ya guardados de "${a}" al nuevo nombre? (recomendado, para que cuenten en el dashboard)`)){
+      try{ const all=await Store.read("ILD"); let n=0;
+        const upd=all.map(r=>{ if(r.area===a){ n++; return {...r,area:v}; } return r; });
+        if(n){ await Store.write("ILD",upd); toast(`Renombrado · ${n} registro(s) actualizados`); } else toast("ILD renombrado");
+      }catch(e){ toast("Renombrado, pero no pude actualizar registros: "+(e.message||"")); }
+    } else toast("ILD renombrado a: "+v); }
   function borrarArea(a){ if(!confirm(`¿Eliminar el ILD "${a}"? Los registros ya guardados NO se borran.`)) return;
     delete AC[a]; delete APR[a]; delete CL[a]; delete AMODO[a];
     USERS.forEach(u=>{ if(u.areas) u.areas=u.areas.filter(x=>x!==a); });
@@ -2267,19 +2273,22 @@ function ReasignarResp({toast}){
   useEffect(()=>{ load(); setArea("__todas"); setCampo(mod==="ILD"?"aprobador":"solicitante"); },[mod]);
   const nombres=[...new Set(USERS.map(u=>u.nombre))].sort();
   const areas=[...new Set(rows.map(r=>r[areaField]).filter(Boolean))].sort();
+  const areasAC=Object.keys(AC);
   const afect=rows.filter(r=>area==="__todas"||r[areaField]===area);
+  const destList = (mod==="ILD"&&campo==="area")?areasAC:nombres;
   function setField(r){ if(mod!=="ILD") return {...r,Solicitante:dest};
     if(campo==="aprobador") return {...r,aprobadorEsperado:dest};
+    if(campo==="area") return {...r,area:dest};
     return {...r,usuario:dest}; }
-  async function aplicar(){ if(!dest){toast("Elige la persona destino");return;}
+  async function aplicar(){ if(!dest){toast("Elige el destino");return;}
     if(!afect.length){toast("No hay registros para reasignar");return;}
-    const etiqueta = mod==="ILD"?(campo==="aprobador"?"aprobador":"responsable"):"solicitante";
-    if(!confirm(`Reasignar el ${etiqueta} de ${afect.length} registro(s) de ${mod}${area!=="__todas"?(" · "+area):""} a "${dest}"?`))return;
+    const etiqueta = mod==="ILD"?(campo==="aprobador"?"aprobador":campo==="area"?"área":"responsable"):"solicitante";
+    if(!confirm(`Cambiar el ${etiqueta} de ${afect.length} registro(s) de ${mod}${area!=="__todas"?(" · "+area):""} a "${dest}"?`))return;
     setBusy(true);
     try{ const all=await Store.read(mod); const set=new Set(afect.map(r=>r.id));
       const upd=all.map(r=>set.has(r.id)?setField(r):r);
-      await Store.write(mod,upd); toast(`Reasignados ${afect.length} registro(s)`); load();
-    }catch(e){ toast("No se pudo reasignar: "+(e.message||"")); } finally{ setBusy(false); }
+      await Store.write(mod,upd); toast(`Actualizados ${afect.length} registro(s)`); load();
+    }catch(e){ toast("No se pudo: "+(e.message||"")); } finally{ setBusy(false); }
   }
   async function restaurarResp(){
     if(!confirm("Restaurar el responsable (quien envió) de los ILD a su valor original del histórico cargado?")) return;
@@ -2295,12 +2304,13 @@ function ReasignarResp({toast}){
       <select className="inp" style={{flex:1,minWidth:130}} value={mod} onChange={e=>setMod(e.target.value)}>{["ILD","Compras","Sistemas","Mantenimiento"].map(m=><option key={m}>{m}</option>)}</select>
       <select className="inp" style={{flex:1,minWidth:130}} value={area} onChange={e=>setArea(e.target.value)}><option value="__todas">Todas las áreas</option>{areas.map(a=><option key={a} value={a}>{a}</option>)}</select>
     </div>
-    {mod==="ILD" && <Field label="¿Qué quieres reasignar?"><select className="inp" value={campo} onChange={e=>setCampo(e.target.value)}>
+    {mod==="ILD" && <Field label="¿Qué quieres reasignar?"><select className="inp" value={campo} onChange={e=>{setCampo(e.target.value);setDest("");}}>
       <option value="aprobador">Aprobador (para que le salga a aprobar)</option>
+      <option value="area">Área (corregir el nombre en los registros)</option>
       <option value="responsable">Responsable (quien envió)</option></select></Field>}
-    <Field label="Persona destino"><select className="inp" value={dest} onChange={e=>setDest(e.target.value)}><option value="">— elegir persona —</option>{nombres.map(n=><option key={n}>{n}</option>)}</select></Field>
+    <Field label={(mod==="ILD"&&campo==="area")?"Área destino (nombre actual)":"Persona destino"}><select className="inp" value={dest} onChange={e=>setDest(e.target.value)}><option value="">— elegir —</option>{destList.map(n=><option key={n}>{n}</option>)}</select></Field>
     <div className="hint">Se afectarán <b>{afect.length}</b> registro(s).</div>
-    <button className="btn primary block" style={{marginTop:10}} disabled={busy} onClick={aplicar}>{busy?"Aplicando…":"🔁 Reasignar"}</button>
+    <button className="btn primary block" style={{marginTop:10}} disabled={busy} onClick={aplicar}>{busy?"Aplicando…":"🔁 Aplicar"}</button>
     <button className="btn ghost block" style={{marginTop:8}} disabled={busy} onClick={restaurarResp}>♻️ Restaurar responsable original (ILD)</button>
   </div>;
 }
