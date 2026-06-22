@@ -621,6 +621,12 @@ const SISTEMAS_SEED = [{"Codigo": "SIS-2026-0002", "id": 70799, "FechaCreacion":
 const MANT_SEED = [{"Codigo": "MTO-2026-0003", "id": 52253, "FechaCreacion": "2026-06-19T17:09:41.757Z", "Solicitante": "Jonathan Mazzini", "Departamento": "Seguridad", "FechaSolicitud": "2026-06-19", "TipoSolicitud": "Normal", "Descripcion": "Prueba", "Fotos": [{"nombre": "MTO-2026-0003_1.jpg", "path": "ILDS/Fotos/MTO_MTO-2026-0003/MTO-2026-0003_1.jpg"}], "Estado": "Nuevo", "FechaTentativa": "", "Asignado": "", "ComentarioSoporte": "", "FechaConcluido": "", "EncuestaCal": "", "EncuestaComentario": "", "FechaEncuesta": ""}, {"Codigo": "MTO-2026-0002", "id": 68970, "FechaCreacion": "2026-06-19T02:13:16.888Z", "Solicitante": "Andrés Mite", "Departamento": "Seguridad", "FechaSolicitud": "2026-06-19", "TipoSolicitud": "Normal", "Descripcion": "¨Prueba", "Fotos": [{"nombre": "MTO-2026-0002_1.jpg", "path": "ILDS/Fotos/MTO_MTO-2026-0002/MTO-2026-0002_1.jpg"}], "Estado": "Concluido", "FechaTentativa": "2026-06-25", "Asignado": "Xavier L.", "ComentarioSoporte": "La tarea fue concluida con éxito", "FechaConcluido": "2026-06-19T02:15:42.989Z", "EncuestaCal": "", "EncuestaComentario": "", "FechaEncuesta": "", "ComentarioJefe": "", "CierreCumplimiento": "Concluida a tiempo", "FotosCierre": [{"nombre": "MTO-2026-0002_cierre_1.jpg", "path": "ILDS/Fotos/MTO_MTO-2026-0002/MTO-2026-0002_cierre_1.jpg"}]}, {"Codigo": "MTO-2026-0001", "id": 40557, "FechaCreacion": "2026-06-19T01:50:23.826Z", "Solicitante": "Justin", "Departamento": "Seguridad", "FechaSolicitud": "2026-06-19", "TipoSolicitud": "Normal", "Descripcion": "Prueba", "Fotos": [{"nombre": "MTO-2026-0001_1.jpg", "error": true}], "Estado": "Concluido", "FechaTentativa": "2026-06-19", "Asignado": "Manuel C.", "ComentarioSoporte": "Todo ok", "FechaConcluido": "2026-06-19T01:55:05.759Z", "EncuestaCal": "", "EncuestaComentario": "", "FechaEncuesta": "", "ComentarioJefe": "Revisar prueba", "CierreCumplimiento": "Concluida a tiempo"}];
 const NOTIF_SEED = [];
 
+/* Copia inmutable de los checklists/áreas originales (respaldo para registros antiguos) */
+const CL_DEFAULT = JSON.parse(JSON.stringify(typeof CL!=="undefined"?CL:{}));
+const AC_DEFAULT = JSON.parse(JSON.stringify(typeof AC!=="undefined"?AC:{}));
+// Devuelve la definición del checklist de un registro, aunque su área haya sido borrada/renombrada
+function itemsDe(r){ return (r&&r.clItems&&r.clItems.length)?r.clItems : (CL[r.area]||CL_DEFAULT[r.area]||[]); }
+
 /* ===== Extiende usuarios: jefes de módulo (ven todo lo suyo, cambian estado, rechazan) ===== */
 // Soporte de Sistemas (no es área de ILD): gestor del módulo Sistemas
 if(!USERS.find(u=>u.pin==='1006')) USERS.push(
@@ -633,7 +639,7 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v4.8 · SharePoint Prueba7(Listas)",
+  version: "Playa Paraíso · App unificada v4.9 · SharePoint Prueba7(Listas)",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -842,9 +848,12 @@ const ListStore={
       else if(m.hash!==j){ try{ await gfetch(`/sites/${site}/lists/${lid}/items/${m.spId}/fields`,"PATCH",full); }
           catch(e){ await gfetch(`/sites/${site}/lists/${lid}/items/${m.spId}/fields`,"PATCH",basico); } m.hash=j; } }
     SP_MAP[t]=map; },
-  async remove(t,id){ const site=await spSite(); const lid=await spEnsureList(t);
-    if(!SP_MAP[t]) await this.read(t); const m=(SP_MAP[t]||new Map()).get(id);
-    if(m){ try{ await gfetch(`/sites/${site}/lists/${lid}/items/${m.spId}`,"DELETE"); }catch(e){} SP_MAP[t].delete(id); } }
+  async remove(t,id){ const site=await spSite(); const lid=await spEnsureList(t); const dcol=SP_DCOL[t]||"Data";
+    const items=await spPages(t,""); let n=0;
+    for(const it of items){ let r; try{ r=JSON.parse(it.fields[dcol]); }catch{ continue; }
+      if(r && (r.id===id || r.Codigo===id)){ await gfetch(`/sites/${site}/lists/${lid}/items/${it.id}`,"DELETE"); n++; } }
+    if(SP_MAP[t]) SP_MAP[t].delete(id);
+    if(!n) throw new Error("No se encontró ese registro en la lista (quizá ya estaba borrado)."); }
 };
 async function migrarAListas(){ if(localStorage.getItem("pp_lists_migrated2")) return;
   for(const t of LIST_TABLES){ try{ await spEnsureList(t); const cur=await ListStore.read(t);
@@ -1170,7 +1179,7 @@ function ILDForm({user,toast,onSaved,setFoto}){
         const arr=await Store.read("ILD"); const Codigo=nextCode("ILD",arr);
         const nuevo={id,Codigo,area,turno:"",zona,selecciones:{},usuario:user.nombre,fecha:nowISO(),
           checks:{},textos:{},fotos:fotosData,obs,estado:"Pendiente",notaJef:"",aprobador:"",fechaAprobacion:"",
-          notaGerencia:"",totalItems:1,completados:1,aprobadorEsperado:APR[area]||"—"};
+          notaGerencia:"",totalItems:1,completados:1,clItems:(CL[area]||[]),aprobadorEsperado:APR[area]||"—"};
         await Store.write("ILD",[nuevo,...arr]);
         toast("ILD enviado: "+Codigo+" · "+zona); resetCampos(); setArea(""); onSaved();
       }catch(e){ toast("No se pudo enviar: "+(e.message||"error")); }
@@ -1191,7 +1200,7 @@ function ILDForm({user,toast,onSaved,setFoto}){
       const nuevo={id,Codigo,area,turno:turno||AC[area]?.t||"",selecciones:{...sel},usuario:user.nombre,
         fecha:nowISO(),checks:{...checks},textos:{...txt},fotos:fotosData,obs,estado:"Pendiente",
         notaJef:"",aprobador:"",fechaAprobacion:"",notaGerencia:"",totalItems:items.length,
-        completados:done,aprobadorEsperado:APR[area]||"—"};
+        completados:done,clItems:(CL[area]||[]),aprobadorEsperado:APR[area]||"—"};
       await Store.write("ILD",[nuevo,...arr]);
       toast("ILD enviado: "+Codigo); resetCampos(); setArea(""); onSaved();
     }catch(e){ toast("No se pudo enviar: "+(e.message||"error")); }
@@ -1335,7 +1344,7 @@ function SpImg({foto,idx,onClick}){
 function actaILD(r){
   const esc=s=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
   const f=d=>d?new Date(d).toLocaleString('es-EC'):'—';
-  const items=CL[r.area]||[];
+  const items=itemsDe(r);
   const filas=items.map((it,i)=>{ const tx=itemText(it),tp=itemTipo(it); let val="—";
     if(tp==='sino'){ const v=(r.checks&&r.checks['yn-'+i])||""; val=v==='si'?'Sí':v==='no'?'No':'—'; }
     else if(tp==='texto'){ val=(r.textos&&r.textos[i])||'—'; }
@@ -1371,7 +1380,7 @@ function actaILD(r){
   }catch(e){ alert("No se pudo abrir el PDF: "+(e.message||e)); }
 }
 function ILDDetail({user,r,onClose,reload,toast,setFoto}){
-  const items=CL[r.area]||[];
+  const items=itemsDe(r);
   const esApro=user.rol==='aprobador'&&(user.areas||[]).includes(r.area);
   const esGer=user.rol==='gerencia', esDevv=user.rol==='desarrollador';
   const puedeAprobar=esDevv||esApro||esGer;
@@ -2255,7 +2264,8 @@ function DeleteRecords({toast}){
   const codeOf=r=>r.Codigo||("#"+r.id);
   const titleOf=r=> mod==="ILD"?`${r.area} · ${r.usuario}` : mod==="Compras"?r.Modelo : mod==="Sistemas"?r.Titulo : r.Descripcion;
   async function del(id){ if(!confirm("¿Eliminar este registro de prueba? Es permanente y no afectará los índices del resto."))return;
-    await Store.remove(mod, id); load(); toast("Registro eliminado"); }
+    try{ await Store.remove(mod, id); toast("Registro eliminado"); }
+    catch(e){ toast("No se pudo eliminar: "+(e.message||"")); } load(); }
   return <div className="card"><h3>🗑 Borrar registros de prueba</h3>
     <div className="hint">Elimina registros de prueba para que no afecten los indicadores. Acción permanente.</div>
     <select className="inp" style={{margin:"10px 0"}} value={mod} onChange={e=>setMod(e.target.value)}>
