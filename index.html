@@ -633,7 +633,7 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v4.6 · SharePoint Prueba7(Listas)",
+  version: "Playa Paraíso · App unificada v4.7 · SharePoint Prueba7(Listas)",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -1400,11 +1400,7 @@ function ILDDetail({user,r,onClose,reload,toast,setFoto}){
     {[["Área",r.area+(r.turno?` · ${r.turno}`:"")],["Responsable",r.usuario],["Fecha",fmtDT(r.fecha)],
       ["Aprobador esperado",r.aprobadorEsperado||"—"],["Ítems",`${r.completados}/${r.totalItems}`],
       ["Estado",r.estado]].map(([k,v])=><div className="kv" key={k}><b>{k}</b><span>{v}</span></div>)}
-    <div className="row" style={{margin:"10px 0",gap:8,flexWrap:"wrap"}}>
-      <button className="btn ocean" style={{flex:"1 1 120px"}} onClick={()=>actaILD(r)}>📄 Descargar PDF</button>
-      {(esDev(user)||gestionaModulo(user,'ild')) && <button className="btn ghost" style={{flex:"1 1 120px"}} onClick={async()=>{ const nv=prompt("Nuevo nombre / código del ILD:", r.Codigo||("ILD-"+r.id)); if(nv==null)return; const v=nv.trim(); if(!v)return; try{ const arr=await Store.read("ILD"); await Store.write("ILD",arr.map(x=>x.id===r.id?{...x,Codigo:v}:x)); toast("Nombre actualizado"); reload(); onClose(); }catch(e){ toast("No se pudo: "+(e.message||"")); } }}>✏️ Editar nombre</button>}
-      {(esDev(user)||gestionaModulo(user,'ild')) && <button className="btn red" style={{flex:"1 1 120px"}} onClick={async()=>{ if(!confirm("¿Eliminar este ILD de forma permanente? No se podrá recuperar."))return; try{ await Store.remove("ILD",r.id); toast("ILD eliminado"); reload(); onClose(); }catch(e){ toast("No se pudo eliminar: "+(e.message||"")); } }}>🗑️ Eliminar</button>}
-    </div>
+    <button className="btn ocean block" style={{margin:"10px 0"}} onClick={()=>actaILD(r)}>📄 Descargar PDF del ILD</button>
     <h3 style={{margin:"14px 0 6px"}}>Checklist</h3>
     {items.map((it,i)=>{ const tx=itemText(it),tp=itemTipo(it);
       let val;
@@ -1537,11 +1533,26 @@ function ChecklistEditor({user,toast,onSave}){
   const [modo,setModo]=useState(()=>areaModo(area));
   useEffect(()=>{ setModo(areaModo(area)); },[area]);
   function cambiarModo(v){ setModo(v); AMODO[area]=v; }
+  async function renombrarILD(){ const nv=prompt("Nuevo nombre del ILD:", area); if(nv==null) return;
+    const v=nv.trim(); if(!v||v===area) return; if(AC[v]){ toast("Ya existe un ILD con ese nombre"); return; }
+    AC[v]=AC[area]; delete AC[area];
+    if(APR[area]!==undefined){ APR[v]=APR[area]; delete APR[area]; }
+    if(CL[area]!==undefined){ CL[v]=CL[area]; delete CL[area]; }
+    if(AMODO[area]!==undefined){ AMODO[v]=AMODO[area]; delete AMODO[area]; }
+    USERS.forEach(u=>{ if(u.areas) u.areas=u.areas.map(a=>a===area?v:a); });
+    onSave(); setArea(v); toast("ILD renombrado a: "+v); }
+  async function eliminarILD(){ if(!confirm(`¿Eliminar el ILD "${area}" y su checklist? Los registros ya guardados NO se borran.`)) return;
+    delete AC[area]; delete APR[area]; delete CL[area]; delete AMODO[area];
+    USERS.forEach(u=>{ if(u.areas) u.areas=u.areas.filter(x=>x!==area); });
+    const rest=Object.keys(AC); onSave(); setArea(rest[0]||""); toast("ILD eliminado: "+area); }
   if(!areas.length) return <div className="empty"><div className="e">🔒</div>No tienes áreas asignadas para personalizar.</div>;
   const nFotos=items.filter(it=>it.tipo==='foto').length;
   return <div>
     <div className="card"><Field label="Área a personalizar">
       <select className="inp" value={area} onChange={e=>setArea(e.target.value)}>{areas.map(a=><option key={a}>{a}</option>)}</select></Field>
+      {esDev(user) && area && <div className="row" style={{gap:8,marginBottom:10}}>
+        <button className="btn ghost" style={{flex:1}} onClick={renombrarILD}>✏️ Renombrar este ILD</button>
+        <button className="btn red" style={{flex:1}} onClick={eliminarILD}>🗑 Eliminar este ILD</button></div>}
       <Field label="Modo del ILD" hint="'Lista' = el usuario elige UNA opción de la lista y sube de 3 a 5 fotos (ideal Áreas Públicas). 'Normal' = checklist completo.">
         <select className="inp" value={modo} onChange={e=>cambiarModo(e.target.value)}>
           <option value="normal">Checklist normal</option>
