@@ -639,7 +639,7 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v5.0 · SharePoint Prueba7(Listas)",
+  version: "Playa Paraíso · App unificada v5.1 · SharePoint Prueba7(Listas)",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -1277,10 +1277,11 @@ function ILDPanel({user,regs,reload,toast,setFoto}){
   const [filtro,setFiltro]=useState("todos"); const [per,setPer]=useState(90); const [det,setDet]=useState(null);
   const lim=new Date(); lim.setDate(lim.getDate()-per);
   let base=regs.filter(r=>new Date(r.fecha)>=lim);
-  if(!esGD(user)) base=base.filter(r=>(user.areas||[]).includes(r.area));
+  const esSuyo=r=>(user.areas||[]).includes(r.area)||r.aprobadorEsperado===user.nombre||r.aprobador===user.nombre;
+  if(!esGD(user)) base=base.filter(esSuyo);
   if(filtro!=="todos") base=base.filter(r=>r.estado===filtro);
   // Histórico completo de la jefatura (para exportar, sin filtro de período)
-  const mios=esGD(user)?regs:regs.filter(r=>(user.areas||[]).includes(r.area));
+  const mios=esGD(user)?regs:regs.filter(esSuyo);
   function exportar(){ if(!mios.length){toast("No hay ILD para exportar");return;}
     const ok=exportXLSX(mios.map(ildToRow),"ILD",`ILD_${esGD(user)?"General":user.nombre.replace(/\s+/g,"_")}_${yr()}`);
     if(ok) toast("Exportando "+mios.length+" ILD…"); }
@@ -2260,31 +2261,47 @@ function ClientIdForm({toast}){
 function ReasignarResp({toast}){
   const [mod,setMod]=useState("ILD"); const [rows,setRows]=useState([]);
   const [area,setArea]=useState("__todas"); const [dest,setDest]=useState(""); const [busy,setBusy]=useState(false);
-  const respField=mod==="ILD"?"usuario":"Solicitante";
+  const [campo,setCampo]=useState("aprobador"); // solo ILD: aprobador | responsable
   const areaField=mod==="ILD"?"area":(mod==="Compras"?"Area":"Departamento");
   const load=async()=>{ try{ setRows(await Store.read(mod)); }catch(e){ setRows([]); } };
-  useEffect(()=>{ load(); setArea("__todas"); },[mod]);
+  useEffect(()=>{ load(); setArea("__todas"); setCampo(mod==="ILD"?"aprobador":"solicitante"); },[mod]);
   const nombres=[...new Set(USERS.map(u=>u.nombre))].sort();
   const areas=[...new Set(rows.map(r=>r[areaField]).filter(Boolean))].sort();
   const afect=rows.filter(r=>area==="__todas"||r[areaField]===area);
-  async function aplicar(){ if(!dest){toast("Elige el responsable destino");return;}
+  function setField(r){ if(mod!=="ILD") return {...r,Solicitante:dest};
+    if(campo==="aprobador") return {...r,aprobadorEsperado:dest};
+    return {...r,usuario:dest}; }
+  async function aplicar(){ if(!dest){toast("Elige la persona destino");return;}
     if(!afect.length){toast("No hay registros para reasignar");return;}
-    if(!confirm(`Reasignar ${afect.length} registro(s) de ${mod}${area!=="__todas"?(" · "+area):""} a "${dest}"?`))return;
+    const etiqueta = mod==="ILD"?(campo==="aprobador"?"aprobador":"responsable"):"solicitante";
+    if(!confirm(`Reasignar el ${etiqueta} de ${afect.length} registro(s) de ${mod}${area!=="__todas"?(" · "+area):""} a "${dest}"?`))return;
     setBusy(true);
     try{ const all=await Store.read(mod); const set=new Set(afect.map(r=>r.id));
-      const upd=all.map(r=>set.has(r.id)?{...r,[respField]:dest}:r);
-      await Store.write(mod,upd); toast(`Reasignados ${afect.length} registro(s) a ${dest}`); load();
+      const upd=all.map(r=>set.has(r.id)?setField(r):r);
+      await Store.write(mod,upd); toast(`Reasignados ${afect.length} registro(s)`); load();
     }catch(e){ toast("No se pudo reasignar: "+(e.message||"")); } finally{ setBusy(false); }
   }
-  return <div className="card"><h3>🔁 Reasignar responsable</h3>
-    <div className="hint">Cambia el responsable de registros existentes (por ejemplo, para que el histórico de un área le aparezca a otra persona en “Mis ILD”).</div>
+  async function restaurarResp(){
+    if(!confirm("Restaurar el responsable (quien envió) de los ILD a su valor original del histórico cargado?")) return;
+    setBusy(true);
+    try{ const all=await Store.read("ILD"); const orig=new Map((typeof ILD_SEED!=="undefined"?ILD_SEED:[]).map(s=>[s.id,s.usuario]));
+      let n=0; const upd=all.map(r=>{ if(orig.has(r.id)&&orig.get(r.id)&&r.usuario!==orig.get(r.id)){ n++; return {...r,usuario:orig.get(r.id)}; } return r; });
+      if(n){ await Store.write("ILD",upd); } toast(n?`Restaurados ${n} responsable(s)`:"No había nada que restaurar"); load();
+    }catch(e){ toast("No se pudo restaurar: "+(e.message||"")); } finally{ setBusy(false); }
+  }
+  return <div className="card"><h3>🔁 Reasignar aprobador / responsable</h3>
+    <div className="hint">Para que el histórico de un área le aparezca a un aprobador en su bandeja, reasigna el <b>aprobador</b>. (También puedes cambiar el responsable si lo necesitas.)</div>
     <div className="row" style={{marginTop:10,gap:8,flexWrap:"wrap"}}>
-      <select className="inp" style={{flex:1,minWidth:140}} value={mod} onChange={e=>setMod(e.target.value)}>{["ILD","Compras","Sistemas","Mantenimiento"].map(m=><option key={m}>{m}</option>)}</select>
-      <select className="inp" style={{flex:1,minWidth:140}} value={area} onChange={e=>setArea(e.target.value)}><option value="__todas">Todas las áreas</option>{areas.map(a=><option key={a} value={a}>{a}</option>)}</select>
+      <select className="inp" style={{flex:1,minWidth:130}} value={mod} onChange={e=>setMod(e.target.value)}>{["ILD","Compras","Sistemas","Mantenimiento"].map(m=><option key={m}>{m}</option>)}</select>
+      <select className="inp" style={{flex:1,minWidth:130}} value={area} onChange={e=>setArea(e.target.value)}><option value="__todas">Todas las áreas</option>{areas.map(a=><option key={a} value={a}>{a}</option>)}</select>
     </div>
-    <Field label="Nuevo responsable"><select className="inp" value={dest} onChange={e=>setDest(e.target.value)}><option value="">— elegir persona —</option>{nombres.map(n=><option key={n}>{n}</option>)}</select></Field>
+    {mod==="ILD" && <Field label="¿Qué quieres reasignar?"><select className="inp" value={campo} onChange={e=>setCampo(e.target.value)}>
+      <option value="aprobador">Aprobador (para que le salga a aprobar)</option>
+      <option value="responsable">Responsable (quien envió)</option></select></Field>}
+    <Field label="Persona destino"><select className="inp" value={dest} onChange={e=>setDest(e.target.value)}><option value="">— elegir persona —</option>{nombres.map(n=><option key={n}>{n}</option>)}</select></Field>
     <div className="hint">Se afectarán <b>{afect.length}</b> registro(s).</div>
-    <button className="btn primary block" style={{marginTop:10}} disabled={busy} onClick={aplicar}>{busy?"Reasignando…":"🔁 Reasignar responsable"}</button>
+    <button className="btn primary block" style={{marginTop:10}} disabled={busy} onClick={aplicar}>{busy?"Aplicando…":"🔁 Reasignar"}</button>
+    <button className="btn ghost block" style={{marginTop:8}} disabled={busy} onClick={restaurarResp}>♻️ Restaurar responsable original (ILD)</button>
   </div>;
 }
 function DeleteRecords({toast}){
