@@ -639,7 +639,7 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v4.9 · SharePoint Prueba7(Listas)",
+  version: "Playa Paraíso · App unificada v5.0 · SharePoint Prueba7(Listas)",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -2257,6 +2257,36 @@ function ClientIdForm({toast}){
     <div className="row"><button className="btn primary" onClick={guardar}>Guardar y reiniciar</button>
       <button className="btn ghost" onClick={restaurar}>Restaurar por defecto</button></div></div>;
 }
+function ReasignarResp({toast}){
+  const [mod,setMod]=useState("ILD"); const [rows,setRows]=useState([]);
+  const [area,setArea]=useState("__todas"); const [dest,setDest]=useState(""); const [busy,setBusy]=useState(false);
+  const respField=mod==="ILD"?"usuario":"Solicitante";
+  const areaField=mod==="ILD"?"area":(mod==="Compras"?"Area":"Departamento");
+  const load=async()=>{ try{ setRows(await Store.read(mod)); }catch(e){ setRows([]); } };
+  useEffect(()=>{ load(); setArea("__todas"); },[mod]);
+  const nombres=[...new Set(USERS.map(u=>u.nombre))].sort();
+  const areas=[...new Set(rows.map(r=>r[areaField]).filter(Boolean))].sort();
+  const afect=rows.filter(r=>area==="__todas"||r[areaField]===area);
+  async function aplicar(){ if(!dest){toast("Elige el responsable destino");return;}
+    if(!afect.length){toast("No hay registros para reasignar");return;}
+    if(!confirm(`Reasignar ${afect.length} registro(s) de ${mod}${area!=="__todas"?(" · "+area):""} a "${dest}"?`))return;
+    setBusy(true);
+    try{ const all=await Store.read(mod); const set=new Set(afect.map(r=>r.id));
+      const upd=all.map(r=>set.has(r.id)?{...r,[respField]:dest}:r);
+      await Store.write(mod,upd); toast(`Reasignados ${afect.length} registro(s) a ${dest}`); load();
+    }catch(e){ toast("No se pudo reasignar: "+(e.message||"")); } finally{ setBusy(false); }
+  }
+  return <div className="card"><h3>🔁 Reasignar responsable</h3>
+    <div className="hint">Cambia el responsable de registros existentes (por ejemplo, para que el histórico de un área le aparezca a otra persona en “Mis ILD”).</div>
+    <div className="row" style={{marginTop:10,gap:8,flexWrap:"wrap"}}>
+      <select className="inp" style={{flex:1,minWidth:140}} value={mod} onChange={e=>setMod(e.target.value)}>{["ILD","Compras","Sistemas","Mantenimiento"].map(m=><option key={m}>{m}</option>)}</select>
+      <select className="inp" style={{flex:1,minWidth:140}} value={area} onChange={e=>setArea(e.target.value)}><option value="__todas">Todas las áreas</option>{areas.map(a=><option key={a} value={a}>{a}</option>)}</select>
+    </div>
+    <Field label="Nuevo responsable"><select className="inp" value={dest} onChange={e=>setDest(e.target.value)}><option value="">— elegir persona —</option>{nombres.map(n=><option key={n}>{n}</option>)}</select></Field>
+    <div className="hint">Se afectarán <b>{afect.length}</b> registro(s).</div>
+    <button className="btn primary block" style={{marginTop:10}} disabled={busy} onClick={aplicar}>{busy?"Reasignando…":"🔁 Reasignar responsable"}</button>
+  </div>;
+}
 function DeleteRecords({toast}){
   const [mod,setMod]=useState("ILD"); const [rows,setRows]=useState([]);
   const load=async()=>setRows(await Store.read(mod)); useEffect(()=>{load();},[mod]);
@@ -2329,6 +2359,7 @@ function Admin({user,toast}){
       <div className="hint">Carga los <b>{typeof ILD_SEED!=="undefined"?ILD_SEED.length:0} ILD reales</b> (junio) en el almacenamiento, sin duplicar los ya cargados.</div>
       <button className="btn ocean block" style={{marginTop:10}} onClick={cargarHistorico}>📥 Cargar histórico de ILD</button></div>
     <DeleteRecords toast={toast}/>
+    <ReasignarResp toast={toast}/>
     <div className="card"><h3>👥 Usuarios y aprobadores</h3>
       <div className="hint">La gestión de colaboradores, áreas asignadas, PINs y aprobadores se hace en <b>ILD → Configurar</b> (rol Desarrollador). Personalización de checklists en <b>ILD → Checklist</b>.</div></div>
   </div>;
