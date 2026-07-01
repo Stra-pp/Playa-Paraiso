@@ -639,7 +639,7 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v5.3 · SharePoint Prueba7(Listas)",
+  version: "Playa Paraíso · App unificada v5.8 · SharePoint Prueba7(Listas) · Notif",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -659,6 +659,8 @@ const APP = {
 if(localStorage.getItem("pp_clientId")==="1a67d6b5-c2e8-4592-8dd0-b3e444d84687"){ localStorage.removeItem("pp_clientId"); }
 APP.ms.clientId = localStorage.getItem("pp_clientId") || APP.ms.clientId;
 APP.ms.tenantId = localStorage.getItem("pp_tenantId") || APP.ms.tenantId;
+const DEEPLINK=(()=>{ try{ const p=new URLSearchParams(location.search).get("ver"); if(!p) return null;
+  const i=p.indexOf(":"); return {mod:i<0?p:p.slice(0,i), code:i<0?"":decodeURIComponent(p.slice(i+1))}; }catch{ return null; } })();
 
 /* ===== Capacidades por rol ===== */
 const esGD = u => u && ['gerencia','desarrollador'].includes(u.rol);
@@ -892,6 +894,7 @@ async function addNotif(para,texto,ildId,codigo){
 
 let msErr="";
 const MS_SCOPES=["https://graph.microsoft.com/Files.ReadWrite.All","https://graph.microsoft.com/Sites.ReadWrite.All","https://graph.microsoft.com/User.Read"];
+const MAIL_SCOPE=["https://graph.microsoft.com/Mail.Send"];
 async function msInitApp(){
   if(msalApp) return;
   msalApp=new msal.PublicClientApplication({auth:{clientId:APP.ms.clientId,
@@ -964,8 +967,115 @@ function applyIldConfig(cfg){ if(!cfg) return;
   if(cfg.diasCfg){ DIAS_CFG.feriados=cfg.diasCfg.feriados||[]; DIAS_CFG.areas=cfg.diasCfg.areas||{}; }
   if(Array.isArray(cfg.usuarios) && cfg.usuarios.length){ USERS.length=0; cfg.usuarios.forEach(u=>USERS.push(u)); applyGestiona(); }
   if(cfg.accesos) ACCESOS=cfg.accesos;
-  if(cfg.amodo) AMODO=cfg.amodo; }
-async function cfgSave(){ await Store.write("ILD_Config",{checklist:CL,areas:AC,aprobadores:APR,usuarios:USERS,diasCfg:DIAS_CFG,accesos:ACCESOS,amodo:AMODO}); }
+  if(cfg.amodo) AMODO=cfg.amodo;
+  if(cfg.notif) NOTIF={...NOTIF_DEF,...cfg.notif}; }
+async function cfgSave(){ await Store.write("ILD_Config",{checklist:CL,areas:AC,aprobadores:APR,usuarios:USERS,diasCfg:DIAS_CFG,accesos:ACCESOS,amodo:AMODO,notif:NOTIF}); }
+
+/* ===== Notificaciones (correo Graph + Teams por correo de canal) ===== */
+const NOTIF_DEF = {
+  enabled:true,
+  appUrl:"https://stra-pp.github.io/Playa-Paraiso/",
+  teamsILD:"",           // correo del canal de Teams por defecto para ILD
+  teamsPorArea:{},       // { "ILD Recepción - Apertura": "canal@…teams.ms", ... } opcional por ILD
+  teamsOps:"",           // (respaldo general para finalizaciones)
+  teamsFinSistemas:"",       // finalizaciones de Sistemas
+  teamsFinMantenimiento:"",  // finalizaciones de Mantenimiento
+  mailCompras:"compras@playaparaiso.com.ec",
+  mailGerencia:"gerenciageneral@playaparaiso.com.ec",
+  mailMantenimiento:"mantenimiento@playaparaiso.com.ec",
+  mailSistemas:"sistemas@playaparaiso.com.ec"
+};
+let NOTIF = {...NOTIF_DEF};
+function fmtFecha(iso){ try{ return new Date(iso).toLocaleDateString('es-EC',{day:'2-digit',month:'2-digit',year:'numeric'}); }catch{ return iso||""; } }
+function linkVer(mod,code){ const u=(NOTIF.appUrl||"").replace(/\/+$/,"/"); const q=`?ver=${encodeURIComponent(mod)}:${encodeURIComponent(code||"")}`; return (u||"")+q; }
+function mailHTML(titulo,lineas,mod,code){
+  const link=linkVer(mod,code);
+  const filas=lineas.filter(Boolean).map(l=>`<p style="margin:6px 0;font-size:14px;line-height:1.5;color:#22303a">${l}</p>`).join("");
+  return `<div style="font-family:Arial,Helvetica,sans-serif;max-width:580px;margin:0 auto">
+    <div style="background:#0B6B7A;color:#ffffff;padding:14px 20px;border-radius:12px 12px 0 0;font-size:16px;font-weight:bold">${titulo}</div>
+    <div style="border:1px solid #e5e0d6;border-top:none;padding:18px 20px;border-radius:0 0 12px 12px;background:#ffffff">
+      ${filas}
+      <a href="${link}" style="display:inline-block;margin-top:14px;background:#A52A3A;color:#ffffff;text-decoration:none;padding:11px 22px;border-radius:8px;font-weight:bold;font-size:14px">Abrir en la app ›</a>
+      <p style="margin:16px 0 0;font-size:12px;color:#8a94a0">Playa Paraíso · Notificación automática. Por favor no responda a este correo.</p>
+    </div></div>`;
+}
+async function mailToken(){ try{ if(!msalApp) await msInitApp(); const accs=msalApp?msalApp.getAllAccounts():[];
+  if(!accs || !accs.length) return null;
+  const r=await msalApp.acquireTokenSilent({scopes:MAIL_SCOPE,account:accs[0]}); return r.accessToken; }catch(e){ return null; } }
+async function sendMail(to,subject,html){
+  if(!NOTIF.enabled) return {ok:false,reason:"notificaciones desactivadas"};
+  if(!APP.useGraph) return {ok:false,reason:"modo demo local"};
+  const dest=(Array.isArray(to)?to:[to]).filter(Boolean).map(a=>({emailAddress:{address:String(a).trim()}}));
+  if(!dest.length) return {ok:false,reason:"sin destinatario configurado"};
+  const tk=await mailToken();
+  if(!tk) return {ok:false,reason:"falta el permiso Mail.Send (consentimiento de administrador) o reconectar Microsoft"};
+  try{
+    const r=await fetch(GBASE+"/me/sendMail",{method:"POST",
+      headers:{Authorization:`Bearer ${tk}`,"Content-Type":"application/json"},
+      body:JSON.stringify({message:{subject,body:{contentType:"HTML",content:html},toRecipients:dest},saveToSentItems:false})});
+    if(!r.ok){ let m=""; try{ const j=await r.json(); m=(j.error&&j.error.message)?j.error.message:""; }catch{} return {ok:false,reason:r.status+(m?(" — "+m):"")}; }
+    return {ok:true};
+  }catch(e){ return {ok:false,reason:e.message}; }
+}
+const Notif = {
+  ildSubido(r,quien){
+    const to=(NOTIF.teamsPorArea&&NOTIF.teamsPorArea[r.area])||NOTIF.teamsILD;
+    sendMail(to, `[ILD] ${quien} subió el ILD de ${r.area} · No. ${r.id}`,
+      mailHTML("Nuevo ILD para revisión",[
+        `<b>${quien}</b> subió el ILD de <b>${r.area}</b>${r.turno?(" · turno "+r.turno):""}.`,
+        `No. de registro: <b>${r.id}</b> · Fecha: ${fmtFecha(r.fecha)}.`,
+        (r.completados!=null&&r.totalItems!=null)?`Ítems completados: <b>${r.completados}/${r.totalItems}</b>.`:``,
+        `Ingresa a la app para revisarlo y aprobarlo.`
+      ],"ILD",r.id)); },
+  ildDecidido(r,quien){
+    const to=(NOTIF.teamsPorArea&&NOTIF.teamsPorArea[r.area])||NOTIF.teamsILD;
+    const fin = r.estado==="Aprobado" ? "aprobado" : (r.estado==="Con observaciones" ? "finalizado con observaciones" : (r.estado||"").toLowerCase());
+    sendMail(to, `[ILD] ${r.area} No. ${r.id}: ${fin}`,
+      mailHTML("Inspección diaria finalizada",[
+        `La inspección (ILD) de <b>${r.area}</b> · No. <b>${r.id}</b> fue revisada por <b>${quien}</b>.`,
+        `Resultado: <b>${fin.toUpperCase()}</b>.`,
+        r.notaJef?`Observaciones del jefe: <i>${r.notaJef}</i>`:``,
+        `La tarea de inspección se encuentra finalizada.`
+      ],"ILD",r.id)); },
+  comprasNueva(r,quien){
+    sendMail(NOTIF.mailCompras, `[Compras] Nueva solicitud ${r.Codigo} — ${r.Modelo||r.Descripcion||""}`,
+      mailHTML("Nueva solicitud de compra",[
+        `<b>${quien}</b> registró una nueva solicitud de compra.`,
+        `Solicitud No. <b>${r.Codigo}</b> · Área: <b>${r.Area||"—"}</b>.`,
+        `Detalle: ${r.Modelo?("<b>"+r.Modelo+"</b> — "):""}${r.Descripcion||""}`,
+        `Cantidad: <b>${r.Cantidad||"—"} ${r.Unidad||""}</b> · Necesita para: ${fmtFecha(r.FechaNecesidad)||"—"}.`,
+        `Por favor ingresa para gestionarla.`
+      ],"Compras",r.Codigo)); },
+  comprasGerencia(r,quien){
+    sendMail(NOTIF.mailGerencia, `[Gerencia] Solicitud ${r.Codigo} pendiente de su aprobación`,
+      mailHTML("Solicitud pendiente de aprobación de Gerencia",[
+        `Estimada Gerencia General, tiene la solicitud No. <b>${r.Codigo}</b> pendiente de aprobación.`,
+        `Solicitada por: <b>${r.Solicitante||quien}</b> · Área: <b>${r.Area||"—"}</b>.`,
+        `Solicitan: ${r.Modelo?("<b>"+r.Modelo+"</b> — "):""}${r.Descripcion||""} (${r.Cantidad||"—"} ${r.Unidad||""}).`,
+        r.Justificacion?`Justificación: <i>${r.Justificacion}</i>`:``,
+        r.Presupuesto?`Presupuesto referencial: <b>${r.Presupuesto}</b>.`:``,
+        `Ingrese a la solicitud para revisarla y aprobarla.`
+      ],"Compras",r.Codigo)); },
+  ticketNuevo(r,quien,modulo){
+    const to = modulo==="Sistemas"?NOTIF.mailSistemas:NOTIF.mailMantenimiento;
+    sendMail(to, `[${modulo}] Nueva solicitud ${r.Codigo}`,
+      mailHTML(`Nueva solicitud de ${modulo}`,[
+        `Tienen una nueva solicitud de ${modulo.toLowerCase()}.`,
+        `Solicitud No. <b>${r.Codigo}</b> · Solicitada por <b>${quien}</b>${r.Departamento?(" · "+r.Departamento):""}.`,
+        `Detalle: ${r.Titulo?("<b>"+r.Titulo+"</b> — "):""}${r.Descripcion||""}`,
+        `Por favor ingresen para atenderla.`
+      ],modulo,r.Codigo)); },
+  ticketFinalizado(r,modulo){
+    const to = modulo==="Sistemas" ? (NOTIF.teamsFinSistemas||NOTIF.teamsOps) : (NOTIF.teamsFinMantenimiento||NOTIF.teamsOps);
+    sendMail(to, `[${modulo}] Solicitud ${r.Codigo} finalizada`,
+      mailHTML(`Solicitud de ${modulo} finalizada`,[
+        `La solicitud No. <b>${r.Codigo}</b>, solicitada por <b>${r.Solicitante||"—"}</b> el <b>${fmtFecha(r.FechaSolicitud||r.FechaCreacion)}</b>,`,
+        `que correspondía a: ${r.Titulo?("<b>"+r.Titulo+"</b> — "):""}${r.Descripcion||""},`,
+        `ha sido <b>finalizada</b> el <b>${fmtFecha(r.FechaConcluido||nowISO())}</b>.`,
+        r.Asignado?`Atendida por: <b>${r.Asignado}</b>.`:``,
+        r.CierreCumplimiento?`Estado de cumplimiento: <b>${r.CierreCumplimiento}</b>.`:``
+      ],modulo,r.Codigo)); }
+};
 // Aplica configuración guardada en modo local (demo) al cargar
 try{ const raw=localStorage.getItem("pp_ILD_Config");
   if(raw){ const c=JSON.parse(raw); if(c && !Array.isArray(c)) applyIldConfig(c); } }catch{}
@@ -1182,7 +1292,7 @@ function ILDForm({user,toast,onSaved,setFoto}){
         const nuevo={id,Codigo,area,turno:"",zona,selecciones:{},usuario:user.nombre,fecha:nowISO(),
           checks:{},textos:{},fotos:fotosData,obs,estado:"Pendiente",notaJef:"",aprobador:"",fechaAprobacion:"",
           notaGerencia:"",totalItems:1,completados:1,clItems:(CL[area]||[]),aprobadorEsperado:APR[area]||"—"};
-        await Store.write("ILD",[nuevo,...arr]);
+        await Store.write("ILD",[nuevo,...arr]); Notif.ildSubido(nuevo,user.nombre);
         toast("ILD enviado: "+Codigo+" · "+zona); resetCampos(); setArea(""); onSaved();
       }catch(e){ toast("No se pudo enviar: "+(e.message||"error")); }
       finally{ setBusy(false); }
@@ -1203,7 +1313,7 @@ function ILDForm({user,toast,onSaved,setFoto}){
         fecha:nowISO(),checks:{...checks},textos:{...txt},fotos:fotosData,obs,estado:"Pendiente",
         notaJef:"",aprobador:"",fechaAprobacion:"",notaGerencia:"",totalItems:items.length,
         completados:done,clItems:(CL[area]||[]),aprobadorEsperado:APR[area]||"—"};
-      await Store.write("ILD",[nuevo,...arr]);
+      await Store.write("ILD",[nuevo,...arr]); Notif.ildSubido(nuevo,user.nombre);
       toast("ILD enviado: "+Codigo); resetCampos(); setArea(""); onSaved();
     }catch(e){ toast("No se pudo enviar: "+(e.message||"error")); }
     finally{ setBusy(false); }
@@ -1276,12 +1386,15 @@ function ILDForm({user,toast,onSaved,setFoto}){
 }
 
 function ILDPanel({user,regs,reload,toast,setFoto}){
-  const [filtro,setFiltro]=useState("todos"); const [per,setPer]=useState(90); const [det,setDet]=useState(null);
+  const [filtro,setFiltro]=useState("todos"); const [per,setPer]=useState(90); const [det,setDet]=useState(null); const [fGrupo,setFGrupo]=useState("__todas");
   const lim=new Date(); lim.setDate(lim.getDate()-per);
   let base=regs.filter(r=>new Date(r.fecha)>=lim);
   const esSuyo=r=>(user.areas||[]).includes(r.area)||r.aprobadorEsperado===user.nombre||r.aprobador===user.nombre;
   if(!esGD(user)) base=base.filter(esSuyo);
+  const grupoDe=r=>(AC[r.area]&&AC[r.area].g)||"(otros)";
+  const gruposBandeja=[...new Set(base.map(grupoDe).filter(Boolean))].sort();
   if(filtro!=="todos") base=base.filter(r=>r.estado===filtro);
+  if(fGrupo!=="__todas") base=base.filter(r=>grupoDe(r)===fGrupo);
   // Histórico completo de la jefatura (para exportar, sin filtro de período)
   const mios=esGD(user)?regs:regs.filter(esSuyo);
   function exportar(){ if(!mios.length){toast("No hay ILD para exportar");return;}
@@ -1296,6 +1409,9 @@ function ILDPanel({user,regs,reload,toast,setFoto}){
       {[["todos","Todos"],["Pendiente","Pendientes"],["Aprobado","Aprobados"],["Con observaciones","Con obs."]].map(([k,l])=>
         <button key={k} className={filtro===k?"on":""} onClick={()=>setFiltro(k)}>{l}</button>)}
     </div>
+    <Field label="Filtrar por grupo"><select className="inp" value={fGrupo} onChange={e=>setFGrupo(e.target.value)}>
+      <option value="__todas">Todos los grupos ({gruposBandeja.length})</option>
+      {gruposBandeja.map(g=><option key={g} value={g}>{g}</option>)}</select></Field>
     <div className="row" style={{marginBottom:12}}>
       {[[30,"30d"],[90,"90d"],[365,"1 año"]].map(([d,l])=>
         <button key={d} className={"btn "+(per===d?"ocean":"ghost")} style={{padding:"8px 14px"}} onClick={()=>setPer(d)}>{l}</button>)}
@@ -1394,6 +1510,7 @@ function ILDDetail({user,r,onClose,reload,toast,setFoto}){
     const arr=await Store.read("ILD");
     const upd=arr.map(x=>x.id===r.id?{...x,estado:ok?"Aprobado":"Con observaciones",notaJef:nota,aprobador:user.nombre,fechaAprobacion:nowISO()}:x);
     await Store.write("ILD",upd);
+    Notif.ildDecidido({...r,estado:ok?"Aprobado":"Con observaciones",notaJef:nota,aprobador:user.nombre},user.nombre);
     const cod=r.Codigo||("ILD-"+r.id);
     await addNotif(r.usuario, nota?`${user.nombre} realizó un comentario sobre el ILD No. ${cod}`:`${user.nombre} revisó tu ILD No. ${cod}`, r.id, cod);
     toast(ok?"ILD aprobado":"Con observaciones"); reload(); onClose();
@@ -1908,7 +2025,7 @@ function Compras({user,toast,setFoto}){
         Estado:"Solicitado",FechaTentativa:"",Aprobador:"",FechaAprob:"",Comentario:"",
         EnviadoGG:"No",AprobadorGG:"",FechaGG:"",ComentarioGG:"",ActaEntrega:"",ComentarioActa:"",
         FechaEntrega:"",FechaCierre:"",EncuestaCal:"",EncuestaComentario:"",FechaEncuesta:""};
-      await Store.write("Compras",[nuevo,...arr]); toast("Solicitud creada: "+Codigo);
+      await Store.write("Compras",[nuevo,...arr]); Notif.comprasNueva(nuevo,user.nombre); toast("Solicitud creada: "+Codigo);
       setF(vacio); setFotos([]); load(); setTab("mias");
     } finally { setBusy(false); }
   }
@@ -2026,7 +2143,7 @@ function ComprasModal({modal,user,onClose,apply,toast,setFoto}){
   const MSG_PRESU="La compra se encuentra aprobada, pero está sujeta a disponibilidad de presupuesto.";
   async function go(){
     if(t==="aprobar"){ await apply(item.Codigo,{Estado:"En compra",Aprobador:user.nombre,FechaAprob:nowISO(),Comentario:com,FechaTentativa:fecha}); toast(MSG_PRESU); }
-    else if(t==="enviarGG"){ await apply(item.Codigo,{Estado:"En Gerencia",EnviadoGG:"Si",Aprobador:user.nombre,FechaAprob:nowISO(),Comentario:com}); toast("Enviada a Gerencia"); }
+    else if(t==="enviarGG"){ await apply(item.Codigo,{Estado:"En Gerencia",EnviadoGG:"Si",Aprobador:user.nombre,FechaAprob:nowISO(),Comentario:com}); Notif.comprasGerencia(item,user.nombre); toast("Enviada a Gerencia"); }
     else if(t==="aprobarGG"){ await apply(item.Codigo,{Estado:"En compra",AprobadorGG:user.nombre,FechaGG:nowISO(),ComentarioGG:com}); toast(MSG_PRESU); }
     else if(t==="rechazar"){ if(!com.trim()){toast("El motivo es obligatorio");return;} await apply(item.Codigo,{Estado:"Rechazada",Aprobador:user.nombre,FechaAprob:nowISO(),Comentario:com}); toast("Rechazada"); }
     else if(t==="rechazarGG"){ if(!com.trim()){toast("El motivo es obligatorio");return;} await apply(item.Codigo,{Estado:"Rechazada",AprobadorGG:user.nombre,FechaGG:nowISO(),ComentarioGG:com}); toast("Rechazada por Gerencia"); }
@@ -2087,7 +2204,7 @@ function Tickets({tipo,user,toast,setFoto}){
         Fotos:fotosT,
         Estado:"Nuevo",FechaTentativa:"",Asignado:"",ComentarioSoporte:"",FechaConcluido:"",
         EncuestaCal:"",EncuestaComentario:"",FechaEncuesta:""};
-      await Store.write(tipo,[base,...arr]); toast("Ticket creado: "+Codigo);
+      await Store.write(tipo,[base,...arr]); Notif.ticketNuevo(base,user.nombre,tipo); toast("Ticket creado: "+Codigo);
       setF(isSis?vacioSis:vacioMto); setFotos([]); load(); setTab("mios");
     } finally { setBusy(false); }
   }
@@ -2192,12 +2309,14 @@ function TicketModal({tipo,isSis,modal,user,equipo,onClose,apply,toast,setFoto})
       toast("Tarea asignada a "+tecnico); }
     else if(t==="concluir"){ if(!com.trim()){toast("El comentario de cierre es obligatorio");return;} setBusy(true);
       const fc=fotos.length?await subirFotos(fotos,`MTO_${item.Codigo}`,item.Codigo+"_cierre"):(item.FotosCierre||[]);
-      await apply(item.Codigo,{Estado:"Concluido",ComentarioSoporte:com,FechaConcluido:nowISO(),CierreCumplimiento:cumplimiento(),FotosCierre:fc}); toast("Concluido"); }
+      const cmp=cumplimiento();
+      await apply(item.Codigo,{Estado:"Concluido",ComentarioSoporte:com,FechaConcluido:nowISO(),CierreCumplimiento:cmp,FotosCierre:fc});
+      Notif.ticketFinalizado({...item,ComentarioSoporte:com,FechaConcluido:nowISO(),CierreCumplimiento:cmp},tipo); toast("Concluido"); }
     else if(t==="concluirTarea"){ if(!com.trim()){toast("Escribe un comentario de la tarea");return;}
       if(!fotos.length){toast("Adjunta al menos una foto de la tarea concluida");return;} setBusy(true);
       const fc=await subirFotos(fotos,`MTO_${item.Codigo}`,item.Codigo+"_cierre"); const cmp=cumplimiento();
       await apply(item.Codigo,{Estado:"Concluido",ComentarioSoporte:com,FechaConcluido:nowISO(),CierreCumplimiento:cmp,FotosCierre:fc});
-      toast(cmp); }
+      Notif.ticketFinalizado({...item,ComentarioSoporte:com,FechaConcluido:nowISO(),CierreCumplimiento:cmp},tipo); toast(cmp); }
     else if(t==="rechazar"){ if(!com.trim()){toast("El motivo es obligatorio");return;} await apply(item.Codigo,{Estado:"Rechazado",ComentarioSoporte:com,Asignado:user.nombre,FechaConcluido:nowISO()}); toast("Rechazado"); }
     else if(t==="encuesta"){ if(!cal){toast("Selecciona calificación");return;} await apply(item.Codigo,{Estado:"Cerrado",EncuestaCal:cal,EncuestaComentario:com,FechaEncuesta:nowISO()}); toast("¡Gracias por calificar!"); }
     onClose();
@@ -2334,6 +2453,44 @@ function ClientIdForm({toast}){
     <div className="row"><button className="btn primary" onClick={guardar}>Guardar y reiniciar</button>
       <button className="btn ghost" onClick={restaurar}>Restaurar por defecto</button></div></div>;
 }
+function NotifConfig({toast}){
+  const [c,setC]=useState({...NOTIF}); const [busy,setBusy]=useState(false);
+  const set=(k,v)=>setC(s=>({...s,[k]:v}));
+  async function guardar(){ Object.assign(NOTIF,c); try{ await cfgSave(); toast("Notificaciones guardadas"); }catch(e){ toast("No se pudo guardar: "+(e.message||"")); } }
+  async function prueba(){ Object.assign(NOTIF,c); setBusy(true);
+    try{ const to=c.teamsILD||c.mailCompras||c.mailGerencia;
+      const res=await sendMail(to,"[Prueba] Notificación · App Playa Paraíso",
+        mailHTML("Prueba de notificación",["Este es un correo de prueba enviado desde la app.","Si lo recibiste, las notificaciones están funcionando correctamente."],"ILD","PRUEBA"));
+      toast(res.ok?("Correo de prueba enviado a: "+to):("No se pudo enviar: "+res.reason));
+    }catch(e){ toast("No se pudo enviar: "+(e.message||"")); } finally{ setBusy(false); } }
+  return <div className="card"><h3>🔔 Notificaciones (correo / Teams)</h3>
+    <div className="hint">Los avisos se envían por correo usando tu cuenta Microsoft (requiere el permiso <b>Mail.Send</b> con consentimiento de administrador). Para publicar en un grupo de Teams, pega el <b>correo del canal</b> (en Teams: canal → ••• → Obtener dirección de correo).</div>
+    <label className="row" style={{gap:8,alignItems:"center",margin:"12px 0"}}>
+      <input type="checkbox" checked={!!c.enabled} onChange={e=>set("enabled",e.target.checked)}/> <span style={{fontWeight:600}}>Activar notificaciones</span></label>
+    <Field label="Enlace de la app (para el botón de los correos)"><input className="inp" value={c.appUrl} onChange={e=>set("appUrl",e.target.value)}/></Field>
+    <Field label="Correo del canal de Teams — ILD (por defecto)"><input className="inp" value={c.teamsILD} onChange={e=>set("teamsILD",e.target.value)} placeholder="canal-ild@…teams.ms"/></Field>
+    <div className="card" style={{margin:"6px 0 12px",background:"#faf7f1"}}>
+      <h3 style={{marginTop:0}}>Canal de Teams por cada ILD (opcional)</h3>
+      <div className="hint" style={{marginBottom:8}}>Si un ILD debe ir a un grupo distinto, pon aquí su correo de canal. Los que dejes vacíos usan el canal por defecto de arriba.</div>
+      <div style={{maxHeight:260,overflow:"auto"}}>
+        {Object.keys(AC).map(a=><div key={a} style={{marginBottom:8}}>
+          <div style={{fontSize:12.5,fontWeight:600,color:"var(--ink)",marginBottom:3}}>{a}</div>
+          <input className="inp" value={(c.teamsPorArea&&c.teamsPorArea[a])||""} placeholder="(usa el canal por defecto)"
+            onChange={e=>setC(s=>({...s,teamsPorArea:{...(s.teamsPorArea||{}),[a]:e.target.value}}))}/>
+        </div>)}
+        {!Object.keys(AC).length && <div className="hint">No hay ILD configurados todavía.</div>}
+      </div>
+    </div>
+    <Field label="Correo del canal de Teams — Finalizaciones de Sistemas"><input className="inp" value={c.teamsFinSistemas} onChange={e=>set("teamsFinSistemas",e.target.value)} placeholder="canal-sistemas@…teams.ms"/></Field>
+    <Field label="Correo del canal de Teams — Finalizaciones de Mantenimiento"><input className="inp" value={c.teamsFinMantenimiento} onChange={e=>set("teamsFinMantenimiento",e.target.value)} placeholder="canal-mantenimiento@…teams.ms"/></Field>
+    <Field label="Correo de Compras"><input className="inp" value={c.mailCompras} onChange={e=>set("mailCompras",e.target.value)}/></Field>
+    <Field label="Correo de Gerencia General"><input className="inp" value={c.mailGerencia} onChange={e=>set("mailGerencia",e.target.value)}/></Field>
+    <Field label="Correo de Mantenimiento"><input className="inp" value={c.mailMantenimiento} onChange={e=>set("mailMantenimiento",e.target.value)}/></Field>
+    <Field label="Correo de Sistemas"><input className="inp" value={c.mailSistemas} onChange={e=>set("mailSistemas",e.target.value)}/></Field>
+    <button className="btn primary block" onClick={guardar}>Guardar notificaciones</button>
+    <button className="btn ghost block" style={{marginTop:8}} disabled={busy} onClick={prueba}>{busy?"Enviando…":"✉️ Enviar correo de prueba"}</button>
+  </div>;
+}
 function ReasignarResp({toast}){
   const [mod,setMod]=useState("ILD"); const [rows,setRows]=useState([]);
   const [area,setArea]=useState("__todas"); const [dest,setDest]=useState(""); const [busy,setBusy]=useState(false);
@@ -2455,6 +2612,7 @@ function Admin({user,toast}){
     <div className="card"><h3>📥 Histórico de ILD</h3>
       <div className="hint">Carga los <b>{typeof ILD_SEED!=="undefined"?ILD_SEED.length:0} ILD reales</b> (junio) en el almacenamiento, sin duplicar los ya cargados.</div>
       <button className="btn ocean block" style={{marginTop:10}} onClick={cargarHistorico}>📥 Cargar histórico de ILD</button></div>
+    <NotifConfig toast={toast}/>
     <DeleteRecords toast={toast}/>
     <ReasignarResp toast={toast}/>
     <div className="card"><h3>👥 Usuarios y aprobadores</h3>
@@ -2468,7 +2626,7 @@ function App(){
   const [view,setView]=useState("home"); const [toastMsg,setToastMsg]=useState(""); const [counts,setCounts]=useState({});
   const [foto,setFoto]=useState(null); const [gerr,setGerr]=useState(""); const [cfgVer,setCfgVer]=useState(0);
   const [connected,setConnected]=useState(MODE!=="graph"); const [checking,setChecking]=useState(MODE==="graph");
-  const [notifs,setNotifs]=useState([]); const [notifOpen,setNotifOpen]=useState(false); const [detailIld,setDetailIld]=useState(null);
+  const [notifs,setNotifs]=useState([]); const [notifOpen,setNotifOpen]=useState(false); const [detailIld,setDetailIld]=useState(null); const [detailKan,setDetailKan]=useState(null);
   const bump=()=>setCfgVer(v=>v+1);
   async function loadNotifs(u){ const who=u||user; if(!who) return;
     try{ const all=await Store.read("Notif"); setNotifs(all.filter(n=>n.para===who.nombre)); }catch{} }
@@ -2500,6 +2658,17 @@ function App(){
     });
   }
   useEffect(()=>{ if(user){ reloadCounts(); loadNotifs(); } },[user,view,cfgVer]);
+  useEffect(()=>{ if(!user || !DEEPLINK || window.__deepDone) return; window.__deepDone=true;
+    const map={ILD:"ild",Compras:"compras",Sistemas:"sistemas",Mantenimiento:"mantenimiento"};
+    const v=map[DEEPLINK.mod]; if(!v) return; setView(v);
+    if(!DEEPLINK.code) return;
+    (async()=>{ try{
+      if(DEEPLINK.mod==="ILD"){ const ilds=await Store.read("ILD");
+        const rec=ilds.find(r=>String(r.id)===String(DEEPLINK.code)||r.Codigo===DEEPLINK.code); if(rec) setDetailIld(rec); }
+      else { const tabla=DEEPLINK.mod; const arr=await Store.read(tabla);
+        const rec=arr.find(r=>r.Codigo===DEEPLINK.code||String(r.id)===String(DEEPLINK.code)); if(rec) setDetailKan({tabla,r:rec}); }
+    }catch(e){} })();
+  },[user]);
   async function onLogin(u){ sessionStorage.setItem("pp_user",JSON.stringify(u)); setUser(u); setView("home"); }
   function logout(){ sessionStorage.removeItem("pp_user"); setUser(null); setView("home"); }
   if(MODE==="graph" && checking) return <div className="login"><div className="sun"></div><div className="lcard">
@@ -2543,6 +2712,7 @@ function App(){
       {notifs.length>0 && <div className="hint">Al abrir una notificación, se marca como leída y desaparece.</div>}
     </Modal>}
     {detailIld && <ILDDetail user={user} r={detailIld} onClose={()=>{setDetailIld(null);loadNotifs();}} reload={()=>{}} toast={toast} setFoto={setFoto}/>}
+    {detailKan && <KanModal proc={detailKan.tabla.toLowerCase()} tabla={detailKan.tabla} r={detailKan.r} canEdit={false} cols={[]} onClose={()=>setDetailKan(null)} onSaved={()=>{}} toast={toast} setFoto={setFoto}/>}
   </div>;
 }
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
