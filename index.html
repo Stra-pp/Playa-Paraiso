@@ -639,7 +639,7 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v5.9 · SharePoint Prueba7(Listas) · Notif",
+  version: "Playa Paraíso · App unificada v6.0 · SharePoint Prueba7(Listas) · Notif",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -893,7 +893,7 @@ async function addNotif(para,texto,ildId,codigo){
 }
 
 let msErr="";
-const MS_SCOPES=["https://graph.microsoft.com/Files.ReadWrite.All","https://graph.microsoft.com/Sites.ReadWrite.All","https://graph.microsoft.com/User.Read"];
+const MS_SCOPES=["https://graph.microsoft.com/Files.ReadWrite.All","https://graph.microsoft.com/Sites.ReadWrite.All","https://graph.microsoft.com/Mail.Send","https://graph.microsoft.com/User.Read"];
 const MAIL_SCOPE=["https://graph.microsoft.com/Mail.Send"];
 async function msInitApp(){
   if(msalApp) return;
@@ -999,22 +999,30 @@ function mailHTML(titulo,lineas,mod,code){
       <p style="margin:16px 0 0;font-size:12px;color:#8a94a0">Playa Paraíso · Notificación automática. Por favor no responda a este correo.</p>
     </div></div>`;
 }
-async function mailToken(){ try{ if(!msalApp) await msInitApp(); const accs=msalApp?msalApp.getAllAccounts():[];
+async function mailStepUp(){ try{ if(!msalApp) await msInitApp(); const accs=msalApp?msalApp.getAllAccounts():[];
   if(!accs || !accs.length) return null;
   const r=await msalApp.acquireTokenSilent({scopes:MAIL_SCOPE,account:accs[0]}); return r.accessToken; }catch(e){ return null; } }
+async function postMail(tk,dest,subject,html){
+  return fetch(GBASE+"/me/sendMail",{method:"POST",
+    headers:{Authorization:`Bearer ${tk}`,"Content-Type":"application/json"},
+    body:JSON.stringify({message:{subject,body:{contentType:"HTML",content:html},toRecipients:dest},saveToSentItems:false})});
+}
 async function sendMail(to,subject,html){
   if(!NOTIF.enabled) return {ok:false,reason:"notificaciones desactivadas"};
-  if(!APP.useGraph) return {ok:false,reason:"modo demo local"};
+  if(!APP.useGraph) return {ok:false,reason:"estás en modo demo local; inicia sesión con Microsoft"};
+  if(!graphToken) return {ok:false,reason:"sin sesión de Microsoft (vuelve a iniciar sesión)"};
   const dest=(Array.isArray(to)?to:[to]).filter(Boolean).map(a=>({emailAddress:{address:String(a).trim()}}));
   if(!dest.length) return {ok:false,reason:"sin destinatario configurado"};
-  const tk=await mailToken();
-  if(!tk) return {ok:false,reason:"falta el permiso Mail.Send (consentimiento de administrador) o reconectar Microsoft"};
   try{
-    const r=await fetch(GBASE+"/me/sendMail",{method:"POST",
-      headers:{Authorization:`Bearer ${tk}`,"Content-Type":"application/json"},
-      body:JSON.stringify({message:{subject,body:{contentType:"HTML",content:html},toRecipients:dest},saveToSentItems:false})});
-    if(!r.ok){ let m=""; try{ const j=await r.json(); m=(j.error&&j.error.message)?j.error.message:""; }catch{} return {ok:false,reason:r.status+(m?(" — "+m):"")}; }
-    return {ok:true};
+    let r=await postMail(graphToken,dest,subject,html);
+    if(r.status===401||r.status===403){ const tk=await mailStepUp(); if(tk){ r=await postMail(tk,dest,subject,html); } }
+    if(r.ok || r.status===202) return {ok:true};
+    let m=""; try{ const j=await r.json(); m=(j.error&&j.error.message)?j.error.message:(j.error&&j.error.code)||""; }catch{}
+    let ayuda="";
+    if(r.status===403) ayuda=" · Falta consentimiento de Mail.Send o el buzón no permite envío. Usa 'Reconectar Microsoft'.";
+    else if(r.status===401) ayuda=" · Sesión vencida: usa 'Reconectar Microsoft'.";
+    else if(/MailboxNotEnabled|inactive|on-premise/i.test(m)) ayuda=" · La cuenta con la que iniciaste sesión no tiene buzón de correo activo.";
+    return {ok:false,reason:(r.status+(m?(" — "+m):""))+ayuda};
   }catch(e){ return {ok:false,reason:e.message}; }
 }
 const Notif = {
