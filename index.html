@@ -639,7 +639,7 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v5.8 · SharePoint Prueba7(Listas) · Notif",
+  version: "Playa Paraíso · App unificada v5.9 · SharePoint Prueba7(Listas) · Notif",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -1638,6 +1638,7 @@ function ILDDash({user,regs}){
 /* ===== EDITOR DE CHECKLIST (jefaturas / gerencia / desarrollador) ===== */
 function ChecklistEditor({user,toast,onSave}){
   const [,force]=useState(0);
+  const [teamsDraft,setTeamsDraft]=useState(()=>({...(NOTIF.teamsPorArea||{})}));
   const areas = esGD(user)?Object.keys(AC):(user.areas||[]);
   const norm = it => (typeof it==='object'&&it)?{t:it.t,tipo:it.tipo||'foto'}:{t:it,tipo:'foto'};
   const [area,setArea]=useState(areas[0]||"");
@@ -1683,15 +1684,40 @@ function ChecklistEditor({user,toast,onSave}){
     onSave(); if(area===a){ const rest=Object.keys(AC); setArea(rest[0]||""); } force(x=>x+1); toast("ILD eliminado: "+a); }
   if(!areas.length) return <div className="empty"><div className="e">🔒</div>No tienes áreas asignadas para personalizar.</div>;
   const nFotos=items.filter(it=>it.tipo==='foto').length;
+  const grupos=[...new Set(Object.values(AC).map(v=>v&&v.g).filter(Boolean))].sort();
+  const nombres=[...new Set(USERS.map(u=>u.nombre))].sort();
+  function setGrupo(a,g){ if(AC[a]){ AC[a].g=g; onSave(); force(x=>x+1); } }
+  function setApr(a,v){ APR[a]=v; onSave(); force(x=>x+1); }
+  function saveTeams(a){ NOTIF.teamsPorArea={...(NOTIF.teamsPorArea||{}),[a]:(teamsDraft[a]||"").trim()}; onSave(); toast("Canal de Teams guardado"); }
+  async function probarCanal(a){ const to=(teamsDraft[a]||"").trim()||NOTIF.teamsILD;
+    if(!to){ toast("Pon el correo del canal (o configura el canal ILD por defecto)"); return; }
+    NOTIF.teamsPorArea={...(NOTIF.teamsPorArea||{}),[a]:(teamsDraft[a]||"").trim()};
+    const res=await sendMail(to,`[Prueba] Canal de ${a}`,mailHTML("Prueba de notificación · "+a,["Correo de prueba del canal de Teams de este ILD.","Si lo ves publicado en el grupo, el canal está bien configurado."],"ILD","PRUEBA"));
+    toast(res.ok?("Prueba enviada a: "+to):("No se pudo: "+res.reason)); }
+  const lbl={fontSize:11,color:"var(--muted)",marginBottom:2};
   return <div>
     {esDev(user) && <div className="card"><h3>🗂 Administrar ILD ({Object.keys(AC).length})</h3>
-      <div className="hint" style={{marginBottom:8}}>Renombra o elimina cualquier ILD. Los registros históricos no se borran.</div>
-      <div style={{maxHeight:300,overflow:"auto",border:"1px solid var(--line)",borderRadius:12}}>
-        {Object.keys(AC).map(a=><div className="kv" key={a} style={{padding:"8px 12px",margin:0,borderBottom:"1px solid #f3efe6"}}>
-          <span style={{flex:1,fontSize:13.5,color:"var(--ink)"}}>{a}</span>
-          <span className="row" style={{gap:6,flex:"0 0 auto"}}>
-            <button className="btn ghost" style={{padding:"5px 10px"}} onClick={()=>renombrarArea(a)}>✏️</button>
-            <button className="btn red" style={{padding:"5px 10px"}} onClick={()=>borrarArea(a)}>🗑</button></span></div>)}
+      <div className="hint" style={{marginBottom:8}}>Aquí asignas todo en un solo lugar: <b>grupo</b>, <b>aprobador</b> y <b>canal de Teams</b> de cada ILD. Los registros históricos no se borran.</div>
+      <div style={{maxHeight:"62vh",overflow:"auto",border:"1px solid var(--line)",borderRadius:12}}>
+        {Object.keys(AC).map(a=><div key={a} style={{padding:"11px 12px",borderBottom:"1px solid #f0ece3"}}>
+          <div style={{fontWeight:700,fontSize:14,marginBottom:7,color:"var(--ink)"}}>{a}</div>
+          <div className="row" style={{gap:8,flexWrap:"wrap"}}>
+            <div style={{flex:"1 1 140px"}}><div style={lbl}>Grupo</div>
+              <select className="inp" value={(AC[a]&&AC[a].g)||""} onChange={e=>setGrupo(a,e.target.value)}>{grupos.map(g=><option key={g}>{g}</option>)}</select></div>
+            <div style={{flex:"1 1 140px"}}><div style={lbl}>Aprobador</div>
+              <select className="inp" value={APR[a]||""} onChange={e=>setApr(a,e.target.value)}><option value="">—</option>{nombres.map(n=><option key={n}>{n}</option>)}</select></div>
+          </div>
+          <div className="row" style={{gap:8,marginTop:8,alignItems:"flex-end"}}>
+            <div style={{flex:1}}><div style={lbl}>Canal de Teams (correo)</div>
+              <input className="inp" value={teamsDraft[a]||""} placeholder="(usa el canal ILD por defecto)"
+                onChange={e=>setTeamsDraft(d=>({...d,[a]:e.target.value}))} onBlur={()=>saveTeams(a)}/></div>
+            <button className="btn ghost" style={{padding:"9px 12px",flex:"0 0 auto"}} onClick={()=>probarCanal(a)}>✉️ Probar</button>
+          </div>
+          <div className="row" style={{gap:8,marginTop:8}}>
+            <button className="btn ghost" style={{flex:1,padding:"7px"}} onClick={()=>renombrarArea(a)}>✏️ Renombrar</button>
+            <button className="btn red" style={{flex:1,padding:"7px"}} onClick={()=>borrarArea(a)}>🗑 Eliminar</button>
+          </div>
+        </div>)}
       </div></div>}
     <div className="card"><Field label="Área a personalizar">
       <select className="inp" value={area} onChange={e=>setArea(e.target.value)}>{areas.map(a=><option key={a}>{a}</option>)}</select></Field>
@@ -2454,41 +2480,37 @@ function ClientIdForm({toast}){
       <button className="btn ghost" onClick={restaurar}>Restaurar por defecto</button></div></div>;
 }
 function NotifConfig({toast}){
-  const [c,setC]=useState({...NOTIF}); const [busy,setBusy]=useState(false);
+  const [c,setC]=useState({...NOTIF}); const [busy,setBusy]=useState("");
   const set=(k,v)=>setC(s=>({...s,[k]:v}));
   async function guardar(){ Object.assign(NOTIF,c); try{ await cfgSave(); toast("Notificaciones guardadas"); }catch(e){ toast("No se pudo guardar: "+(e.message||"")); } }
-  async function prueba(){ Object.assign(NOTIF,c); setBusy(true);
-    try{ const to=c.teamsILD||c.mailCompras||c.mailGerencia;
-      const res=await sendMail(to,"[Prueba] Notificación · App Playa Paraíso",
-        mailHTML("Prueba de notificación",["Este es un correo de prueba enviado desde la app.","Si lo recibiste, las notificaciones están funcionando correctamente."],"ILD","PRUEBA"));
-      toast(res.ok?("Correo de prueba enviado a: "+to):("No se pudo enviar: "+res.reason));
-    }catch(e){ toast("No se pudo enviar: "+(e.message||"")); } finally{ setBusy(false); } }
+  async function probar(to,nombre){ Object.assign(NOTIF,c);
+    if(!to){ toast("Primero escribe el correo de "+nombre); return; }
+    setBusy(to);
+    try{ const res=await sendMail(to,"[Prueba] "+nombre+" · Playa Paraíso",
+        mailHTML("Prueba de notificación · "+nombre,["Correo de prueba enviado desde la app.","Si lo recibiste, este destino está bien configurado."],"ILD","PRUEBA"));
+      toast(res.ok?("Prueba enviada a: "+to):("No se pudo: "+res.reason));
+    }catch(e){ toast("No se pudo: "+(e.message||"")); } finally{ setBusy(""); } }
+  const Linea=({k,label,ph,nombre})=><div style={{marginBottom:10}}>
+    <div style={{fontSize:12.5,fontWeight:600,color:"var(--ink)",marginBottom:3}}>{label}</div>
+    <div className="row" style={{gap:8,alignItems:"center"}}>
+      <input className="inp" style={{flex:1}} value={c[k]||""} placeholder={ph||""} onChange={e=>set(k,e.target.value)}/>
+      <button className="btn ghost" style={{padding:"9px 12px",flex:"0 0 auto"}} disabled={busy===c[k]} onClick={()=>probar(c[k],nombre||label)}>{busy===c[k]?"…":"✉️ Probar"}</button>
+    </div></div>;
   return <div className="card"><h3>🔔 Notificaciones (correo / Teams)</h3>
-    <div className="hint">Los avisos se envían por correo usando tu cuenta Microsoft (requiere el permiso <b>Mail.Send</b> con consentimiento de administrador). Para publicar en un grupo de Teams, pega el <b>correo del canal</b> (en Teams: canal → ••• → Obtener dirección de correo).</div>
+    <div className="hint">Los avisos se envían por correo con tu cuenta Microsoft (requiere el permiso <b>Mail.Send</b> con consentimiento de administrador). Para publicar en un grupo de Teams, pega el <b>correo del canal</b> (en Teams: canal → ••• → Obtener dirección de correo). El canal de Teams de <b>cada ILD</b> se asigna en <b>ILD → Configurar → Checklist → Administrar ILD</b>.</div>
     <label className="row" style={{gap:8,alignItems:"center",margin:"12px 0"}}>
       <input type="checkbox" checked={!!c.enabled} onChange={e=>set("enabled",e.target.checked)}/> <span style={{fontWeight:600}}>Activar notificaciones</span></label>
     <Field label="Enlace de la app (para el botón de los correos)"><input className="inp" value={c.appUrl} onChange={e=>set("appUrl",e.target.value)}/></Field>
-    <Field label="Correo del canal de Teams — ILD (por defecto)"><input className="inp" value={c.teamsILD} onChange={e=>set("teamsILD",e.target.value)} placeholder="canal-ild@…teams.ms"/></Field>
-    <div className="card" style={{margin:"6px 0 12px",background:"#faf7f1"}}>
-      <h3 style={{marginTop:0}}>Canal de Teams por cada ILD (opcional)</h3>
-      <div className="hint" style={{marginBottom:8}}>Si un ILD debe ir a un grupo distinto, pon aquí su correo de canal. Los que dejes vacíos usan el canal por defecto de arriba.</div>
-      <div style={{maxHeight:260,overflow:"auto"}}>
-        {Object.keys(AC).map(a=><div key={a} style={{marginBottom:8}}>
-          <div style={{fontSize:12.5,fontWeight:600,color:"var(--ink)",marginBottom:3}}>{a}</div>
-          <input className="inp" value={(c.teamsPorArea&&c.teamsPorArea[a])||""} placeholder="(usa el canal por defecto)"
-            onChange={e=>setC(s=>({...s,teamsPorArea:{...(s.teamsPorArea||{}),[a]:e.target.value}}))}/>
-        </div>)}
-        {!Object.keys(AC).length && <div className="hint">No hay ILD configurados todavía.</div>}
-      </div>
-    </div>
-    <Field label="Correo del canal de Teams — Finalizaciones de Sistemas"><input className="inp" value={c.teamsFinSistemas} onChange={e=>set("teamsFinSistemas",e.target.value)} placeholder="canal-sistemas@…teams.ms"/></Field>
-    <Field label="Correo del canal de Teams — Finalizaciones de Mantenimiento"><input className="inp" value={c.teamsFinMantenimiento} onChange={e=>set("teamsFinMantenimiento",e.target.value)} placeholder="canal-mantenimiento@…teams.ms"/></Field>
-    <Field label="Correo de Compras"><input className="inp" value={c.mailCompras} onChange={e=>set("mailCompras",e.target.value)}/></Field>
-    <Field label="Correo de Gerencia General"><input className="inp" value={c.mailGerencia} onChange={e=>set("mailGerencia",e.target.value)}/></Field>
-    <Field label="Correo de Mantenimiento"><input className="inp" value={c.mailMantenimiento} onChange={e=>set("mailMantenimiento",e.target.value)}/></Field>
-    <Field label="Correo de Sistemas"><input className="inp" value={c.mailSistemas} onChange={e=>set("mailSistemas",e.target.value)}/></Field>
-    <button className="btn primary block" onClick={guardar}>Guardar notificaciones</button>
-    <button className="btn ghost block" style={{marginTop:8}} disabled={busy} onClick={prueba}>{busy?"Enviando…":"✉️ Enviar correo de prueba"}</button>
+    <div style={{fontWeight:700,color:"var(--ocean)",margin:"6px 0 8px"}}>Canales de Teams</div>
+    {Linea({k:"teamsILD",label:"ILD — canal por defecto",ph:"canal-ild@…teams.ms",nombre:"canal ILD por defecto"})}
+    {Linea({k:"teamsFinSistemas",label:"Finalizaciones de Sistemas",ph:"canal-sistemas@…teams.ms"})}
+    {Linea({k:"teamsFinMantenimiento",label:"Finalizaciones de Mantenimiento",ph:"canal-mantenimiento@…teams.ms"})}
+    <div style={{fontWeight:700,color:"var(--ocean)",margin:"12px 0 8px"}}>Correos por área</div>
+    {Linea({k:"mailCompras",label:"Compras"})}
+    {Linea({k:"mailGerencia",label:"Gerencia General"})}
+    {Linea({k:"mailMantenimiento",label:"Mantenimiento (nuevas solicitudes)"})}
+    {Linea({k:"mailSistemas",label:"Sistemas (nuevas solicitudes)"})}
+    <button className="btn primary block" style={{marginTop:6}} onClick={guardar}>Guardar notificaciones</button>
   </div>;
 }
 function ReasignarResp({toast}){
