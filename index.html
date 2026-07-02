@@ -639,7 +639,7 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v6.0 · SharePoint Prueba7(Listas) · Notif",
+  version: "Playa Paraíso · App unificada v6.2 · SharePoint Prueba7(Listas) · Notif+Offline",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -1237,8 +1237,18 @@ function ILD({user,toast,setFoto,bump}){
   const showChecklist = (user.rol==='aprobador' || esDevv);  // Gerencia no edita checklist
   const [tab,setTab]=useState(esGer?"bandeja":"nuevo");
   const [regs,setRegs]=useState([]);
+  const [drafts,setDrafts]=useState([]);
+  const cargarDrafts=async()=>{ try{ setDrafts(await draftsILDde(user.nombre)); }catch(e){} };
+  async function enviarPendientes(silencioso){
+    if(!navigator.onLine){ if(!silencioso)toast("Aún sin conexión. Intenta cuando tengas internet."); return; }
+    const pend=await draftsILDde(user.nombre); if(!pend.length){ if(!silencioso)toast("No hay ILD pendientes por enviar."); return; }
+    if(!silencioso) toast("Enviando pendientes…");
+    const r=await flushDraftsILD(user.nombre); await cargarDrafts(); load();
+    toast(r.fail? `Enviados ${r.ok} de ${r.total}. ${r.fail} siguen pendientes (revisa la señal).` : `Se enviaron ${r.ok} ILD que estaban pendientes. ✅`);
+  }
   const load=async()=>setRegs(await Store.readDesde("ILD", desdeDias(150)));
-  useEffect(()=>{load();},[]);
+  useEffect(()=>{load(); cargarDrafts();},[]);
+  useEffect(()=>{ const h=()=>enviarPendientes(true); window.addEventListener("online",h); return ()=>window.removeEventListener("online",h); },[user]);
   const guardarCfg=()=>{ cfgSave(); bump&&bump(); };
   return <div>
     <h1 className="h1">ILD · Inspección diaria</h1>
@@ -1246,14 +1256,16 @@ function ILD({user,toast,setFoto,bump}){
     {(showNuevo||puedeRevisar||showChecklist||esDevv) && <div className="seg">
       {showNuevo && <button className={tab==="nuevo"?"on":""} onClick={()=>setTab("nuevo")}>Nuevo</button>}
       {showNuevo && <button className={tab==="mios"?"on":""} onClick={()=>{setTab("mios");load();}}>Mis ILD</button>}
+      {showNuevo && drafts.length>0 && <button className={tab==="drafts"?"on":""} style={{color:"#7a5a12"}} onClick={()=>{setTab("drafts");cargarDrafts();}}>📥 Sin enviar ({drafts.length})</button>}
       {puedeRevisar && <button className={tab==="bandeja"?"on":""} onClick={()=>{setTab("bandeja");load();}}>{esGD(user)?"Todos":"Por aprobar"}</button>}
       {puedeRevisar && <button className={tab==="dash"?"on":""} onClick={()=>{setTab("dash");load();}}>Dashboard</button>}
       {esGD(user) && <button className={tab==="resumen"?"on":""} onClick={()=>setTab("resumen")}>📈 Resumen Gerencial</button>}
       {showChecklist && <button className={tab==="check"?"on":""} onClick={()=>setTab("check")}>Checklist</button>}
       {esDevv && <button className={tab==="conf"?"on":""} onClick={()=>setTab("conf")}>Configurar</button>}
     </div>}
-    {tab==="nuevo" && showNuevo && <ILDForm user={user} toast={toast} onSaved={()=>{load();setTab("mios");}} setFoto={setFoto}/>}
+    {tab==="nuevo" && showNuevo && <ILDForm user={user} toast={toast} onSaved={()=>{load();setTab("mios");}} onDraft={()=>{cargarDrafts();setTab("drafts");}} setFoto={setFoto}/>}
     {tab==="mios" && showNuevo && <ILDMios user={user} regs={regs} setFoto={setFoto}/>}
+    {tab==="drafts" && showNuevo && <DraftsPanel drafts={drafts} onEnviar={()=>enviarPendientes(false)} onReload={cargarDrafts} setFoto={setFoto} toast={toast}/>}
     {tab==="bandeja" && <ILDPanel user={user} regs={regs} reload={load} toast={toast} setFoto={setFoto}/>}
     {tab==="dash" && <ILDDash user={user} regs={regs}/>}
     {tab==="resumen" && <ResumenGerencialILD/>}
@@ -1262,7 +1274,58 @@ function ILD({user,toast,setFoto,bump}){
   </div>;
 }
 
-function ILDForm({user,toast,onSaved,setFoto}){
+/* ===== Borradores offline (IndexedDB): guardar ILD en la tablet sin señal ===== */
+const DDB={ _db:null,
+  open(){ return new Promise((res,rej)=>{ if(this._db) return res(this._db);
+    let rq; try{ rq=indexedDB.open("pp_offline",1); }catch(e){ return rej(e); }
+    rq.onupgradeneeded=e=>{ const db=e.target.result; if(!db.objectStoreNames.contains("drafts")) db.createObjectStore("drafts",{keyPath:"id"}); };
+    rq.onsuccess=e=>{ this._db=e.target.result; res(this._db); };
+    rq.onerror=()=>rej(rq.error); }); },
+  async all(){ try{ const db=await this.open(); return await new Promise((res,rej)=>{ const r=db.transaction("drafts","readonly").objectStore("drafts").getAll(); r.onsuccess=()=>res(r.result||[]); r.onerror=()=>rej(r.error); }); }catch(e){ return []; } },
+  async put(d){ const db=await this.open(); return new Promise((res,rej)=>{ const r=db.transaction("drafts","readwrite").objectStore("drafts").put(d); r.onsuccess=()=>res(); r.onerror=()=>rej(r.error); }); },
+  async del(id){ try{ const db=await this.open(); return await new Promise((res,rej)=>{ const r=db.transaction("drafts","readwrite").objectStore("drafts").delete(id); r.onsuccess=()=>res(); r.onerror=()=>rej(r.error); }); }catch(e){} }
+};
+async function guardarBorradorILD(payload){ await DDB.put({id:gid(),kind:"ILD",payload,createdAt:nowISO()}); }
+async function draftsILDde(nombre){ const ds=await DDB.all(); return ds.filter(d=>d.kind==="ILD" && (!nombre || (d.payload&&d.payload.usuario===nombre))); }
+async function flushDraftILD(d){
+  const p=d.payload; const id=gid();
+  const fotosData=await subirFotos(p.fotos||[],`ILD_${id}`,`ILD${id}`);
+  const arr=await Store.read("ILD"); const Codigo=nextCode("ILD",arr);
+  const nuevo={id,Codigo,area:p.area,turno:p.turno||"",selecciones:p.sel||{},usuario:p.usuario,fecha:p.fecha||nowISO(),
+    checks:p.checks||{},textos:p.txt||{},fotos:fotosData,obs:p.obs||"",estado:"Pendiente",notaJef:"",aprobador:"",
+    fechaAprobacion:"",notaGerencia:"",totalItems:p.totalItems||1,completados:p.completados||0,
+    clItems:p.clItems||(CL[p.area]||[]),aprobadorEsperado:APR[p.area]||"—"};
+  if(p.zona) nuevo.zona=p.zona;
+  await Store.write("ILD",[nuevo,...arr]); try{ Notif.ildSubido(nuevo,p.usuario); }catch(e){}
+  await DDB.del(d.id); return Codigo;
+}
+async function flushDraftsILD(nombre){ let ok=0,fail=0; const ds=await draftsILDde(nombre);
+  for(const d of ds){ try{ await flushDraftILD(d); ok++; }catch(e){ fail++; } } return {ok,fail,total:ds.length}; }
+
+function DraftsPanel({drafts,onEnviar,onReload,setFoto,toast}){
+  const [online,setOnline]=useState(navigator.onLine);
+  useEffect(()=>{ const on=()=>setOnline(true),off=()=>setOnline(false);
+    window.addEventListener("online",on); window.addEventListener("offline",off);
+    return ()=>{ window.removeEventListener("online",on); window.removeEventListener("offline",off); }; },[]);
+  async function borrar(d){ if(!confirm("¿Descartar este ILD guardado? Se perderán sus fotos y no se enviará.")) return; await DDB.del(d.id); onReload&&onReload(); toast("Borrador descartado"); }
+  if(!drafts.length) return <div className="empty"><div className="e">📥</div>No tienes ILD sin enviar. Todo está sincronizado.</div>;
+  return <div>
+    <div className="card" style={{background:"#FFF9EF",border:"1px solid #F3D9A6"}}>
+      <div style={{fontWeight:700,marginBottom:4}}>📥 ILD guardados en esta tablet: {drafts.length}</div>
+      <div className="hint">Se guardaron aquí porque no había señal. {online?"Ya tienes conexión: puedes enviarlos ahora.":"Cuando vuelva el internet se enviarán solos, o toca “Enviar” cuando tengas señal."}</div>
+      <button className="btn primary block" style={{marginTop:10}} disabled={!online} onClick={onEnviar}>{online?"📤 Enviar ahora los pendientes":"Sin conexión…"}</button>
+    </div>
+    {drafts.map(d=>{ const p=d.payload||{}; return <div key={d.id} className="item">
+      <div className="top"><div><div className="code">{p.area}</div><div className="ttl">{p.zona||p.turno||"ILD"}</div>
+        <div className="meta">{(p.fotos||[]).length} foto(s) · guardado {fmtDate(d.createdAt)}</div></div>
+        <span style={{background:"#F3E6C6",color:"#7a5a12",fontWeight:700,fontSize:11,padding:"3px 9px",borderRadius:20,whiteSpace:"nowrap"}}>Sin enviar</span></div>
+      {(p.fotos||[]).length>0 && <div className="fgrid" style={{marginTop:6}}>{p.fotos.slice(0,5).map((s,i)=><div key={i} className="fthumb"><img src={s} onClick={()=>setFoto(s)}/><span className="fnum">{i+1}</span></div>)}</div>}
+      <div className="acts"><button className="btn red" onClick={()=>borrar(d)}>Descartar</button></div>
+    </div>; })}
+  </div>;
+}
+
+function ILDForm({user,toast,onSaved,setFoto,onDraft}){
   const areas=ildAreasDe(user);
   const [area,setArea]=useState(""); const [turno,setTurno]=useState("");
   const [checks,setChecks]=useState({}); const [sel,setSel]=useState({}); const [txt,setTxt]=useState({});
@@ -1287,6 +1350,17 @@ function ILDForm({user,toast,onSaved,setFoto}){
     const comp=await Promise.all(srcs.map(s=>comprimirImg(s)));
     setFotos(prev=>[...prev,...comp].slice(0,Math.max(req,1)+4));
   }
+  const [online,setOnline]=useState(navigator.onLine);
+  useEffect(()=>{ const on=()=>setOnline(true),off=()=>setOnline(false);
+    window.addEventListener("online",on); window.addEventListener("offline",off);
+    return ()=>{ window.removeEventListener("online",on); window.removeEventListener("offline",off); }; },[]);
+  function buildPayload(){ return {area, turno: modo==='lista'?"":(turno||AC[area]?.t||""),
+    zona: modo==='lista'?zona:undefined, modo, checks:{...checks}, sel:{...sel}, txt:{...txt}, obs,
+    fotos:[...fotos], usuario:user.nombre, fecha:nowISO(),
+    totalItems: modo==='lista'?1:items.length, completados: modo==='lista'?1:done, clItems:(CL[area]||[])}; }
+  async function saveOffline(msg){ try{ await guardarBorradorILD(buildPayload()); toast(msg);
+      resetCampos(); setArea(""); onDraft&&onDraft(); }
+    catch(e){ toast("No se pudo guardar en la tablet: "+(e.message||"")); } }
   async function enviar(){
     if(!area){toast("Selecciona un área");return;}
     if(modo==='lista'){
@@ -1294,6 +1368,7 @@ function ILDForm({user,toast,onSaved,setFoto}){
       if(fotos.length<3){toast("Adjunta al menos 3 fotos");return;}
       if(fotos.length>5){toast("Máximo 5 fotos");return;}
       if(busy) return; setBusy(true);
+      if(!navigator.onLine){ await saveOffline("Sin señal: el ILD se guardó en esta tablet. Envíalo desde “Sin enviar” cuando haya internet."); setBusy(false); return; }
       try{ const id=gid();
         const fotosData=await subirFotos(fotos,`ILD_${id}`,`ILD${id}`);
         const arr=await Store.read("ILD"); const Codigo=nextCode("ILD",arr);
@@ -1302,7 +1377,7 @@ function ILDForm({user,toast,onSaved,setFoto}){
           notaGerencia:"",totalItems:1,completados:1,clItems:(CL[area]||[]),aprobadorEsperado:APR[area]||"—"};
         await Store.write("ILD",[nuevo,...arr]); Notif.ildSubido(nuevo,user.nombre);
         toast("ILD enviado: "+Codigo+" · "+zona); resetCampos(); setArea(""); onSaved();
-      }catch(e){ toast("No se pudo enviar: "+(e.message||"error")); }
+      }catch(e){ await saveOffline("No hubo conexión al enviar: el ILD quedó guardado en esta tablet para enviarlo luego."); }
       finally{ setBusy(false); }
       return;
     }
@@ -1312,6 +1387,7 @@ function ILDForm({user,toast,onSaved,setFoto}){
     if(done<total && !confirm(`${total-done} ítems sin responder. ¿Enviar igual?`)) return;
     if(fotos.length<req && !confirm(`Solo ${fotos.length}/${req} fotos. ¿Continuar?`)) return;
     if(busy) return; setBusy(true);
+    if(!navigator.onLine){ await saveOffline("Sin señal: el ILD se guardó en esta tablet. Envíalo desde “Sin enviar” cuando haya internet."); setBusy(false); return; }
     try{
       const id=gid();
       const fotosData=await subirFotos(fotos,`ILD_${id}`,`ILD${id}`);
@@ -1323,10 +1399,12 @@ function ILDForm({user,toast,onSaved,setFoto}){
         completados:done,clItems:(CL[area]||[]),aprobadorEsperado:APR[area]||"—"};
       await Store.write("ILD",[nuevo,...arr]); Notif.ildSubido(nuevo,user.nombre);
       toast("ILD enviado: "+Codigo); resetCampos(); setArea(""); onSaved();
-    }catch(e){ toast("No se pudo enviar: "+(e.message||"error")); }
+    }catch(e){ await saveOffline("No hubo conexión al enviar: el ILD quedó guardado en esta tablet para enviarlo luego."); }
     finally{ setBusy(false); }
   }
   return <div>
+    {!online && <div style={{background:"#FFF4E0",border:"1px solid #F3D9A6",borderLeft:"4px solid #FFA11F",borderRadius:10,padding:"9px 12px",marginBottom:10,fontSize:13,color:"#7a5a12"}}>
+      📴 <b>Sin conexión.</b> Puedes llenar el ILD igual: al enviar se guardará en esta tablet y se subirá solo cuando vuelva el internet.</div>}
     <div className="card">
       <Field label="Área" req>
         <select className="inp" value={area} onChange={e=>setArea(e.target.value)}>
@@ -2145,12 +2223,15 @@ function actaCompra(item){
   w.document.write(html); w.document.close(); w.focus();
   setTimeout(function(){ try{ w.print(); }catch(e){} },350);
 }
+const NOTA_PRESUP="La compra se encuentra aprobada, pero está sujeta a disponibilidad de presupuesto.";
+function notaPresupBox(mt=8){ return <div style={{marginTop:mt,background:"#FBEEEF",border:"1px solid #E3C9CC",borderLeft:"4px solid #A52A3A",borderRadius:8,padding:"9px 11px",fontSize:12.5,color:"#7a2530",fontWeight:600}}>⚠️ {NOTA_PRESUP}</div>; }
 function ComprasCard({r,chief,canGG,onAction,dias}){
   return <div className="item">
     <div className="top"><div><div className="code">{r.Codigo}{dias!=null?<span style={{marginLeft:8,fontSize:11,color:dias>=7?"var(--red)":"var(--amber)",fontWeight:700}}>⏳ hace {dias}d</span>:null}</div><div className="ttl">{r.Modelo}</div>
       <div className="meta">{r.Cantidad} {r.Unidad} · {r.Area} · {r.Solicitante}</div></div>
       <Pill estado={r.Estado} overdue={isOverdue(r)}/></div>
     <div className="meta" style={{marginTop:6}}>🗓️ Necesaria: {fmtDate(r.FechaNecesidad)}{r.FechaTentativa?` · 📅 Tentativa: ${fmtDate(r.FechaTentativa)}`:""}</div>
+    {r.Estado==="En compra" && notaPresupBox()}
     <div className="acts">
       <button className="btn ghost" onClick={()=>onAction("ver")}>Ver</button>
       {chief && r.Estado==="Solicitado" && <>
@@ -2174,7 +2255,7 @@ function ComprasModal({modal,user,onClose,apply,toast,setFoto}){
   const [com,setCom]=useState(""); const [fecha,setFecha]=useState(item.FechaTentativa||""); const [cal,setCal]=useState(0);
   const [calT,setCalT]=useState(0); const [calC,setCalC]=useState(0);
   const [acta,setActa]=useState("Recibido conforme");
-  const MSG_PRESU="La compra se encuentra aprobada, pero está sujeta a disponibilidad de presupuesto.";
+  const MSG_PRESU=NOTA_PRESUP;
   async function go(){
     if(t==="aprobar"){ await apply(item.Codigo,{Estado:"En compra",Aprobador:user.nombre,FechaAprob:nowISO(),Comentario:com,FechaTentativa:fecha}); toast(MSG_PRESU); }
     else if(t==="enviarGG"){ await apply(item.Codigo,{Estado:"En Gerencia",EnviadoGG:"Si",Aprobador:user.nombre,FechaAprob:nowISO(),Comentario:com}); Notif.comprasGerencia(item,user.nombre); toast("Enviada a Gerencia"); }
@@ -2204,6 +2285,7 @@ function ComprasModal({modal,user,onClose,apply,toast,setFoto}){
       {(item.Fotos||[]).length>0 && <><h3 style={{margin:"12px 0 6px"}}>📷 Foto</h3>
         <div className="fgrid">{item.Fotos.map((f,i)=><SpImg key={i} foto={f} idx={i+1} onClick={setFoto}/>)}</div></>}
       {["Entregado","Cerrada"].includes(item.Estado) && <button className="btn ocean block" style={{marginTop:12}} onClick={()=>actaCompra(item)}>📄 Exportar Acta de Entrega (PDF)</button>}
+      {item.Estado==="En compra" && notaPresupBox(12)}
     </div> : <div>
       {(t==="aprobar"||t==="reprogramar") && <Field label="Fecha tentativa de entrega" req={t==="reprogramar"} hint="La asigna el Coordinador de Compras. Vacía = no se marca como vencida."><input type="date" className="inp" value={fecha} onChange={e=>setFecha(e.target.value)}/></Field>}
       {t==="recibir" && <><Field label="Resultado de la entrega"><select className="inp" value={acta} onChange={e=>setActa(e.target.value)}><option>Recibido conforme</option><option>Recibido con observaciones</option></select></Field>
@@ -2409,6 +2491,7 @@ function KanModal({proc,tabla,r,canEdit,cols,onClose,onSaved,toast,setFoto}){
       <div className="kv" key={k}><b>{k}</b><span style={{textAlign:"right",maxWidth:"62%"}}>{v}</span></div>)}
     {(r.Fotos||[]).length>0 && <><h3 style={{margin:"12px 0 6px"}}>📷 Adjuntos</h3>
       <div className="fgrid">{r.Fotos.map((f,i)=><SpImg key={i} foto={f} idx={i+1} onClick={setFoto}/>)}</div></>}
+    {isCom && r.Estado==="En compra" && notaPresupBox(12)}
     {["Entregado","Cerrada","Cerrado"].includes(r.Estado) && <button className="btn ocean block" style={{marginTop:10}} onClick={()=>isCom?actaCompra(r):null} disabled={!isCom}>{isCom?"📄 Acta (PDF)":""}</button>}
     {canEdit ? <div className="card" style={{marginTop:12}}>
       <h3>✎ Gestionar</h3>
