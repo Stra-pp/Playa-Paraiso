@@ -639,7 +639,7 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v6.2 · SharePoint Prueba7(Listas) · Notif+Offline",
+  version: "Playa Paraíso · App unificada v6.3 · SharePoint Prueba7(Listas) · Notif+Offline",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -692,11 +692,16 @@ const areaModo = a => AMODO[a] || (a==='Áreas Públicas'?'lista':'normal');
 const equipoDe = u => { const a=new Set(u.areas||[]); return USERS.filter(x=>x.rol==='colaborador' && (x.areas||[]).some(ar=>a.has(ar))).map(x=>x.nombre); };
 
 /* ===== Helpers ===== */
+const TZ_EC="America/Guayaquil";
 const nowISO = () => new Date().toISOString();
-const fmtDate = s => { if(!s) return "—"; const d=new Date(s); if(isNaN(d)) return s;
-  return d.toLocaleDateString("es-EC",{day:"2-digit",month:"short",year:"numeric"}); };
+function hoyEC(){ try{ return new Date().toLocaleDateString("en-CA",{timeZone:TZ_EC}); }catch(e){ return new Date(Date.now()-5*3600000).toISOString().slice(0,10); } }
+const fmtDate = s => { if(!s) return "—"; const str=String(s);
+  if(/^\d{4}-\d{2}-\d{2}/.test(str)){ const p=str.slice(0,10).split("-"); const d=new Date(+p[0],+p[1]-1,+p[2]);
+    if(isNaN(d)) return str; return d.toLocaleDateString("es-EC",{day:"2-digit",month:"short",year:"numeric"}); }
+  const d=new Date(str); if(isNaN(d)) return str;
+  return d.toLocaleDateString("es-EC",{timeZone:TZ_EC,day:"2-digit",month:"short",year:"numeric"}); };
 const fmtDT = s => { if(!s) return "—"; const d=new Date(s); if(isNaN(d)) return s;
-  return d.toLocaleString("es-EC",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}); };
+  return d.toLocaleString("es-EC",{timeZone:TZ_EC,day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}); };
 const yr = () => new Date().getFullYear();
 let _seq = Date.now()%100000; const gid = () => ++_seq;
 const itemText = it => (typeof it==='object'&&it!==null)?it.t:it;
@@ -713,8 +718,12 @@ function comprimirImg(dataUrl,maxPx=900,q=0.75){
 }
 
 const cerrados=["Concluido","Cerrado","Entregado","Cerrada","Rechazada","Rechazado","Baja por presupuesto"];
+const NUEVO_ST=["Solicitado","Nuevo"];
+const bucketEstado=e=>NUEVO_ST.includes(e)?"nuevas":(cerrados.includes(e)?"concluidas":"proceso");
+const fechaBase=r=>r.FechaSolicitud||r.FechaCreacion||r.fecha;
+const diasEnEstado=r=>Math.floor((Date.now()-new Date(fechaBase(r)))/86400000);
 function isOverdue(it){ if(!it.FechaTentativa||cerrados.includes(it.Estado)) return false;
-  return new Date(it.FechaTentativa) < new Date(new Date().toDateString()); }
+  return String(it.FechaTentativa).slice(0,10) < hoyEC(); }
 
 const DEPTS = ["Seguridad","Mantenimiento","Recepción","Ama de Llaves","Alimentos y Bebidas","Enfermería","Administración","Cocina General","Operaciones","Ventas","Experiencia al cliente","Gerencia General"];
 const DEPTS_SIS = ["Seguridad","Mantenimiento","Recepción","Ama de Llaves","Cocina","Servicio","Gerencia General","Experiencia al cliente","Ventas","Operaciones","Administración"];
@@ -861,7 +870,7 @@ async function migrarAListas(){ if(localStorage.getItem("pp_lists_migrated2")) r
   for(const t of LIST_TABLES){ try{ await spEnsureList(t); const cur=await ListStore.read(t);
     if(!cur.length){ let old=[]; try{ old=await GraphStore.read(t); }catch{} if(Array.isArray(old)&&old.length) await ListStore.write(t,old); }
   }catch(e){} } localStorage.setItem("pp_lists_migrated2","1"); }
-const hoyISO=()=>new Date().toISOString().slice(0,10);
+const hoyISO=()=>hoyEC();
 const desdeDias=n=>{ const d=new Date(); d.setDate(d.getDate()-n); return d.toISOString().slice(0,10); };
 const Store = {
   read(t){ if(MODE!=="graph") return Local.read(t); return LIST_TABLES.includes(t)?ListStore.read(t):GraphStore.read(t); },
@@ -1998,42 +2007,67 @@ function ResumenGerencialILD(){
   useEffect(()=>{ let v=true; (async()=>{ setCargando(true);
     try{ const d=mes==null?await Store.readAnio("ILD",anio):await Store.readMes("ILD",anio,mes); if(v)setRegs(d); }
     catch(e){ if(v)setRegs([]); } finally{ if(v)setCargando(false); } })(); return ()=>{v=false;}; },[anio,mes]);
-  const byArea={};
-  regs.forEach(r=>{ const a=r.area||"(sin área)"; const g=(byArea[a]=byArea[a]||{label:a,total:0,aprob:0,obs:0,pend:0});
+  const grupoDe=r=>(AC[r.area]&&AC[r.area].g)||"(otros)";
+  const byG={};
+  regs.forEach(r=>{ const g0=grupoDe(r); const g=(byG[g0]=byG[g0]||{label:g0,total:0,aprob:0,obs:0,pend:0});
     g.total++; if(r.estado==="Aprobado")g.aprob++; else if(r.estado==="Con observaciones")g.obs++; else g.pend++; });
-  const arr=Object.values(byArea).map(g=>({...g, cumpl:g.total?Math.round((g.aprob+g.obs)/g.total*100):0}));
-  const tot=regs.length, tAprob=arr.reduce((s,g)=>s+g.aprob,0), tObs=arr.reduce((s,g)=>s+g.obs,0);
+  const grupos=Object.values(byG).map(g=>({...g,
+    revisados:g.aprob+g.obs, cumpl:g.total?Math.round((g.aprob+g.obs)/g.total*100):0,
+    calidad:g.total?Math.round(g.aprob/g.total*100):0, pObs:g.total?Math.round(g.obs/g.total*100):0 }));
+  const tot=regs.length, tAprob=grupos.reduce((s,g)=>s+g.aprob,0), tObs=grupos.reduce((s,g)=>s+g.obs,0), tPend=grupos.reduce((s,g)=>s+g.pend,0);
   const cumplGlobal=tot?Math.round((tAprob+tObs)/tot*100):0;
-  const masCumplen=[...arr].sort((a,b)=>b.cumpl-a.cumpl||b.total-a.total).slice(0,10).map(g=>({label:g.label,value:g.cumpl}));
-  const masObs=[...arr].filter(g=>g.obs>0).sort((a,b)=>b.obs-a.obs).slice(0,10).map(g=>({label:g.label,value:g.obs}));
-  const masPend=[...arr].filter(g=>g.pend>0).sort((a,b)=>b.pend-a.pend).slice(0,10).map(g=>({label:g.label,value:g.pend}));
-  const tabla=[...arr].sort((a,b)=>b.total-a.total);
+  const calidadGlobal=tot?Math.round(tAprob/tot*100):0;
+  const pObsGlobal=tot?Math.round(tObs/tot*100):0;
+  const diasActivos=new Set(regs.map(r=>String(r.fecha).slice(0,10))).size;
+  const cumplBar=[...grupos].sort((a,b)=>b.cumpl-a.cumpl||b.total-a.total).map(g=>({label:g.label,value:g.cumpl}));
+  const obsBar=[...grupos].filter(g=>g.obs>0).sort((a,b)=>b.obs-a.obs).slice(0,10).map(g=>({label:g.label,value:g.obs}));
+  const pendBar=[...grupos].filter(g=>g.pend>0).sort((a,b)=>b.pend-a.pend).slice(0,10).map(g=>({label:g.label,value:g.pend}));
+  const tabla=[...grupos].sort((a,b)=>a.cumpl-b.cumpl||b.total-a.total); // peor primero (los que requieren atención arriba)
+  const mejor=[...grupos].filter(g=>g.total>=3).sort((a,b)=>b.cumpl-a.cumpl)[0];
+  const peor=[...grupos].filter(g=>g.total>=3).sort((a,b)=>a.cumpl-b.cumpl)[0];
+  const masObs=[...grupos].sort((a,b)=>b.obs-a.obs)[0];
+  const sem=c=>c>=90?"🟢":c>=70?"🟡":"🔴";
+  const colCumpl=cumplGlobal>=90?cssVar("--green"):cumplGlobal>=70?cssVar("--amber"):cssVar("--coral");
+  const per=mes==null?`año ${anio}`:`${MESES[mes]} ${anio}`;
   return <div>
     <h2 style={{margin:"4px 0 2px"}}>Resumen Gerencial de ILD</h2>
-    <p className="sub">Cumplimiento y observaciones por área.</p>
+    <p className="sub">Resultado de la gestión de inspecciones · {per}.</p>
     <div className="seg" style={{flexWrap:"wrap"}}>{anios.map(a=><button key={a} className={anio===a?"on":""} onClick={()=>setAnio(a)}>{a}</button>)}</div>
     <div className="seg" style={{flexWrap:"wrap"}}><button className={mes==null?"on":""} onClick={()=>setMes(null)}>Año</button>
       {MESES.map((m,i)=><button key={m} className={mes===i?"on":""} onClick={()=>setMes(i)}>{m}</button>)}</div>
-    {cargando ? <div className="hint" style={{padding:"20px 0"}}>Cargando…</div> : <>
+    {cargando ? <div className="hint" style={{padding:"20px 0"}}>Cargando…</div> : tot===0 ? <div className="empty"><div className="e">📊</div>Sin ILD registrados en {per}.</div> : <>
       <div className="kpis">
-        <KpiBox label="ILD del período" value={tot} color={cssVar("--ocean")}/>
-        <KpiBox label="Aprobados" value={tAprob} color={cssVar("--green")}/>
-        <KpiBox label="Con observaciones" value={tObs} color={cssVar("--amber")}/>
-        <KpiBox label="% Cumplimiento" value={cumplGlobal+"%"} color={cumplGlobal>=80?cssVar("--green"):cssVar("--coral")}/>
+        <KpiBox label="ILD registrados" value={tot} color={cssVar("--ocean")}/>
+        <KpiBox label="% Cumplimiento" value={cumplGlobal+"%"} color={colCumpl}/>
+        <KpiBox label="Aprobados sin observación" value={calidadGlobal+"%"} color={cssVar("--green")}/>
+        <KpiBox label="% Con observaciones" value={pObsGlobal+"%"} color={cssVar("--amber")}/>
+        <KpiBox label="Pendientes por revisar" value={tPend} color={tPend?cssVar("--coral"):cssVar("--green")}/>
+        <KpiBox label="Días con inspección" value={diasActivos} color={cssVar("--ocean")}/>
       </div>
-      <div className="card"><h3>Areas que mas cumplen (%)</h3><BarsH data={masCumplen} color="var(--green)"/></div>
-      <div className="card"><h3>Areas con mas observaciones</h3><BarsH data={masObs} color="var(--amber)"/></div>
-      <div className="card"><h3>Areas con mas pendientes</h3><BarsH data={masPend} color="var(--coral)"/></div>
-      <div className="card"><h3>Detalle por area</h3>
+      <div className="card" style={{background:"#f4f9f9",borderLeft:"4px solid var(--ocean)"}}>
+        <h3 style={{marginTop:0}}>🧭 Lectura gerencial</h3>
+        <div style={{fontSize:13.5,lineHeight:1.6}}>
+          Se registraron <b>{tot}</b> ILD en {per}, con un cumplimiento global del <b>{cumplGlobal}%</b> ({sem(cumplGlobal)}). De cada 100 inspecciones, <b>{calidadGlobal}</b> se aprobaron sin observaciones y <b>{pObsGlobal}</b> presentaron observaciones.
+          {mejor && <> El grupo más consistente es <b>{mejor.label}</b> ({mejor.cumpl}%).</>}
+          {peor && peor.label!==(mejor&&mejor.label) && <> El que requiere más atención es <b>{peor.label}</b> ({peor.cumpl}%).</>}
+          {masObs && masObs.obs>0 && <> Las observaciones se concentran en <b>{masObs.label}</b> ({masObs.obs}).</>}
+          {tPend>0 ? <> Hay <b>{tPend}</b> ILD <b>pendientes de revisión por los jefes</b>.</> : <> No hay ILD pendientes de revisión. ✅</>}
+        </div>
+      </div>
+      <div className="card"><h3>Cumplimiento por grupo (%)</h3><BarsH data={cumplBar} color="var(--green)"/></div>
+      <div className="card"><h3>Observaciones por grupo</h3><BarsH data={obsBar} color="var(--amber)"/></div>
+      {pendBar.length>0 && <div className="card"><h3>Pendientes de revisión por grupo</h3><BarsH data={pendBar} color="var(--coral)"/></div>}
+      <div className="card"><h3>Semáforo por grupo</h3>
+        <div className="hint" style={{marginBottom:8}}>Ordenado del que más atención requiere al que mejor cumple. 🟢 ≥90% · 🟡 70–89% · 🔴 &lt;70%.</div>
         <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
           <thead><tr style={{borderBottom:"2px solid var(--ocean)"}}>
-            {["Area","Total","Aprob.","Obs.","Pend.","Cumpl."].map(h=><th key={h} style={{textAlign:h==="Area"?"left":"center",padding:"6px 4px"}}>{h}</th>)}</tr></thead>
+            {["","Grupo","ILD","Aprob.","Obs.","Pend.","Cumpl."].map(h=><th key={h} style={{textAlign:h==="Grupo"?"left":"center",padding:"6px 4px"}}>{h}</th>)}</tr></thead>
           <tbody>{tabla.map(g=><tr key={g.label} style={{borderBottom:"1px solid #f0ece3"}}>
+            <td style={{textAlign:"center"}}>{sem(g.cumpl)}</td>
             <td style={{padding:"6px 4px"}}>{g.label}</td>
             <td style={{textAlign:"center"}}>{g.total}</td><td style={{textAlign:"center",fontWeight:700}}>{g.aprob}</td>
             <td style={{textAlign:"center",color:"#b8860b"}}>{g.obs}</td><td style={{textAlign:"center",color:"var(--coral)"}}>{g.pend}</td>
-            <td style={{textAlign:"center",fontWeight:800}}>{g.cumpl}%</td></tr>)}
-            {!tabla.length && <tr><td colSpan={6} className="hint" style={{padding:"14px 0",textAlign:"center"}}>Sin datos en el periodo</td></tr>}</tbody>
+            <td style={{textAlign:"center",fontWeight:800}}>{g.cumpl}%</td></tr>)}</tbody>
         </table></div></div>
     </>}
   </div>;
@@ -2148,11 +2182,13 @@ function Compras({user,toast,setFoto}){
   const esChiefCompras=puede(user,'compras.gestion');
   const gestionRows=esChiefCompras?rows:rows.filter(r=>r.Estado==="En Gerencia");
   const ABIERTAS_C=["Solicitado","En Gerencia","En compra","Listo para entregar"];
-  const diasDe=r=>Math.floor((Date.now()-new Date(r.FechaSolicitud))/86400000);
-  const porFecha=(a,b)=>new Date(a.FechaSolicitud)-new Date(b.FechaSolicitud);
+  const diasDe=r=>diasEnEstado(r);
+  const porFecha=(a,b)=>new Date(fechaBase(a))-new Date(fechaBase(b));
   let gView=gestionRows;
-  if(gFiltro==="pendientes") gView=gestionRows.filter(r=>ABIERTAS_C.includes(r.Estado)).sort(porFecha);
-  else if(gFiltro==="antiguas") gView=gestionRows.filter(r=>ABIERTAS_C.includes(r.Estado)&&diasDe(r)>=7).sort(porFecha);
+  if(gFiltro==="nuevas") gView=gestionRows.filter(r=>bucketEstado(r.Estado)==="nuevas").sort(porFecha);
+  else if(gFiltro==="proceso") gView=gestionRows.filter(r=>bucketEstado(r.Estado)==="proceso").sort(porFecha);
+  else if(gFiltro==="concluidas") gView=gestionRows.filter(r=>bucketEstado(r.Estado)==="concluidas");
+  else if(gFiltro==="v15") gView=gestionRows.filter(r=>bucketEstado(r.Estado)==="nuevas" && diasEnEstado(r)>=15).sort(porFecha);
   return <div>
     <h1 className="h1">Compras</h1><p className="sub">Requerimiento de compra no operacional.</p>
     <div className="seg">
@@ -2181,11 +2217,13 @@ function Compras({user,toast,setFoto}){
     {tab==="gestion" && <>
       <div className="seg" style={{flexWrap:"wrap"}}>
         <button className={gFiltro==="todas"?"on":""} onClick={()=>setGFiltro("todas")}>Todas</button>
-        <button className={gFiltro==="pendientes"?"on":""} onClick={()=>setGFiltro("pendientes")}>⏳ Pendientes</button>
-        <button className={gFiltro==="antiguas"?"on":""} onClick={()=>setGFiltro("antiguas")}>📅 Antigüedad (+7 días)</button>
+        <button className={gFiltro==="nuevas"?"on":""} onClick={()=>setGFiltro("nuevas")}>🆕 Nuevas</button>
+        <button className={gFiltro==="proceso"?"on":""} onClick={()=>setGFiltro("proceso")}>🔄 En proceso</button>
+        <button className={gFiltro==="concluidas"?"on":""} onClick={()=>setGFiltro("concluidas")}>✅ Concluidas</button>
+        <button className={gFiltro==="v15"?"on":""} onClick={()=>setGFiltro("v15")}>⏰ +15 días en nuevo</button>
       </div>
-      <div className="kcount">{gView.length} solicitud(es){gFiltro!=="todas"?" · ordenadas de la más antigua a la más reciente":""}</div>
-      <Listado items={gView} empty={esChiefCompras?"No hay solicitudes":"No hay solicitudes pendientes de Gerencia"}
+      <div className="kcount">{gView.length} solicitud(es){["nuevas","proceso","v15"].includes(gFiltro)?" · de la más antigua a la más reciente":""}</div>
+      <Listado items={gView} empty={esChiefCompras?"No hay solicitudes en este filtro":"No hay solicitudes pendientes de Gerencia"}
         render={r=><ComprasCard r={r} chief={chief} canGG={canGG} dias={ABIERTAS_C.includes(r.Estado)?diasDe(r):null} onAction={(t)=>setModal({t,item:r})}/>}/></>}
     {tab==="tablero" && <Tablero tipo="Compras"/>}
     {modal && <ComprasModal modal={modal} user={user} onClose={()=>setModal(null)} apply={apply} toast={toast} setFoto={setFoto}/>}
@@ -2304,7 +2342,7 @@ function Tickets({tipo,user,toast,setFoto}){
   const chief=gestionaModulo(user,tipo.toLowerCase());
   const [tab,setTab]=useState("nuevo"); const [rows,setRows]=useState([]); const [modal,setModal]=useState(null);
   const load=async()=>setRows(await Store.read(tipo)); useEffect(()=>{load();},[]);
-  const hoy=new Date().toISOString().slice(0,10);
+  const hoy=hoyEC();
   const vacioSis={Departamento:DEPTS_SIS[0],Urgencia:URGENCIA_SIS[1],Titulo:"",Descripcion:""};
   const vacioMto={Departamento:DEPTS[0],FechaSolicitud:hoy,TipoSolicitud:"Normal",Descripcion:""};
   const [f,setF]=useState(isSis?vacioSis:vacioMto); const [fotos,setFotos]=useState([]); const [busy,setBusy]=useState(false);
@@ -2331,10 +2369,15 @@ function Tickets({tipo,user,toast,setFoto}){
   const delEquipo=rows.filter(r=>equipo.includes(r.Solicitante));
   const asignadas=rows.filter(r=>r.Asignado===user.nombre && !isSis && !["Cerrado","Rechazado"].includes(r.Estado));
   const verTareas=!isSis && ildAreasDe(user).includes('Mantenimiento') && user.rol==='colaborador';
-  const [soloHoy,setSoloHoy]=useState(false); const [gHoy,setGHoy]=useState(false);
-  const hoyStr=new Date().toISOString().slice(0,10);
+  const [soloHoy,setSoloHoy]=useState(false); const [gHoy,setGHoy]=useState(false); const [gFiltro,setGFiltro]=useState("todas");
+  const hoyStr=hoyEC();
   const tareasMostrar=soloHoy?asignadas.filter(r=>(r.FechaTentativa||"").slice(0,10)===hoyStr):asignadas;
-  const gestionRows=gHoy?rows.filter(r=>(r.FechaTentativa||"").slice(0,10)===hoyStr):rows;
+  let gestionRows=gHoy?rows.filter(r=>(r.FechaTentativa||"").slice(0,10)===hoyStr):rows;
+  let gView=gestionRows;
+  if(gFiltro==="nuevas") gView=gView.filter(r=>bucketEstado(r.Estado)==="nuevas").sort((a,b)=>new Date(fechaBase(a))-new Date(fechaBase(b)));
+  else if(gFiltro==="proceso") gView=gView.filter(r=>bucketEstado(r.Estado)==="proceso");
+  else if(gFiltro==="concluidas") gView=gView.filter(r=>bucketEstado(r.Estado)==="concluidas");
+  else if(gFiltro==="v15") gView=gView.filter(r=>bucketEstado(r.Estado)==="nuevas" && diasEnEstado(r)>=15).sort((a,b)=>new Date(fechaBase(a))-new Date(fechaBase(b)));
   return <div>
     <h1 className="h1">{isSis?"Soporte de Sistemas":"Mantenimiento"}</h1>
     <p className="sub">{isSis?"Requerimiento de TI.":"Requerimiento de mantenimiento."}</p>
@@ -2370,17 +2413,25 @@ function Tickets({tipo,user,toast,setFoto}){
       <Listado items={tareasMostrar} empty={soloHoy?"No tienes tareas para hoy":"No tienes tareas asignadas"}
         render={r=><TareaCard r={r} onAction={(t)=>setModal({t,item:r})}/>}/></div>}
     {tab==="gestion" && <div>
-      <div className="row" style={{margin:"0 0 12px",gap:8,flexWrap:"wrap"}}>
-        <button className={"btn "+(gHoy?"ghost":"primary")} onClick={()=>setGHoy(false)}>Todas ({rows.length})</button>
-        <button className={"btn "+(gHoy?"primary":"ghost")} onClick={()=>setGHoy(true)}>📅 Hoy ({rows.filter(r=>(r.FechaTentativa||"").slice(0,10)===hoyStr).length})</button>
-        <button className="btn ocean" onClick={()=>{ if(!exportXLSX(gestionRows,tipo,`${tipo}_${gHoy?"Hoy_":""}PlayaParaiso`)) toast("No hay datos para exportar"); else toast("Exportando…"); }}>⬇️ Exportar</button></div>
-      <Listado items={gestionRows} empty="No hay tickets" render={r=><TicketCard r={r} isSis={isSis} chief={chief} equipo={equipo} onAction={(t)=>setModal({t,item:r})}/>}/></div>}
+      <div className="seg" style={{flexWrap:"wrap"}}>
+        <button className={gFiltro==="todas"?"on":""} onClick={()=>setGFiltro("todas")}>Todas</button>
+        <button className={gFiltro==="nuevas"?"on":""} onClick={()=>setGFiltro("nuevas")}>🆕 Nuevas</button>
+        <button className={gFiltro==="proceso"?"on":""} onClick={()=>setGFiltro("proceso")}>🔄 En proceso</button>
+        <button className={gFiltro==="concluidas"?"on":""} onClick={()=>setGFiltro("concluidas")}>✅ Concluidas / cerradas</button>
+        <button className={gFiltro==="v15"?"on":""} onClick={()=>setGFiltro("v15")}>⏰ +15 días en nuevo</button>
+      </div>
+      <div className="row" style={{margin:"8px 0 12px",gap:8,flexWrap:"wrap"}}>
+        <button className={"btn "+(gHoy?"ghost":"primary")} onClick={()=>setGHoy(false)}>Todas fechas</button>
+        <button className={"btn "+(gHoy?"primary":"ghost")} onClick={()=>setGHoy(true)}>📅 Vencen hoy ({rows.filter(r=>(r.FechaTentativa||"").slice(0,10)===hoyStr).length})</button>
+        <button className="btn ocean" onClick={()=>{ if(!exportXLSX(gView,tipo,`${tipo}_PlayaParaiso`)) toast("No hay datos para exportar"); else toast("Exportando…"); }}>⬇️ Exportar</button></div>
+      <div className="kcount">{gView.length} ticket(s)</div>
+      <Listado items={gView} empty="No hay tickets en este filtro" render={r=><TicketCard r={r} isSis={isSis} chief={chief} equipo={equipo} onAction={(t)=>setModal({t,item:r})}/>}/></div>}
     {tab==="tablero" && <Tablero tipo={tipo}/>}
     {modal && <TicketModal tipo={tipo} isSis={isSis} modal={modal} user={user} equipo={equipo} onClose={()=>setModal(null)} apply={apply} toast={toast} setFoto={setFoto}/>}
   </div>;
 }
 function TareaCard({r,onAction}){
-  const venc = r.FechaTentativa && (r.FechaTentativa||"").slice(0,10) < new Date().toISOString().slice(0,10) && !["Concluido","Cerrado"].includes(r.Estado);
+  const venc = r.FechaTentativa && (r.FechaTentativa||"").slice(0,10) < hoyEC() && !["Concluido","Cerrado"].includes(r.Estado);
   return <div className="item">
     <div className="top"><div><div className="code">{r.Codigo}</div><div className="ttl">{r.Descripcion}</div>
       <div className="meta">{r.Departamento} · {r.TipoSolicitud} · solicitó: {r.Solicitante}</div></div>
@@ -2416,7 +2467,7 @@ function TicketModal({tipo,isSis,modal,user,equipo,onClose,apply,toast,setFoto})
   const [com,setCom]=useState(""); const [fecha,setFecha]=useState(item.FechaTentativa||""); const [cal,setCal]=useState(0);
   const [tecnico,setTecnico]=useState(item.Asignado||opciones[0]||""); const [fotos,setFotos]=useState([]); const [busy,setBusy]=useState(false);
   function cumplimiento(){ if(!item.FechaTentativa) return "Concluida"; const lim=(item.FechaTentativa||"").slice(0,10);
-    return (new Date().toISOString().slice(0,10) <= lim) ? "Concluida a tiempo" : "Concluida con atraso"; }
+    return (hoyEC() <= lim) ? "Concluida a tiempo" : "Concluida con atraso"; }
   async function go(){
     if(t==="tomar"){ await apply(item.Codigo,{Estado:fecha?"En proceso":"Sin fecha asignada",Asignado:user.nombre,FechaTentativa:fecha}); toast(fecha?"En proceso":"Guardado sin fecha"); }
     else if(t==="asignar"){ if(!tecnico){toast("Selecciona un técnico");return;} if(!fecha){toast("Indica la fecha límite de la tarea");return;}
@@ -2503,8 +2554,10 @@ function KanModal({proc,tabla,r,canEdit,cols,onClose,onSaved,toast,setFoto}){
   </Modal>;
 }
 function Kanban({user,toast,setFoto}){
-  const mods=["compras","sistemas","mantenimiento"];
-  const [proc,setProc]=useState(mods[0]);
+  const allMods=["compras","sistemas","mantenimiento"];
+  const verTodo=esDev(user)||user.rol==='gerencia';
+  const mods=verTodo?allMods:allMods.filter(m=>gestionaModulo(user,m));
+  const [proc,setProc]=useState(mods[0]||"compras");
   const tabla={compras:"Compras",sistemas:"Sistemas",mantenimiento:"Mantenimiento"}[proc];
   const [rows,setRows]=useState([]); const [over,setOver]=useState(null); const drag=useRef(null);
   const [fArea,setFArea]=useState(""); const [fSolic,setFSolic]=useState(""); const [det,setDet]=useState(null);
@@ -2526,7 +2579,8 @@ function Kanban({user,toast,setFoto}){
     await Store.write(tabla,arr.map(x=>x.Codigo===code?{...x,Estado:estado}:x)); load(); toast("Movido a "+estado); }
   return <div>
     <h1 className="h1">Tablero Kanban</h1><p className="sub">Toca una tarjeta para abrirla. Podrás editar solo las que te corresponden.</p>
-    <div className="seg">{mods.map(m=><button key={m} className={proc===m?"on":""} onClick={()=>setProc(m)}>{({compras:"Compras",sistemas:"Sistemas",mantenimiento:"Mantenimiento"})[m]}</button>)}</div>
+    {!mods.length ? <div className="empty"><div className="e">🔒</div>No tienes un tablero asignado.</div> : <>
+    {mods.length>1 && <div className="seg">{mods.map(m=><button key={m} className={proc===m?"on":""} onClick={()=>setProc(m)}>{({compras:"Compras",sistemas:"Sistemas",mantenimiento:"Mantenimiento"})[m]}</button>)}</div>}
     <div className="kfilters">
       <select value={fArea} onChange={e=>setFArea(e.target.value)}><option value="">Todas las áreas</option>{areas.map(a=><option key={a}>{a}</option>)}</select>
       <select value={fSolic} onChange={e=>setFSolic(e.target.value)}><option value="">Todos los solicitantes</option>{solics.map(s=><option key={s}>{s}</option>)}</select>
@@ -2552,6 +2606,7 @@ function Kanban({user,toast,setFoto}){
       </div>;})}</div>
     {det && <KanModal proc={proc} tabla={tabla} r={det} canEdit={canEditCard(det)} cols={cols}
       onClose={()=>setDet(null)} onSaved={load} toast={toast} setFoto={setFoto}/>}
+    </>}
   </div>;
 }
 
@@ -2602,6 +2657,30 @@ function NotifConfig({toast}){
     {Linea({k:"mailMantenimiento",label:"Mantenimiento (nuevas solicitudes)"})}
     {Linea({k:"mailSistemas",label:"Sistemas (nuevas solicitudes)"})}
     <button className="btn primary block" style={{marginTop:6}} onClick={guardar}>Guardar notificaciones</button>
+  </div>;
+}
+function RenombrarPersona({toast}){
+  const [old,setOld]=useState("Jorge Salazar"); const [nv,setNv]=useState("Mantenimiento"); const [busy,setBusy]=useState(false);
+  const FIELDS={ILD:["usuario","aprobador","aprobadorEsperado"],Compras:["Solicitante","Aprobador","AprobadorGG","Receptor"],Sistemas:["Solicitante","Asignado"],Mantenimiento:["Solicitante","Asignado"]};
+  async function aplicar(){ const o=old.trim(), n=nv.trim(); if(!o||!n){toast("Completa ambos nombres");return;}
+    if(!confirm(`Renombrar "${o}" → "${n}" en el usuario y en TODOS los registros (solicitudes, aprobaciones, asignaciones)? Es permanente.`))return;
+    setBusy(true); let cambios=0;
+    try{
+      let uHit=false; USERS.forEach(u=>{ if(u.nombre===o){ u.nombre=n; uHit=true; } });
+      if(uHit){ try{applyGestiona();}catch(e){} await cfgSave(); }
+      for(const tabla of Object.keys(FIELDS)){ const fields=FIELDS[tabla];
+        let arr; try{ arr=await Store.read(tabla); }catch(e){ continue; }
+        let touched=false;
+        const upd=arr.map(r=>{ let rr=r, ch=false; fields.forEach(f=>{ if(rr[f]===o){ if(!ch)rr={...r}; rr[f]=n; ch=true; } }); if(ch){touched=true;cambios++;} return ch?rr:r; });
+        if(touched) await Store.write(tabla,upd);
+      }
+      toast(`Listo: "${o}" → "${n}". ${cambios} registro(s) actualizados${uHit?" y el usuario":""}.`);
+    }catch(e){ toast("No se pudo: "+(e.message||"")); } finally{ setBusy(false); } }
+  return <div className="card"><h3>👤 Renombrar persona (global)</h3>
+    <div className="hint">Cambia el nombre en el usuario y en todos los registros: solicitante, aprobador, asignado y aprobador esperado, en ILD, Compras, Sistemas y Mantenimiento.</div>
+    <Field label="Nombre actual"><input className="inp" value={old} onChange={e=>setOld(e.target.value)}/></Field>
+    <Field label="Nuevo nombre"><input className="inp" value={nv} onChange={e=>setNv(e.target.value)}/></Field>
+    <button className="btn primary block" disabled={busy} onClick={aplicar}>{busy?"Aplicando…":"Renombrar en todo el sistema"}</button>
   </div>;
 }
 function ReasignarResp({toast}){
@@ -2727,6 +2806,7 @@ function Admin({user,toast}){
       <button className="btn ocean block" style={{marginTop:10}} onClick={cargarHistorico}>📥 Cargar histórico de ILD</button></div>
     <NotifConfig toast={toast}/>
     <DeleteRecords toast={toast}/>
+    <RenombrarPersona toast={toast}/>
     <ReasignarResp toast={toast}/>
     <div className="card"><h3>👥 Usuarios y aprobadores</h3>
       <div className="hint">La gestión de colaboradores, áreas asignadas, PINs y aprobadores se hace en <b>ILD → Configurar</b> (rol Desarrollador). Personalización de checklists en <b>ILD → Checklist</b>.</div></div>
