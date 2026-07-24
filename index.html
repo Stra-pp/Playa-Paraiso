@@ -198,6 +198,43 @@ textarea.inp{min-height:88px;resize:vertical}
 .lback{margin-top:16px;color:var(--ocean-d);font-weight:700;font-size:14px;background:none}
 .lerr{color:var(--red);font-weight:600;font-size:13px;min-height:18px;margin-top:8px}
 .lfoot{position:relative;z-index:2;color:rgba(255,255,255,.8);font-size:11px;margin-top:18px}
+
+/* ===== Pulido visual (Fase 1) ===== */
+svg{display:inline-block;vertical-align:middle}
+.h1{letter-spacing:-.3px}
+.tile{transition:transform .12s ease, box-shadow .12s ease, border-color .12s ease}
+.tile .ico{transition:transform .12s ease}
+.card{transition:box-shadow .14s ease}
+.item{transition:box-shadow .12s ease, transform .08s ease}
+.iconbtn{transition:background .12s ease, transform .06s ease}
+.btn{transition:filter .12s ease, background .12s ease, transform .06s ease}
+.btn:active{transform:translateY(1px)}
+@media(hover:hover){
+  .tile:hover{transform:translateY(-2px);box-shadow:0 12px 30px rgba(16,40,42,.15);border-color:#d8d2c5}
+  .tile:hover .ico{transform:scale(1.06)}
+  .item:hover{box-shadow:0 8px 22px rgba(16,40,42,.11)}
+  .btn.primary:hover,.btn.ocean:hover,.btn.green:hover,.btn.amber:hover,.btn.red:hover{filter:brightness(1.05)}
+  .btn.ghost:hover,.backbtn:hover{background:#faf8f3;border-color:#d8d2c5}
+  .iconbtn:hover{background:rgba(255,255,255,.24)}
+  .lbig:hover{border-color:var(--ocean);box-shadow:0 6px 18px rgba(13,110,117,.10)}
+  .seg button:not(.on):hover{color:var(--ocean-d)}
+}
+
+/* ===== Navegación inferior (Fase 2) ===== */
+.content{padding-bottom:86px}
+.bnav{position:fixed;left:0;right:0;bottom:0;margin:0 auto;max-width:920px;z-index:40;
+  display:flex;gap:2px;background:rgba(255,255,255,.97);border-top:1px solid var(--line);
+  padding:6px 6px max(6px,env(safe-area-inset-bottom));box-shadow:0 -4px 18px rgba(16,40,42,.07)}
+@supports((-webkit-backdrop-filter:blur(8px)) or (backdrop-filter:blur(8px))){
+  .bnav{background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}}
+.bnav button{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:3px;
+  padding:7px 2px;border-radius:12px;color:var(--muted);font-weight:700;font-size:10.5px;line-height:1;transition:color .12s,background .12s}
+.bnav button .bic{position:relative;display:grid;place-items:center;height:22px}
+.bnav button .bl{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bnav button.on{color:var(--ocean-d);background:var(--ocean-l)}
+.bnav button:active{transform:scale(.93)}
+.bbadge{position:absolute;top:-3px;right:-6px;width:8px;height:8px;border-radius:50%;background:var(--coral);border:1.5px solid #fff}
+@media(hover:hover){.bnav button:not(.on):hover{color:var(--ocean-d);background:#f3efe6}}
 </style>
 </head>
 <body>
@@ -639,7 +676,8 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v6.4 · SharePoint Prueba7(Listas) · Notif+Offline",
+  version: "Playa Paraíso · App unificada v6.6 · UI 5.9 (pulido + nav inferior) · SharePoint Prueba7(Listas) · Notif+Offline",
+  versionShort: "Playa Paraíso v6.6",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -901,6 +939,22 @@ async function addNotif(para,texto,ildId,codigo){
     await Store.write("Notif",arr); }catch(e){}
 }
 
+async function subirCotiz(dataUrl,carpetaId,codigo){
+  const isPdf=/^data:application\/pdf/i.test(dataUrl||"");
+  const nombre=`${codigo}_cotizacion.${isPdf?"pdf":"jpg"}`; const tipo=isPdf?"pdf":"img";
+  if(MODE!=="graph") return {tipo,nombre,data:dataUrl};
+  try{ await GraphStore.ensureCarpeta(carpetaId); }catch(e){}
+  try{ const r=await GraphStore.putFoto(dataUrl,nombre,carpetaId); return {tipo,nombre,path:r.path}; }
+  catch(e){ return {tipo,nombre,error:true}; }
+}
+async function abrirCotiz(cot){ if(!cot) return;
+  try{ let url=cot.data||"";
+    if(!url && cot.path && MODE==="graph"){ const buf=await gfetch(`/drives/${APP.ms.driveId}/root:/${cot.path}:/content`,"GET",null,true);
+      url=URL.createObjectURL(new Blob([buf],{type:cot.tipo==="pdf"?"application/pdf":"image/jpeg"})); }
+    if(url) window.open(url,"_blank"); else alert("La cotización no está disponible.");
+  }catch(e){ alert("No se pudo abrir la cotización."); }
+}
+
 let msErr="";
 const MS_SCOPES=["https://graph.microsoft.com/Files.ReadWrite.All","https://graph.microsoft.com/Sites.ReadWrite.All","https://graph.microsoft.com/Mail.Send","https://graph.microsoft.com/User.Read"];
 const MAIL_SCOPE=["https://graph.microsoft.com/Mail.Send"];
@@ -1134,7 +1188,7 @@ function Modal({title,onClose,children}){
     <div className="modal" onClick={e=>e.stopPropagation()}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
         <h3 style={{margin:0}}>{title}</h3>
-        <button className="iconbtn" style={{background:"#eee",color:"#333"}} onClick={onClose}>✕</button>
+        <button className="iconbtn" style={{background:"#eee",color:"#333"}} onClick={onClose}><Icon name="x" size={15}/></button>
       </div>{children}</div></div>;
 }
 function Stars({value,onChange}){
@@ -1143,7 +1197,7 @@ function Stars({value,onChange}){
 }
 function FotoModal({src,onClose}){
   if(!src) return null;
-  return <div className="fotomodal" onClick={onClose}><button className="x">✕</button><img src={src}/></div>;
+  return <div className="fotomodal" onClick={onClose}><button className="x"><Icon name="x" size={15}/></button><img src={src}/></div>;
 }
 
 function PhotoField({fotos,setFotos,multiple=true,label,req,hint,setFoto}){
@@ -1154,13 +1208,56 @@ function PhotoField({fotos,setFotos,multiple=true,label,req,hint,setFoto}){
     setFotos(multiple?[...fotos,...comp]:comp.slice(0,1)); }
   return <Field label={label} req={req} hint={hint}>
     <input ref={ref} type="file" accept="image/*" multiple={multiple} style={{display:"none"}} onChange={onFiles}/>
-    <button className="btn ghost block" onClick={()=>ref.current.click()}>📷 {fotos.length?`${fotos.length} foto(s) — agregar más`:"Subir foto"}</button>
+    <button className="btn ghost block" onClick={()=>ref.current.click()}><Icon name="camera" size={16} style={{marginRight:6}}/>{fotos.length?`${fotos.length} foto(s) — agregar más`:"Subir foto"}</button>
     <div className="fgrid">{fotos.map((s,i)=><div key={i} className="fthumb"><img src={s} onClick={()=>setFoto&&setFoto(s)}/>
-      <button className="fdel" onClick={()=>setFotos(fotos.filter((_,j)=>j!==i))}>✕</button><span className="fnum">{i+1}</span></div>)}</div>
+      <button className="fdel" onClick={()=>setFotos(fotos.filter((_,j)=>j!==i))}><Icon name="x" size={15}/></button><span className="fnum">{i+1}</span></div>)}</div>
   </Field>;
 }
 
 /* ===== LOGIN (rediseñado) ===== */
+const ICONS={
+  clipboard:'<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M9 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-3"/>',
+  cart:'<circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>',
+  monitor:'<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>',
+  wrench:'<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+  kanban:'<rect x="3" y="4" width="4" height="16" rx="1"/><rect x="10" y="4" width="4" height="10" rx="1"/><rect x="17" y="4" width="4" height="13" rx="1"/>',
+  gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+  bell:'<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
+  logout:'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/>',
+  lock:'<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  user:'<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  chevronLeft:'<path d="M15 18l-6-6 6-6"/>',
+  inbox:'<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+  home:'<path d="M3 9.5 12 3l9 6.5"/><path d="M5 10v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V10"/>',
+  camera:'<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>',
+  sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  moon:'<path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/>',
+  calendar:'<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
+  download:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5M12 15V3"/>',
+  filetext:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6M9 9h1"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  save:'<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/>',
+  trash:'<path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6M14 11v6"/>',
+  edit:'<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+  chat:'<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8z"/>',
+  link:'<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  chart:'<path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="5"/><rect x="12" y="8" width="3" height="9"/><rect x="17" y="5" width="3" height="12"/>',
+  trendup:'<path d="M3 17l6-6 4 4 8-8"/><path d="M17 7h4v4"/>',
+  clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  refresh:'<path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
+  building:'<rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4M9 6h.01M13 6h.01M9 10h.01M13 10h.01M9 14h.01M13 14h.01"/>',
+  folder:'<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
+  play:'<path d="M6 4l14 8-14 8V4z"/>',
+  x:'<path d="M18 6L6 18M6 6l12 12"/>',
+  chevronDown:'<path d="M6 9l6 6 6-6"/>',
+  chevronUp:'<path d="M18 15l-6-6-6 6"/>',
+  alert:'<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/>',
+  radioOn:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/>',
+  radioOff:'<circle cx="12" cy="12" r="9"/>'
+};
+function Icon({name,size=22,style,cls}){ const p=ICONS[name]; if(!p) return null;
+  return <svg className={cls} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style} dangerouslySetInnerHTML={{__html:p}}/>; }
+
 function Login({onLogin}){
   const [step,setStep]=useState("choice"); // choice | pin | libre
   const pinUsers=USERS.filter(u=>u.pin);
@@ -1179,10 +1276,10 @@ function Login({onLogin}){
 
       {step==="choice" && <div className="lchoice">
         <button className="lbig pri" onClick={()=>{setStep("pin");setName(pinUsers[0]?.nombre||"");setPin("");setErr("");}}>
-          <span className="e" style={{background:"var(--ocean)"}}>🔐</span>
+          <span className="e" style={{background:"var(--ocean)"}}><Icon name="lock" size={22}/></span>
           <span><span className="tt">Ingresar con PIN</span><span className="dd">Jefaturas · Aprobadores · Gerencia</span></span></button>
         <button className="lbig" onClick={()=>{setStep("libre");setName("");setErr("");}}>
-          <span className="e" style={{background:"var(--coral)"}}>👤</span>
+          <span className="e" style={{background:"var(--coral)"}}><Icon name="user" size={22}/></span>
           <span><span className="tt">Soy colaborador</span><span className="dd">Sin PIN — solo elige tu nombre</span></span></button>
       </div>}
 
@@ -1197,7 +1294,7 @@ function Login({onLogin}){
           <button className="fn" onClick={()=>setPin("")}>Limpiar</button>
         </div>
         <div className="lerr">{err}</div>
-        <button className="lback" onClick={()=>{setStep("choice");setPin("");setErr("");}}>← Volver</button>
+        <button className="lback" onClick={()=>{setStep("choice");setPin("");setErr("");}}><Icon name="chevronLeft" size={15} style={{marginRight:6}}/>Volver</button>
       </div>}
 
       {step==="libre" && <div>
@@ -1207,34 +1304,34 @@ function Login({onLogin}){
         <button className="btn primary block" onClick={()=>{ const u=colabs.find(x=>x.nombre===name);
           if(!u){setErr("Selecciona tu nombre");return;} onLogin(u); }}>Entrar</button>
         <div className="lerr">{err}</div>
-        <button className="lback" onClick={()=>{setStep("choice");setErr("");}}>← Volver</button>
+        <button className="lback" onClick={()=>{setStep("choice");setErr("");}}><Icon name="chevronLeft" size={15} style={{marginRight:6}}/>Volver</button>
       </div>}
     </div>
-    <div className="lfoot">{APP.version}</div>
+    <div className="lfoot">{APP.versionShort}</div>
   </div>;
 }
 
 /* ===== HOME ===== */
 function Home({user,go,counts}){
   const tiles=[];
-  if(puede(user,'ild')) tiles.push({id:"ild",t:"ILD",d:"Inspección de lista diaria",ico:"📋",col:"--ocean"});
-  if(puede(user,'compras')) tiles.push({id:"compras",t:"Compras",d:"Solicitar bienes o insumos",ico:"🛒",col:"--coral"});
-  if(puede(user,'sistemas')) tiles.push({id:"sistemas",t:"Sistemas",d:"Soporte de TI",ico:"💻",col:"--blue"});
-  if(puede(user,'mantenimiento')) tiles.push({id:"mantenimiento",t:"Mantenimiento",d:"Reportar una avería",ico:"🔧",col:"--amber"});
-  if(puede(user,'kanban')) tiles.push({id:"kanban",t:"Tablero Kanban",d:"Avance de los procesos",ico:"🗂️",col:"--ocean-d"});
-  if(esDev(user)) tiles.push({id:"admin",t:"Configuración",d:"Usuarios y conexión",ico:"⚙️",col:"--muted"});
+  if(puede(user,'ild')) tiles.push({id:"ild",t:"ILD",d:"Inspección de lista diaria",ico:"clipboard",col:"--ocean"});
+  if(puede(user,'compras')) tiles.push({id:"compras",t:"Compras",d:"Solicitar bienes o insumos",ico:"cart",col:"--coral"});
+  if(puede(user,'sistemas')) tiles.push({id:"sistemas",t:"Sistemas",d:"Soporte de TI",ico:"monitor",col:"--blue"});
+  if(puede(user,'mantenimiento')) tiles.push({id:"mantenimiento",t:"Mantenimiento",d:"Reportar una avería",ico:"wrench",col:"--amber"});
+  if(puede(user,'kanban')) tiles.push({id:"kanban",t:"Tablero Kanban",d:"Avance de los procesos",ico:"kanban",col:"--ocean-d"});
+  if(esDev(user)) tiles.push({id:"admin",t:"Configuración",d:"Usuarios y conexión",ico:"gear",col:"--muted"});
   return <div>
     <h1 className="h1">Hola, {user.nombre.split(" ")[0]} 👋</h1>
     <p className="sub">¿Qué necesitas hacer hoy?</p>
     <div style={{height:14}}/>
     <div className="grid">
       {tiles.map(x=><button key={x.id} className="tile" onClick={()=>go(x.id)}>
-        <div className="ico" style={{background:cssVar(x.col)}}>{x.ico}</div>
+        <div className="ico" style={{background:cssVar(x.col)}}><Icon name={x.ico} size={24}/></div>
         <div className="t">{x.t}</div><div className="d">{x.d}</div>
         {counts[x.id]>0 && <span className="badge">{counts[x.id]} pendiente{counts[x.id]>1?"s":""}</span>}
       </button>)}
     </div>
-    <div className="ver">{APP.version} · Modo {MODE==="graph"?"en vivo (SharePoint)":"local (demo)"}</div>
+    <div className="ver">{APP.versionShort}</div>
   </div>;
 }
 
@@ -1268,7 +1365,7 @@ function ILD({user,toast,setFoto,bump}){
       {showNuevo && drafts.length>0 && <button className={tab==="drafts"?"on":""} style={{color:"#7a5a12"}} onClick={()=>{setTab("drafts");cargarDrafts();}}>📥 Sin enviar ({drafts.length})</button>}
       {puedeRevisar && <button className={tab==="bandeja"?"on":""} onClick={()=>{setTab("bandeja");load();}}>{esGD(user)?"Todos":"Por aprobar"}</button>}
       {puedeRevisar && <button className={tab==="dash"?"on":""} onClick={()=>{setTab("dash");load();}}>Dashboard</button>}
-      {esGD(user) && <button className={tab==="resumen"?"on":""} onClick={()=>setTab("resumen")}>📈 Resumen Gerencial</button>}
+      {esGD(user) && <button className={tab==="resumen"?"on":""} onClick={()=>setTab("resumen")}><Icon name="trendup" size={15} style={{marginRight:6}}/>Resumen Gerencial</button>}
       {showChecklist && <button className={tab==="check"?"on":""} onClick={()=>setTab("check")}>Checklist</button>}
       {esDevv && <button className={tab==="conf"?"on":""} onClick={()=>setTab("conf")}>Configurar</button>}
     </div>}
@@ -1421,26 +1518,26 @@ function ILDForm({user,toast,onSaved,setFoto,onDraft}){
           {areas.map(a=><option key={a}>{a}</option>)}</select></Field>
       {area && <div className="hint">Aprobador: <b>{APR[area]||"—"}</b></div>}
     </div>
-    {needsTurno && <div className="card"><h3>🔄 Turno</h3>
+    {needsTurno && <div className="card"><h3>Turno</h3>
       <div className="opts">
-        <button className={"opt"+(turno==="Apertura"?" on":"")} onClick={()=>{setTurno("Apertura");resetCampos();}}>🌅 Apertura</button>
-        <button className={"opt"+(turno==="Cierre"?" on":"")} onClick={()=>{setTurno("Cierre");resetCampos();}}>🌙 Cierre</button>
+        <button className={"opt"+(turno==="Apertura"?" on":"")} onClick={()=>{setTurno("Apertura");resetCampos();}}><Icon name="sun" size={16} style={{marginRight:6}}/>Apertura</button>
+        <button className={"opt"+(turno==="Cierre"?" on":"")} onClick={()=>{setTurno("Cierre");resetCampos();}}><Icon name="moon" size={16} style={{marginRight:6}}/>Cierre</button>
       </div></div>}
     {area && modo==='lista' && <>
-      <div className="card"><h3>🧹 Zona limpiada</h3>
+      <div className="card"><h3>Zona limpiada</h3>
         <div className="hint">Elige la zona que acabas de limpiar y adjunta de 3 a 5 fotos. Puedes registrar varias a lo largo del día.</div>
         <div className="opts" style={{flexDirection:"column",alignItems:"stretch",gap:6,marginTop:8}}>
           {items.map((it,i)=>{ const tx=itemText(it);
-            return <button key={i} className={"opt"+(zona===tx?" on":"")} style={{textAlign:"left"}} onClick={()=>setZona(tx)}>{zona===tx?"🔘":"⚪"} {tx}</button>; })}
+            return <button key={i} className={"opt"+(zona===tx?" on":"")} style={{textAlign:"left"}} onClick={()=>setZona(tx)}>{zona===tx?<Icon name="radioOn" size={16} style={{marginRight:6,verticalAlign:"-3px"}}/>:<Icon name="radioOff" size={16} style={{marginRight:6,verticalAlign:"-3px"}}/>} {tx}</button>; })}
         </div></div>
-      <div className="card"><h3>📷 Fotos — {fotos.length}/3–5</h3>
+      <div className="card"><h3>Fotos — {fotos.length}/3–5</h3>
         <div className="hint" style={{marginBottom:8}}>Puedes tomar la foto con la cámara o elegirla desde la galería del dispositivo.</div>
         <input id="ild-file-l" type="file" accept="image/*" multiple style={{display:"none"}} onChange={onFiles}/>
         <button className="btn ghost block" onClick={()=>document.getElementById("ild-file-l").click()}>
-          {fotos.length>=3?(fotos.length>=5?"📸 Máximo (5) ✓":"📸 Agregar más (hasta 5)"):`📸 Subir (faltan ${3-fotos.length})`}</button>
+          <Icon name="camera" size={17} style={{marginRight:7}}/>{fotos.length>=3?(fotos.length>=5?"Máximo (5) ✓":"Agregar más (hasta 5)"):`Subir (faltan ${3-fotos.length})`}</button>
         <div className="fgrid">{fotos.map((s,i)=><div key={i} className="fthumb">
           <img src={s} onClick={()=>setFoto(s)}/>
-          <button className="fdel" onClick={()=>setFotos(f=>f.filter((_,j)=>j!==i))}>✕</button>
+          <button className="fdel" onClick={()=>setFotos(f=>f.filter((_,j)=>j!==i))}><Icon name="x" size={15}/></button>
           <span className="fnum">{i+1}</span></div>)}</div></div>
       <div className="card"><Field label="Observaciones (opcional)">
         <textarea className="inp" value={obs} onChange={e=>setObs(e.target.value)} placeholder="Novedades de la zona…"/></Field>
@@ -1465,14 +1562,14 @@ function ILDForm({user,toast,onSaved,setFoto,onDraft}){
             <div className="cbox">{checks[i]?"✓":""}</div><span className="ctext">{i+1}. {tx}</span></div>;
         })}
       </div>
-      {req>0 && <div className="card"><h3>📷 Fotos — {fotos.length}/{req}</h3>
+      {req>0 && <div className="card"><h3>Fotos — {fotos.length}/{req}</h3>
         <div className="hint" style={{marginBottom:8}}>Puedes tomar la foto con la cámara o elegirla desde la galería del dispositivo.</div>
         <input id="ild-file" type="file" accept="image/*" multiple style={{display:"none"}} onChange={onFiles}/>
         <button className="btn ghost block" onClick={()=>document.getElementById("ild-file").click()}>
           {fotos.length>=req?"📷 Completo ✓":`📷 Cámara o galería (${req-fotos.length} restantes)`}</button>
         <div className="fgrid">{fotos.map((s,i)=><div key={i} className="fthumb">
           <img src={s} onClick={()=>setFoto(s)}/>
-          <button className="fdel" onClick={()=>setFotos(f=>f.filter((_,j)=>j!==i))}>✕</button>
+          <button className="fdel" onClick={()=>setFotos(f=>f.filter((_,j)=>j!==i))}><Icon name="x" size={15}/></button>
           <span className="fnum">{i+1}</span></div>)}</div></div>}
       <div className="card"><Field label="Observaciones (opcional)">
         <textarea className="inp" value={obs} onChange={e=>setObs(e.target.value)} placeholder="Novedades del turno…"/></Field>
@@ -1500,7 +1597,7 @@ function ILDPanel({user,regs,reload,toast,setFoto}){
   return <div>
     <div className="row" style={{justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
       <span style={{color:"var(--muted)",fontSize:13}}>{mios.length} ILD en tu histórico</span>
-      <button className="btn green" style={{padding:"9px 14px"}} onClick={exportar}>⬇ Exportar Excel</button>
+      <button className="btn green" style={{padding:"9px 14px"}} onClick={exportar}><Icon name="download" size={15} style={{marginRight:6}}/>Exportar Excel</button>
     </div>
     <div className="seg">
       {[["todos","Todos"],["Pendiente","Pendientes"],["Aprobado","Aprobados"],["Con observaciones","Con obs."]].map(([k,l])=>
@@ -1513,7 +1610,7 @@ function ILDPanel({user,regs,reload,toast,setFoto}){
       {[[30,"30d"],[90,"90d"],[365,"1 año"]].map(([d,l])=>
         <button key={d} className={"btn "+(per===d?"ocean":"ghost")} style={{padding:"8px 14px"}} onClick={()=>setPer(d)}>{l}</button>)}
     </div>
-    {!base.length && <div className="empty"><div className="e">📭</div>No hay ILD en este período</div>}
+    {!base.length && <div className="empty"><div className="e"><Icon name="inbox" size={44}/></div>No hay ILD en este período</div>}
     {base.map(r=><div key={r.id} className="item" onClick={()=>setDet(r)}>
       <div className="top"><div>
         <div className="code">{r.Codigo||("ILD #"+r.id)}</div>
@@ -1533,14 +1630,14 @@ function ILDMios({user,regs,setFoto}){
       {[["Total",mios.length,"--blue"],["Aprobados",ap,"--green"],["Con obs.",ob,"--purple"],["Pendientes",pe,"--amber"]].map(([l,v,c])=>
         <div className="kpi" key={l} style={{borderTop:"3px solid "+cssVar(c)}}><div className="kn" style={{color:cssVar(c)}}>{v}</div><div className="kl">{l}</div></div>)}
     </div>
-    {!mios.length && <div className="empty"><div className="e">📋</div>Aún no has subido ILD</div>}
+    {!mios.length && <div className="empty"><div className="e"><Icon name="clipboard" size={44}/></div>Aún no has subido ILD</div>}
     {mios.map(r=><div key={r.id} className="item" onClick={()=>setDet(r)} style={{cursor:"pointer"}}>
       <div className="top"><div>
         <div className="code">{r.Codigo||("ILD-"+r.id)}</div>
         <div className="ttl">{r.area}{r.turno?` · ${r.turno}`:""}</div>
         <div className="meta">{fmtDT(r.fecha)}{r.aprobador?` · revisó: ${r.aprobador}`:""}</div></div>
         <Pill estado={r.estado==="Con observaciones"?"Con observaciones":r.estado==="Aprobado"?"Aprobado":"Solicitado"}/></div>
-      {(r.notaJef||r.notaGerencia) && <div className="meta" style={{marginTop:6}}>💬 Toca para ver el comentario</div>}</div>)}
+      {(r.notaJef||r.notaGerencia) && <div className="meta" style={{marginTop:6}}><Icon name="chat" size={15} style={{marginRight:6}}/>Toca para ver el comentario</div>}</div>)}
     {det && <ILDDetail user={user} r={det} onClose={()=>setDet(null)} reload={()=>{}} toast={()=>{}} setFoto={setFoto}/>}
   </div>;
 }
@@ -1552,10 +1649,10 @@ function SpImg({foto,idx,onClick}){
     return ()=>{ vivo=false; if(url) URL.revokeObjectURL(url); };
   },[]);
   if(src) return <div className="fthumb"><img src={src} onClick={()=>onClick&&onClick(src)}/><span className="fnum">{idx}</span></div>;
-  if(foto.spUrl) return <a className="fthumb" href={foto.spUrl} target="_blank" rel="noreferrer" style={{display:"grid",placeItems:"center",background:"#eef3f6",color:"var(--ocean-d)",fontSize:11,fontWeight:700,textDecoration:"none",textAlign:"center"}}>🔗<br/>Foto {idx}</a>;
-  if(foto.error) return <div className="fthumb" style={{display:"grid",placeItems:"center",background:"#f6efe9",fontSize:11,color:"#b06a4a",textAlign:"center"}}>⚠️<br/>No subió</div>;
+  if(foto.spUrl) return <a className="fthumb" href={foto.spUrl} target="_blank" rel="noreferrer" style={{display:"grid",placeItems:"center",background:"#eef3f6",color:"var(--ocean-d)",fontSize:11,fontWeight:700,textDecoration:"none",textAlign:"center"}}><Icon name="link" size={15}/><br/>Foto {idx}</a>;
+  if(foto.error) return <div className="fthumb" style={{display:"grid",placeItems:"center",background:"#f6efe9",fontSize:11,color:"#b06a4a",textAlign:"center"}}><Icon name="alert" size={15}/><br/>No subió</div>;
   if(!foto.data && !foto.path) return <div className="fthumb" style={{display:"grid",placeItems:"center",background:"#f3efe6",fontSize:11,color:"#999"}}>—</div>;
-  return <div className="fthumb" style={{display:"grid",placeItems:"center",background:"#f3efe6",fontSize:18}}>⏳</div>;
+  return <div className="fthumb" style={{display:"grid",placeItems:"center",background:"#f3efe6",fontSize:18}}><Icon name="clock" size={16}/></div>;
 }
 function actaILD(r){
   const esc=s=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
@@ -1626,7 +1723,7 @@ function ILDDetail({user,r,onClose,reload,toast,setFoto}){
     {[["Área",r.area+(r.turno?` · ${r.turno}`:"")],["Responsable",r.usuario],["Fecha",fmtDT(r.fecha)],
       ["Aprobador esperado",r.aprobadorEsperado||"—"],["Ítems",`${r.completados}/${r.totalItems}`],
       ["Estado",r.estado]].map(([k,v])=><div className="kv" key={k}><b>{k}</b><span>{v}</span></div>)}
-    <button className="btn ocean block" style={{margin:"10px 0"}} onClick={()=>actaILD(r)}>📄 Descargar PDF del ILD</button>
+    <button className="btn ocean block" style={{margin:"10px 0"}} onClick={()=>actaILD(r)}><Icon name="filetext" size={15} style={{marginRight:6}}/>Descargar PDF del ILD</button>
     <h3 style={{margin:"14px 0 6px"}}>Checklist</h3>
     {items.map((it,i)=>{ const tx=itemText(it),tp=itemTipo(it);
       let val;
@@ -1637,24 +1734,24 @@ function ILDDetail({user,r,onClose,reload,toast,setFoto}){
       return <div key={i} style={{display:"flex",justifyContent:"space-between",gap:10,padding:"7px 0",borderBottom:"1px solid #f3efe6",fontSize:13}}>
         <span style={{flex:1}}>{i+1}. {tx}</span>{val}</div>;
     })}
-    {(r.fotos||[]).length>0 && <><h3 style={{margin:"14px 0 6px"}}>📷 Fotos ({r.fotos.length})</h3>
+    {(r.fotos||[]).length>0 && <><h3 style={{margin:"14px 0 6px"}}>Fotos ({r.fotos.length})</h3>
       <div className="fgrid">{r.fotos.map((f,i)=><SpImg key={i} foto={f} idx={i+1} onClick={setFoto}/>)}</div></>}
-    {r.obs && <div className="note obs"><b>📝 Nota del colaborador</b><div>{r.obs}</div></div>}
-    {r.notaJef && <div className="note jef"><b>💬 {r.aprobador} · {fmtDT(r.fechaAprobacion)}</b><div>{r.notaJef}</div></div>}
-    {r.notaGerencia && <div className="note ger"><b>🏢 Gerencia</b><div>{r.notaGerencia}</div></div>}
+    {r.obs && <div className="note obs"><b><Icon name="edit" size={15} style={{marginRight:6}}/>Nota del colaborador</b><div>{r.obs}</div></div>}
+    {r.notaJef && <div className="note jef"><b><Icon name="chat" size={15} style={{marginRight:6}}/>{r.aprobador} · {fmtDT(r.fechaAprobacion)}</b><div>{r.notaJef}</div></div>}
+    {r.notaGerencia && <div className="note ger"><b><Icon name="building" size={15} style={{marginRight:6}}/>Gerencia</b><div>{r.notaGerencia}</div></div>}
 
     {puedeAprobar && r.estado==='Pendiente' && <div className="card" style={{marginTop:12}}>
-      <h3>👔 Aprobación</h3>
+      <h3>Aprobación</h3>
       <textarea className="inp" placeholder="Observación (opcional)…" value={nota} onChange={e=>setNota(e.target.value)}/>
       <div className="row" style={{marginTop:10}}>
         <button className="btn green" onClick={()=>setEstado(true)}>✅ Aprobar</button>
-        <button className="btn amber" onClick={()=>setEstado(false)}>📝 Con obs.</button></div></div>}
-    {puedeReAprobar && <div className="card" style={{marginTop:12}}><h3>🔄 Modificar evaluación</h3>
+        <button className="btn amber" onClick={()=>setEstado(false)}><Icon name="edit" size={15} style={{marginRight:6}}/>Con obs.</button></div></div>}
+    {puedeReAprobar && <div className="card" style={{marginTop:12}}><h3>Modificar evaluación</h3>
       <textarea className="inp" value={nota} onChange={e=>setNota(e.target.value)}/>
       <div className="row" style={{marginTop:10}}>
         <button className="btn green" onClick={()=>setEstado(true)}>Cambiar a Aprobado</button>
         <button className="btn amber" onClick={()=>setEstado(false)}>Cambiar a Con obs.</button></div></div>}
-    {puedeNotaGer && <div className="card" style={{marginTop:12}}><h3>🏢 Nota de Gerencia</h3>
+    {puedeNotaGer && <div className="card" style={{marginTop:12}}><h3>Nota de Gerencia</h3>
       <textarea className="inp" value={notaGer} onChange={e=>setNotaGer(e.target.value)}/>
       <button className="btn ocean block" style={{marginTop:10}} onClick={guardarGer}>Guardar nota</button></div>}
   </Modal>;
@@ -1706,7 +1803,7 @@ function ILDDash({user,regs}){
         {meses.map((m,i)=><option key={i} value={i}>{m}</option>)}</select>
     </div>
     <div className="row" style={{justifyContent:"flex-end",marginBottom:10}}>
-      <button className="btn green" style={{padding:"8px 14px"}} onClick={exportar}>⬇ Excel</button></div>
+      <button className="btn green" style={{padding:"8px 14px"}} onClick={exportar}><Icon name="download" size={15} style={{marginRight:6}}/>Excel</button></div>
     <div className="kpis">
       {[["Total",tot,"--blue"],["Aprobados",tAp,"--green"],["Con obs.",tOb,"--purple"],
         ["Pendientes",tPe,"--amber"],["% Cumplimiento",tDias?cumGlobal+"%":"—",colorCumpl(cumGlobal)]].map(([l,v,c])=>
@@ -1714,9 +1811,9 @@ function ILDDash({user,regs}){
           <div className="kn" style={{color:cssVar(c)}}>{v}</div><div className="kl">{l}</div></div>)}
     </div>
     <div className="hint" style={{margin:"-4px 0 12px"}}>Cumplimiento = (Aprobados + Con obs.) ÷ días esperados{esMesActual?` hasta hoy (día ${hoy.getDate()})`:" del mes"}.</div>
-    {!tablas.length && <div className="empty"><div className="e">📭</div>Sin ILD en {meses[mes]}</div>}
+    {!tablas.length && <div className="empty"><div className="e"><Icon name="inbox" size={44}/></div>Sin ILD en {meses[mes]}</div>}
     {tablas.map(({g,rows})=><div className="dgrp" key={g}>
-      <div className="ghead">📁 {g.toUpperCase()}</div>
+      <div className="ghead"><Icon name="folder" size={15} style={{marginRight:6}}/>{g.toUpperCase()}</div>
       <div className="dscroll"><table className="dtable">
         <thead><tr><th>Turno</th><th>Días</th><th>Subidos</th><th>Aprob.</th><th>Obs.</th><th>Cumpl.</th><th>Tiempo (h)</th></tr></thead>
         <tbody>{rows.map((r,i)=><tr key={i}>
@@ -1741,7 +1838,7 @@ function ChecklistEditor({user,toast,onSave}){
   const [area,setArea]=useState(areas[0]||"");
   const [items,setItems]=useState(()=> (CL[area]||[]).map(norm));
   useEffect(()=>{ setItems((CL[area]||[]).map(norm)); },[area]);
-  const TIPOS=[["foto","📷 Foto"],["sino","✅ Sí/No"],["texto","📝 Texto"],["apertura_cierre","🔁 Apertura/Cierre"],["comida","🍽️ Desayuno/Almuerzo/Cena"]];
+  const TIPOS=[["foto","Foto"],["sino","Sí/No"],["texto","Texto"],["apertura_cierre","Apertura/Cierre"],["comida","Desayuno/Almuerzo/Cena"]];
   const upd=(i,k,v)=>setItems(arr=>arr.map((it,j)=>j===i?{...it,[k]:v}:it));
   const del=i=>setItems(arr=>arr.filter((_,j)=>j!==i));
   const mover=(i,d)=>setItems(arr=>{ const j=i+d; if(j<0||j>=arr.length)return arr; const c=[...arr]; [c[i],c[j]]=[c[j],c[i]]; return c; });
@@ -1779,7 +1876,7 @@ function ChecklistEditor({user,toast,onSave}){
     delete AC[a]; delete APR[a]; delete CL[a]; delete AMODO[a];
     USERS.forEach(u=>{ if(u.areas) u.areas=u.areas.filter(x=>x!==a); });
     onSave(); if(area===a){ const rest=Object.keys(AC); setArea(rest[0]||""); } force(x=>x+1); toast("ILD eliminado: "+a); }
-  if(!areas.length) return <div className="empty"><div className="e">🔒</div>No tienes áreas asignadas para personalizar.</div>;
+  if(!areas.length) return <div className="empty"><div className="e"><Icon name="lock" size={44}/></div>No tienes áreas asignadas para personalizar.</div>;
   const nFotos=items.filter(it=>it.tipo==='foto').length;
   const grupos=[...new Set(Object.values(AC).map(v=>v&&v.g).filter(Boolean))].sort();
   const nombres=[...new Set(USERS.map(u=>u.nombre))].sort();
@@ -1793,7 +1890,7 @@ function ChecklistEditor({user,toast,onSave}){
     toast(res.ok?("Prueba enviada a: "+to):("No se pudo: "+res.reason)); }
   const lbl={fontSize:11,color:"var(--muted)",marginBottom:2};
   return <div>
-    {esDev(user) && <div className="card"><h3>🗂 Administrar ILD ({Object.keys(AC).length})</h3>
+    {esDev(user) && <div className="card"><h3>Administrar ILD ({Object.keys(AC).length})</h3>
       <div className="hint" style={{marginBottom:8}}>Aquí asignas todo en un solo lugar: <b>grupo</b>, <b>aprobador</b> y <b>canal de Teams</b> de cada ILD. Los registros históricos no se borran.</div>
       <div style={{maxHeight:"62vh",overflow:"auto",border:"1px solid var(--line)",borderRadius:12}}>
         {Object.keys(AC).map(a=><div key={a} style={{padding:"11px 12px",borderBottom:"1px solid #f0ece3"}}>
@@ -1830,13 +1927,13 @@ function ChecklistEditor({user,toast,onSave}){
           <input className="inp" value={it.t} onChange={e=>upd(i,"t",e.target.value)} placeholder="Texto del ítem"/>
           <select className="inp" style={{marginTop:8}} value={it.tipo} onChange={e=>upd(i,"tipo",e.target.value)}>{TIPOS.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select>
           <div className="row" style={{marginTop:8,gap:6}}>
-            <button className="btn ghost" style={{padding:"6px 11px"}} onClick={()=>mover(i,-1)}>↑</button>
-            <button className="btn ghost" style={{padding:"6px 11px"}} onClick={()=>mover(i,1)}>↓</button>
-            <button className="btn red" style={{padding:"6px 11px"}} onClick={()=>del(i)}>🗑 Quitar</button>
+            <button className="btn ghost" style={{padding:"6px 11px"}} onClick={()=>mover(i,-1)}><Icon name="chevronUp" size={16}/></button>
+            <button className="btn ghost" style={{padding:"6px 11px"}} onClick={()=>mover(i,1)}><Icon name="chevronDown" size={16}/></button>
+            <button className="btn red" style={{padding:"6px 11px"}} onClick={()=>del(i)}><Icon name="trash" size={16} style={{marginRight:6}}/>Quitar</button>
           </div>
         </div></div></div>)}
-    <button className="btn ghost block" onClick={add}>➕ Agregar ítem</button>
-    <button className="btn primary block" style={{marginTop:10}} onClick={guardar}>💾 Guardar checklist</button>
+    <button className="btn ghost block" onClick={add}><Icon name="plus" size={15} style={{marginRight:6}}/>Agregar ítem</button>
+    <button className="btn primary block" style={{marginTop:10}} onClick={guardar}><Icon name="save" size={15} style={{marginRight:6}}/>Guardar checklist</button>
   </div>;
 }
 
@@ -1876,7 +1973,7 @@ function AccesosEditor({toast,onSave}){
     {caps.map(([cap,l])=><div key={cap} className="card" style={{padding:12,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
       <div><div style={{fontWeight:700}}>{l}</div>{overridden(cap)&&<div className="meta">Personalizado · <span style={{cursor:"pointer",color:"var(--ocean-d)"}} onClick={()=>reset(cap)}>volver a predeterminado</span></div>}</div>
       <button className={"btn "+(valor(cap)?"green":"ghost")} style={{flex:"0 0 auto"}} onClick={()=>set(cap,!valor(cap))}>{valor(cap)?"Sí ✓":"No"}</button></div>)}
-    <button className="btn primary block" onClick={guardar}>💾 Guardar accesos</button>
+    <button className="btn primary block" onClick={guardar}><Icon name="save" size={15} style={{marginRight:6}}/>Guardar accesos</button>
   </div>;
 }
 function DiasEsperadosEditor({user,toast,onSave}){
@@ -1891,10 +1988,10 @@ function DiasEsperadosEditor({user,toast,onSave}){
   const dnames=["D","L","M","X","J","V","S"];
   const PAT=[["diario","Todos los días del mes"],["finde","Solo fines de semana"],["vsd","Viernes · Sábado · Domingo"],["personalizado","Personalizado"]];
   return <div>
-    <div className="card"><h3>📅 Feriados (se suman a los días esperados)</h3>
+    <div className="card"><h3>Feriados (se suman a los días esperados)</h3>
       <div className="row"><input type="date" className="inp" style={{flex:1}} value={fer} onChange={e=>setFer(e.target.value)}/>
         <button className="btn ocean" onClick={addFer}>Agregar</button></div>
-      <div className="fgrid" style={{marginTop:10}}>{DIAS_CFG.feriados.map(f=><span key={f} className="pill" style={{background:"#fff3d6",color:"#8a6512"}}>{f}<b style={{cursor:"pointer",marginLeft:4}} onClick={()=>delFer(f)}>✕</b></span>)}</div>
+      <div className="fgrid" style={{marginTop:10}}>{DIAS_CFG.feriados.map(f=><span key={f} className="pill" style={{background:"#fff3d6",color:"#8a6512"}}>{f}<b style={{cursor:"pointer",marginLeft:4}} onClick={()=>delFer(f)}><Icon name="x" size={15}/></b></span>)}</div>
       {!DIAS_CFG.feriados.length && <div className="hint">Sin feriados configurados.</div>}
     </div>
     {areas.map(a=>{ const c=DIAS_CFG.areas[a]||{patron:'diario'};
@@ -1905,7 +2002,7 @@ function DiasEsperadosEditor({user,toast,onSave}){
         {c.patron==='personalizado' && <div className="row" style={{marginTop:8,gap:6}}>{dnames.map((dn,d)=>
           <button key={d} className={"opt"+((c.dias||[]).includes(d)?" on":"")} style={{minWidth:40,padding:"8px 0"}} onClick={()=>toggleDia(a,d)}>{dn}</button>)}</div>}
       </div>;})}
-    <button className="btn primary block" onClick={()=>{onSave();toast("Días esperados guardados");}}>💾 Guardar días esperados</button>
+    <button className="btn primary block" onClick={()=>{onSave();toast("Días esperados guardados");}}><Icon name="save" size={15} style={{marginRight:6}}/>Guardar días esperados</button>
   </div>;
 }
 function rolesAprobadores(){ return [...new Set(USERS.filter(u=>['aprobador','gerencia','desarrollador'].includes(u.rol)).map(u=>u.nombre))]; }
@@ -1924,21 +2021,21 @@ function UsuariosEditor({toast,onSave}){
     if(i>=0){ USERS.splice(i,1); onSave(); re(); toast("Colaborador eliminado"); } }
   return <div>
     <div className="row" style={{gap:8}}>
-      <button className="btn primary" style={{flex:1}} onClick={()=>setEdit({_new:true,rol:"colaborador",areas:[]})}>➕ Nuevo colaborador</button>
-      <button className="btn ocean" style={{flex:1}} onClick={()=>setEdit({_new:true,rol:"aprobador",areas:[]})}>➕ Nuevo aprobador / jefatura</button>
+      <button className="btn primary" style={{flex:1}} onClick={()=>setEdit({_new:true,rol:"colaborador",areas:[]})}><Icon name="plus" size={15} style={{marginRight:6}}/>Nuevo colaborador</button>
+      <button className="btn ocean" style={{flex:1}} onClick={()=>setEdit({_new:true,rol:"aprobador",areas:[]})}><Icon name="plus" size={15} style={{marginRight:6}}/>Nuevo aprobador / jefatura</button>
     </div>
     <div className="card" style={{marginTop:14}}><h3>Jefatura y gerencia</h3>
       {jefes.map(u=><div className="kv" key={u.id}>
         <span><b style={{color:"var(--ink)"}}>{u.nombre}</b> · {u.rol}{u.pin?` · PIN ${u.pin}`:""}</span>
-        <button className="btn ghost" style={{padding:"6px 10px"}} onClick={()=>setEdit({...u})}>✎ Editar</button></div>)}</div>
+        <button className="btn ghost" style={{padding:"6px 10px"}} onClick={()=>setEdit({...u})}><Icon name="edit" size={16} style={{marginRight:6}}/>Editar</button></div>)}</div>
     <div className="card"><h3>Colaboradores ({colabs.length})</h3>
       {!colabs.length && <div className="hint">Aún no hay colaboradores.</div>}
       {colabs.map(u=><div className="kv" key={u.id} style={{alignItems:"flex-start"}}>
         <span style={{flex:1}}><b style={{color:"var(--ink)"}}>{u.nombre}</b><br/>
           <span style={{fontSize:12,color:"var(--muted)"}}>{(u.areas||[]).join(", ")||"sin áreas asignadas"}</span></span>
         <span className="row" style={{gap:6,flex:"0 0 auto"}}>
-          <button className="btn ghost" style={{padding:"6px 10px"}} onClick={()=>setEdit({...u})}>✎</button>
-          <button className="btn red" style={{padding:"6px 10px"}} onClick={()=>delUser(u.id)}>🗑</button></span></div>)}</div>
+          <button className="btn ghost" style={{padding:"6px 10px"}} onClick={()=>setEdit({...u})}><Icon name="edit" size={16}/></button>
+          <button className="btn red" style={{padding:"6px 10px"}} onClick={()=>delUser(u.id)}><Icon name="trash" size={16}/></button></span></div>)}</div>
     {edit && <UserModal u={edit} onClose={()=>setEdit(null)} onSave={saveUser}/>}
   </div>;
 }
@@ -1973,7 +2070,7 @@ function AprobadoresEditor({toast,onSave}){
       <div style={{fontWeight:700,fontSize:13.5,marginBottom:6}}>{a}</div>
       <select className="inp" value={APR[a]||""} onChange={e=>set(a,e.target.value)}>
         <option value="">— sin asignar —</option>{roles.map(r=><option key={r}>{r}</option>)}</select></div>)}
-    <button className="btn primary block" onClick={()=>{onSave();toast("Aprobadores guardados");}}>💾 Guardar aprobadores</button>
+    <button className="btn primary block" onClick={()=>{onSave();toast("Aprobadores guardados");}}><Icon name="save" size={15} style={{marginRight:6}}/>Guardar aprobadores</button>
   </div>;
 }
 
@@ -1996,7 +2093,7 @@ function NuevoILD({toast,onSave}){
     <label style={{display:"flex",gap:9,alignItems:"center",marginBottom:13,fontSize:14}}>
       <input type="checkbox" checked={turno} onChange={e=>setTurno(e.target.checked)}/> Preguntar turno (Apertura/Cierre) al iniciar el ILD</label>
     <Field label="Aprobador"><select className="inp" value={apr} onChange={e=>setApr(e.target.value)}>{roles.map(r=><option key={r}>{r}</option>)}</select></Field>
-    <button className="btn primary block" onClick={crear}>➕ Crear ILD</button>
+    <button className="btn primary block" onClick={crear}><Icon name="plus" size={15} style={{marginRight:6}}/>Crear ILD</button>
   </div>;
 }
 
@@ -2148,15 +2245,33 @@ function Tablero({tipo}){
 }
 
 /* ===== COMPRAS (campos exactos del Form de Requerimiento de Compra No Operacional) ===== */
+function CotizField({cotiz,setCotiz}){
+  const ref=useRef();
+  async function onFile(e){ const file=e.target.files&&e.target.files[0]; e.target.value="";
+    if(!file) return;
+    const dataUrl=await new Promise(r=>{const rd=new FileReader();rd.onload=ev=>r(ev.target.result);rd.readAsDataURL(file);});
+    if(file.type==="application/pdf"){ setCotiz(dataUrl); }
+    else if((file.type||"").startsWith("image/")){ setCotiz(await comprimirImg(dataUrl,1000,.7)); }
+    else { alert("La cotización debe ser un PDF o una imagen."); }
+  }
+  const esPdf=/^data:application\/pdf/i.test(cotiz||"");
+  return <Field label="Cotización (PDF o imagen) — opcional" hint="Adjunta la proforma del proveedor. Acepta PDF o foto.">
+    <input ref={ref} type="file" accept="application/pdf,image/*" style={{display:"none"}} onChange={onFile}/>
+    <button className="btn ghost block" onClick={()=>ref.current.click()}>📎 {cotiz?"Cambiar cotización":"Adjuntar cotización"}</button>
+    {cotiz && <div className="row" style={{marginTop:8,gap:8,alignItems:"center"}}>
+      {esPdf ? <span className="kchip">📄 PDF adjunto</span> : <div className="fthumb" style={{width:64,height:64}}><img src={cotiz}/></div>}
+      <button className="btn red" style={{padding:"6px 10px"}} onClick={()=>setCotiz(null)}>Quitar</button></div>}
+  </Field>;
+}
 function Compras({user,toast,setFoto}){
   const chief=gestionaModulo(user,'compras');
   const canGG=esGD(user)||user.rol==='gerencia';
   const [tab,setTab]=useState("nueva"); const [rows,setRows]=useState([]); const [modal,setModal]=useState(null);
-  const [gFiltro,setGFiltro]=useState("todas");
+  const [gFiltro,setGFiltro]=useState("todas"); const [gArea,setGArea]=useState("todas");
   const load=async()=>setRows(await Store.read("Compras")); useEffect(()=>{load();},[]);
   const vacio={Area:DEPTS[0],TiempoCompra:TIEMPO_COMPRA[1],TipoCompra:TIPO_COMPRA[0],FechaNecesidad:"",
     Presupuesto:"",Justificacion:"",Cantidad:"",Unidad:UNIDADES[0],Modelo:"",Descripcion:"",Proveedores:""};
-  const [f,setF]=useState(vacio); const [fotos,setFotos]=useState([]); const [busy,setBusy]=useState(false);
+  const [f,setF]=useState(vacio); const [fotos,setFotos]=useState([]); const [busy,setBusy]=useState(false); const [cotiz,setCotiz]=useState(null);
   const ch=(k,v)=>setF(s=>({...s,[k]:v}));
   async function crear(){
     for(const [k,lbl] of [["Area","Área"],["TiempoCompra","Tiempo de compra"],["TipoCompra","Tipo de compra"],
@@ -2168,13 +2283,14 @@ function Compras({user,toast,setFoto}){
     try{
       const arr=await Store.read("Compras"); const Codigo=nextCode("COM",arr);
       const fotosC=await subirFotos(fotos,`COM_${Codigo}`,Codigo);
+      const cotizC=cotiz?await subirCotiz(cotiz,`COM_${Codigo}`,Codigo):null;
       const nuevo={Codigo,id:gid(),FechaSolicitud:nowISO(),Solicitante:user.nombre,...f,
-        Fotos:fotosC,
+        Fotos:fotosC,Cotizacion:cotizC,
         Estado:"Solicitado",FechaTentativa:"",Aprobador:"",FechaAprob:"",Comentario:"",
         EnviadoGG:"No",AprobadorGG:"",FechaGG:"",ComentarioGG:"",ActaEntrega:"",ComentarioActa:"",
         FechaEntrega:"",FechaCierre:"",EncuestaCal:"",EncuestaComentario:"",FechaEncuesta:""};
       await Store.write("Compras",[nuevo,...arr]); Notif.comprasNueva(nuevo,user.nombre); toast("Solicitud creada: "+Codigo);
-      setF(vacio); setFotos([]); load(); setTab("mias");
+      setF(vacio); setFotos([]); setCotiz(null); load(); setTab("mias");
     } finally { setBusy(false); }
   }
   async function apply(code,patch){ const arr=await Store.read("Compras");
@@ -2191,13 +2307,15 @@ function Compras({user,toast,setFoto}){
   else if(gFiltro==="proceso") gView=gestionRows.filter(r=>bucketEstado(r.Estado)==="proceso").sort(porFecha);
   else if(gFiltro==="concluidas") gView=gestionRows.filter(r=>bucketEstado(r.Estado)==="concluidas");
   else if(gFiltro==="v15") gView=gestionRows.filter(r=>bucketEstado(r.Estado)==="nuevas" && diasEnEstado(r)>=15).sort(porFecha);
+  const areasGestion=[...new Set(gestionRows.map(r=>r.Area).filter(Boolean))].sort();
+  if(gArea!=="todas") gView=gView.filter(r=>r.Area===gArea);
   return <div>
     <h1 className="h1">Compras</h1><p className="sub">Requerimiento de compra no operacional.</p>
     <div className="seg">
       <button className={tab==="nueva"?"on":""} onClick={()=>setTab("nueva")}>Nueva</button>
       <button className={tab==="mias"?"on":""} onClick={()=>{setTab("mias");load();}}>Mis solicitudes</button>
       {verGestion&&<button className={tab==="gestion"?"on":""} onClick={()=>{setTab("gestion");load();}}>Gestión {esDev(user)?"(todo)":esChiefCompras?"":"(Gerencia)"}</button>}
-      {puede(user,'compras.tablero')&&<button className={tab==="tablero"?"on":""} onClick={()=>{setTab("tablero");load();}}>📊 Tablero</button>}
+      {puede(user,'compras.tablero')&&<button className={tab==="tablero"?"on":""} onClick={()=>{setTab("tablero");load();}}><Icon name="chart" size={15} style={{marginRight:6}}/>Tablero</button>}
     </div>
     {tab==="nueva" && <div className="card">
       <Field label="Nombres y apellidos"><input className="inp" value={user.nombre} disabled/></Field>
@@ -2212,6 +2330,7 @@ function Compras({user,toast,setFoto}){
       <Field label="Modelo" req><input className="inp" value={f.Modelo} onChange={e=>ch("Modelo",e.target.value)} placeholder="Ej. Computadora"/></Field>
       <Field label="Descripción del requerimiento (marca, serie, proveedor, detalles)" req><textarea className="inp" value={f.Descripcion} onChange={e=>ch("Descripcion",e.target.value)}/></Field>
       <PhotoField fotos={fotos} setFotos={setFotos} label="Foto del producto" req setFoto={setFoto}/>
+      <CotizField cotiz={cotiz} setCotiz={setCotiz}/>
       <Field label="Posibles proveedores" req><input className="inp" value={f.Proveedores} onChange={e=>ch("Proveedores",e.target.value)} placeholder="Ej. Super Paco"/></Field>
       <button className="btn primary block" disabled={busy} onClick={crear}>{busy?"Enviando…":"Crear solicitud"}</button></div>}
     {tab==="mias" && <Listado items={mias} empty="Aún no tienes solicitudes"
@@ -2224,6 +2343,7 @@ function Compras({user,toast,setFoto}){
         <button className={gFiltro==="concluidas"?"on":""} onClick={()=>setGFiltro("concluidas")}>✅ Concluidas</button>
         <button className={gFiltro==="v15"?"on":""} onClick={()=>setGFiltro("v15")}>⏰ +15 días en nuevo</button>
       </div>
+      <div className="row" style={{margin:"8px 0 4px",gap:8,flexWrap:"wrap",alignItems:"center"}}><span style={{fontSize:12.5,color:"var(--muted)",fontWeight:600}}>Área:</span><select className="inp" style={{maxWidth:260}} value={gArea} onChange={e=>setGArea(e.target.value)}><option value="todas">Todas las áreas</option>{areasGestion.map(a=><option key={a} value={a}>{a}</option>)}</select></div>
       <div className="kcount">{gView.length} solicitud(es){["nuevas","proceso","v15"].includes(gFiltro)?" · de la más antigua a la más reciente":""}</div>
       <Listado items={gView} empty={esChiefCompras?"No hay solicitudes en este filtro":"No hay solicitudes pendientes de Gerencia"}
         render={r=><ComprasCard r={r} chief={chief} canGG={canGG} dias={ABIERTAS_C.includes(r.Estado)?diasDe(r):null} onAction={(t)=>setModal({t,item:r})}/>}/></>}
@@ -2267,10 +2387,10 @@ const NOTA_PRESUP="La compra se encuentra aprobada, pero está sujeta a disponib
 function notaPresupBox(mt=8){ return <div style={{marginTop:mt,background:"#FBEEEF",border:"1px solid #E3C9CC",borderLeft:"4px solid #A52A3A",borderRadius:8,padding:"9px 11px",fontSize:12.5,color:"#7a2530",fontWeight:600}}>⚠️ {NOTA_PRESUP}</div>; }
 function ComprasCard({r,chief,canGG,onAction,dias}){
   return <div className="item">
-    <div className="top"><div><div className="code">{r.Codigo}{dias!=null?<span style={{marginLeft:8,fontSize:11,color:dias>=7?"var(--red)":"var(--amber)",fontWeight:700}}>⏳ hace {dias}d</span>:null}</div><div className="ttl">{r.Modelo}</div>
+    <div className="top"><div><div className="code">{r.Codigo}{dias!=null?<span style={{marginLeft:8,fontSize:11,color:dias>=7?"var(--red)":"var(--amber)",fontWeight:700}}><Icon name="clock" size={16} style={{marginRight:6}}/>hace {dias}d</span>:null}</div><div className="ttl">{r.Modelo}</div>
       <div className="meta">{r.Cantidad} {r.Unidad} · {r.Area} · {r.Solicitante}</div></div>
       <Pill estado={r.Estado} overdue={isOverdue(r)}/></div>
-    <div className="meta" style={{marginTop:6}}>🗓️ Necesaria: {fmtDate(r.FechaNecesidad)}{r.FechaTentativa?` · 📅 Tentativa: ${fmtDate(r.FechaTentativa)}`:""}</div>
+    <div className="meta" style={{marginTop:6}}><Icon name="calendar" size={15} style={{marginRight:6}}/>Necesaria: {fmtDate(r.FechaNecesidad)}{r.FechaTentativa?` · 📅 Tentativa: ${fmtDate(r.FechaTentativa)}`:""}</div>
     {r.Estado==="En compra" && notaPresupBox()}
     <div className="acts">
       <button className="btn ghost" onClick={()=>onAction("ver")}>Ver</button>
@@ -2286,7 +2406,7 @@ function ComprasCard({r,chief,canGG,onAction,dias}){
       {chief && ["En compra","Listo para entregar"].includes(r.Estado) && <>
         <button className="btn amber" onClick={()=>onAction("reprogramar")}>Reprogramar fecha</button>
         <button className="btn red" onClick={()=>onAction("baja")}>Dar de baja</button></>}
-      {["Entregado","Cerrada"].includes(r.Estado) && <button className="btn ocean" onClick={()=>actaCompra(r)}>📄 Acta (PDF)</button>}
+      {["Entregado","Cerrada"].includes(r.Estado) && <button className="btn ocean" onClick={()=>actaCompra(r)}><Icon name="filetext" size={15} style={{marginRight:6}}/>Acta (PDF)</button>}
       {!chief && r.Estado==="Entregado" && !r.EncuestaCal && <button className="btn primary" onClick={()=>onAction("encuesta")}>Calificar</button>}
     </div></div>;
 }
@@ -2322,9 +2442,13 @@ function ComprasModal({modal,user,onClose,apply,toast,setFoto}){
         ["Decisión Gerencia",item.AprobadorGG?`${item.AprobadorGG} · ${item.ComentarioGG||""}`:"—"],
         ["Acta",item.ActaEntrega||"—"],["Recibió",item.Receptor||"—"],["Calificación",item.EncuestaCal?item.EncuestaCal+"/10":"—"]].map(([k,v])=>
         <div className="kv" key={k}><b>{k}</b><span style={{textAlign:"right",maxWidth:"62%"}}>{v}</span></div>)}
-      {(item.Fotos||[]).length>0 && <><h3 style={{margin:"12px 0 6px"}}>📷 Foto</h3>
+      {(item.Fotos||[]).length>0 && <><h3 style={{margin:"12px 0 6px"}}>Foto</h3>
         <div className="fgrid">{item.Fotos.map((f,i)=><SpImg key={i} foto={f} idx={i+1} onClick={setFoto}/>)}</div></>}
-      {["Entregado","Cerrada"].includes(item.Estado) && <button className="btn ocean block" style={{marginTop:12}} onClick={()=>actaCompra(item)}>📄 Exportar Acta de Entrega (PDF)</button>}
+      {item.Cotizacion && <><h3 style={{margin:"12px 0 6px"}}>🧾 Cotización</h3>
+        {item.Cotizacion.tipo==="pdf"
+          ? <button className="btn ocean block" onClick={()=>abrirCotiz(item.Cotizacion)}>📄 Ver cotización (PDF)</button>
+          : <div className="fgrid"><SpImg foto={item.Cotizacion} idx="C" onClick={setFoto}/></div>}</>}
+      {["Entregado","Cerrada"].includes(item.Estado) && <button className="btn ocean block" style={{marginTop:12}} onClick={()=>actaCompra(item)}><Icon name="filetext" size={15} style={{marginRight:6}}/>Exportar Acta de Entrega (PDF)</button>}
       {item.Estado==="En compra" && notaPresupBox(12)}
     </div> : <div>
       {(t==="aprobar"||t==="reprogramar") && <Field label="Fecha tentativa de entrega" req={t==="reprogramar"} hint="La asigna el Coordinador de Compras. Vacía = no se marca como vencida."><input type="date" className="inp" value={fecha} onChange={e=>setFecha(e.target.value)}/></Field>}
@@ -2347,7 +2471,7 @@ function Tickets({tipo,user,toast,setFoto}){
   const hoy=hoyEC();
   const vacioSis={Departamento:DEPTS_SIS[0],Urgencia:URGENCIA_SIS[1],Titulo:"",Descripcion:""};
   const vacioMto={Departamento:DEPTS[0],FechaSolicitud:hoy,TipoSolicitud:"Normal",Descripcion:""};
-  const [f,setF]=useState(isSis?vacioSis:vacioMto); const [fotos,setFotos]=useState([]); const [busy,setBusy]=useState(false);
+  const [f,setF]=useState(isSis?vacioSis:vacioMto); const [fotos,setFotos]=useState([]); const [busy,setBusy]=useState(false); const aprobadores=USERS.filter(u=>u.rol==='aprobador').map(u=>u.nombre).sort(); const [solicOtro,setSolicOtro]=useState(""); const [areaOtro,setAreaOtro]=useState(DEPTS[0]);
   const ch=(k,v)=>setF(s=>({...s,[k]:v}));
   async function crear(){
     if(isSis){ if(!f.Titulo.trim()){toast("Falta el título de la tarea");return;} if(!f.Descripcion.trim()){toast("Falta la descripción");return;} }
@@ -2356,12 +2480,13 @@ function Tickets({tipo,user,toast,setFoto}){
     try{
       const arr=await Store.read(tipo); const Codigo=nextCode(isSis?"SIS":"MTO",arr);
       const fotosT=await subirFotos(fotos,`${isSis?'SIS':'MTO'}_${Codigo}`,Codigo);
-      const base={Codigo,id:gid(),FechaCreacion:nowISO(),Solicitante:user.nombre,...f,
-        Fotos:fotosT,
+      const solicitanteFinal=(isSis&&chief&&solicOtro)?solicOtro:user.nombre;
+      const base={Codigo,id:gid(),FechaCreacion:nowISO(),Solicitante:solicitanteFinal,...f,
+        Fotos:fotosT,CreadoPor:user.nombre,AreaSolicitante:(isSis&&chief&&solicOtro)?areaOtro:"",
         Estado:"Nuevo",FechaTentativa:"",Asignado:"",ComentarioSoporte:"",FechaConcluido:"",
         EncuestaCal:"",EncuestaComentario:"",FechaEncuesta:""};
       await Store.write(tipo,[base,...arr]); Notif.ticketNuevo(base,user.nombre,tipo); toast("Ticket creado: "+Codigo);
-      setF(isSis?vacioSis:vacioMto); setFotos([]); load(); setTab("mios");
+      setF(isSis?vacioSis:vacioMto); setFotos([]); setSolicOtro(""); load(); setTab("mios");
     } finally { setBusy(false); }
   }
   async function apply(code,patch){ const arr=await Store.read(tipo);
@@ -2389,10 +2514,13 @@ function Tickets({tipo,user,toast,setFoto}){
       {verTareas&&<button className={tab==="tareas"?"on":""} onClick={()=>{setTab("tareas");load();}}>Mis tareas{asignadas.length?` (${asignadas.length})`:""}</button>}
       {verEquipo&&<button className={tab==="equipo"?"on":""} onClick={()=>{setTab("equipo");load();}}>Mi equipo</button>}
       {puede(user,`${tipo.toLowerCase()}.gestion`)&&<button className={tab==="gestion"?"on":""} onClick={()=>{setTab("gestion");load();}}>Gestión {esDev(user)?"(todo)":""}</button>}
-      {puede(user,`${tipo.toLowerCase()}.tablero`)&&<button className={tab==="tablero"?"on":""} onClick={()=>{setTab("tablero");load();}}>📊 Tablero</button>}
+      {puede(user,`${tipo.toLowerCase()}.tablero`)&&<button className={tab==="tablero"?"on":""} onClick={()=>{setTab("tablero");load();}}><Icon name="chart" size={15} style={{marginRight:6}}/>Tablero</button>}
     </div>
     {tab==="nuevo" && <div className="card">
-      <Field label={isSis?"Nombre del solicitante":"Solicitante"}><input className="inp" value={user.nombre} disabled/></Field>
+      {isSis && chief
+        ? <><Field label="Usuario que solicita" req hint="Soporte puede registrar a nombre de un aprobador. La encuesta le llegará a esa persona."><select className="inp" value={solicOtro} onChange={e=>setSolicOtro(e.target.value)}><option value="">Yo mismo ({user.nombre})</option>{aprobadores.map(n=><option key={n} value={n}>{n}</option>)}</select></Field>
+          <Field label="Área del solicitante" req><select className="inp" value={areaOtro} onChange={e=>setAreaOtro(e.target.value)}>{DEPTS.map(d=><option key={d}>{d}</option>)}</select></Field></>
+        : <Field label={isSis?"Nombre del solicitante":"Solicitante"}><input className="inp" value={user.nombre} disabled/></Field>}
       <Field label="Departamento" req><select className="inp" value={f.Departamento} onChange={e=>ch("Departamento",e.target.value)}>{(isSis?DEPTS_SIS:DEPTS).map(d=><option key={d}>{d}</option>)}</select></Field>
       {isSis ? <>
         <Field label="Urgencia / Prioridad" req><select className="inp" value={f.Urgencia} onChange={e=>ch("Urgencia",e.target.value)}>{URGENCIA_SIS.map(d=><option key={d}>{d}</option>)}</select></Field>
@@ -2411,7 +2539,7 @@ function Tickets({tipo,user,toast,setFoto}){
     {tab==="tareas" && <div>
       <div className="row" style={{margin:"0 0 12px",gap:8}}>
         <button className={"btn "+(soloHoy?"ghost":"primary")} onClick={()=>setSoloHoy(false)}>Todas ({asignadas.length})</button>
-        <button className={"btn "+(soloHoy?"primary":"ghost")} onClick={()=>setSoloHoy(true)}>📅 Hoy ({asignadas.filter(r=>(r.FechaTentativa||"").slice(0,10)===hoyStr).length})</button></div>
+        <button className={"btn "+(soloHoy?"primary":"ghost")} onClick={()=>setSoloHoy(true)}><Icon name="calendar" size={15} style={{marginRight:6}}/>Hoy ({asignadas.filter(r=>(r.FechaTentativa||"").slice(0,10)===hoyStr).length})</button></div>
       <Listado items={tareasMostrar} empty={soloHoy?"No tienes tareas para hoy":"No tienes tareas asignadas"}
         render={r=><TareaCard r={r} onAction={(t)=>setModal({t,item:r})}/>}/></div>}
     {tab==="gestion" && <div>
@@ -2438,10 +2566,11 @@ function TareaCard({r,onAction}){
     <div className="top"><div><div className="code">{r.Codigo}</div><div className="ttl">{r.Descripcion}</div>
       <div className="meta">{r.Departamento} · {r.TipoSolicitud} · solicitó: {r.Solicitante}</div></div>
       <Pill estado={r.Estado} overdue={venc}/></div>
-    {r.FechaTentativa && <div className="meta" style={{marginTop:6}}>📅 Para: {fmtDate(r.FechaTentativa)}{venc?" · ⚠️ vencida":""}</div>}
+    {r.FechaTentativa && <div className="meta" style={{marginTop:6}}><Icon name="calendar" size={15} style={{marginRight:6}}/>Para: {fmtDate(r.FechaTentativa)}{venc?" · ⚠️ vencida":""}</div>}
     {r.CierreCumplimiento && <div className="meta" style={{marginTop:4,fontWeight:700,color:r.CierreCumplimiento.includes("atraso")?"var(--coral)":"var(--green)"}}>{r.CierreCumplimiento}</div>}
     <div className="acts">
       <button className="btn ghost" onClick={()=>onAction("ver")}>Ver</button>
+      {!["Concluido","Cerrado"].includes(r.Estado) && <button className="btn ocean" onClick={()=>onAction("avance")}>📝 Registrar avance</button>}
       {!["Concluido","Cerrado"].includes(r.Estado) && <button className="btn green" onClick={()=>onAction("concluirTarea")}>✅ Concluir tarea</button>}
     </div></div>;
 }
@@ -2451,12 +2580,12 @@ function TicketCard({r,isSis,chief,equipo,onAction}){
     <div className="top"><div><div className="code">{r.Codigo}</div><div className="ttl">{titulo}</div>
       <div className="meta">{r.Solicitante} · {r.Departamento} · {isSis?(r.Urgencia||"").split(" ")[0]:r.TipoSolicitud}</div></div>
       <Pill estado={r.Estado} overdue={isOverdue(r)}/></div>
-    {r.FechaTentativa && <div className="meta" style={{marginTop:6}}>📅 {fmtDate(r.FechaTentativa)}</div>}
-    {r.Asignado && <div className="meta" style={{marginTop:4}}>👤 Asignado a: {r.Asignado}</div>}
+    {r.FechaTentativa && <div className="meta" style={{marginTop:6}}><Icon name="calendar" size={15} style={{marginRight:6}}/>{fmtDate(r.FechaTentativa)}</div>}
+    {r.Asignado && <div className="meta" style={{marginTop:4}}><Icon name="user" size={15} style={{marginRight:6}}/>Asignado a: {r.Asignado}</div>}
     {r.CierreCumplimiento && <div className="meta" style={{marginTop:4,fontWeight:700,color:r.CierreCumplimiento.includes("atraso")?"var(--coral)":"var(--green)"}}>{r.CierreCumplimiento}</div>}
     <div className="acts">
       <button className="btn ghost" onClick={()=>onAction("ver")}>Ver</button>
-      {chief && !isSis && !["Concluido","Cerrado","Rechazado"].includes(r.Estado) && <button className="btn ocean" onClick={()=>onAction("asignar")}>👤 Asignar tarea</button>}
+      {chief && !isSis && !["Concluido","Cerrado","Rechazado"].includes(r.Estado) && <button className="btn ocean" onClick={()=>onAction("asignar")}><Icon name="user" size={15} style={{marginRight:6}}/>Asignar tarea</button>}
       {chief && isSis && ["Nuevo","Sin fecha asignada"].includes(r.Estado) && <button className="btn ocean" onClick={()=>onAction("tomar")}>Asignar fecha</button>}
       {chief && r.Estado==="En proceso" && <button className="btn green" onClick={()=>onAction("concluir")}>Concluir</button>}
       {chief && !["Concluido","Cerrado","Rechazado"].includes(r.Estado) && <button className="btn red" onClick={()=>onAction("rechazar")}>Rechazar</button>}
@@ -2476,6 +2605,13 @@ function TicketModal({tipo,isSis,modal,user,equipo,onClose,apply,toast,setFoto})
       await apply(item.Codigo,{Estado:"Asignada",Asignado:tecnico,FechaTentativa:fecha,ComentarioJefe:com});
       await addNotif(tecnico,`Se te asignó la tarea de mantenimiento ${item.Codigo} (para el ${fmtDate(fecha)}).`,"",item.Codigo);
       toast("Tarea asignada a "+tecnico); }
+    else if(t==="avance"){ if(!com.trim()){toast("Escribe el avance");return;}
+      const prev=Array.isArray(item.Avances)?item.Avances:[];
+      const nuevoAv={fecha:nowISO(),autor:user.nombre,texto:com.trim()};
+      await apply(item.Codigo,{Avances:[...prev,nuevoAv]});
+      const jefes=USERS.filter(u=>gestionaModulo(u,"mantenimiento")).map(u=>u.nombre).filter(n=>n&&n!==user.nombre);
+      for(const j of [...new Set(jefes)]) await addNotif(j,`Avance en ${item.Codigo} (${user.nombre}): ${com.trim().slice(0,80)}`,"",item.Codigo);
+      toast("Avance registrado"); }
     else if(t==="concluir"){ if(!com.trim()){toast("El comentario de cierre es obligatorio");return;} setBusy(true);
       const fc=fotos.length?await subirFotos(fotos,`MTO_${item.Codigo}`,item.Codigo+"_cierre"):(item.FotosCierre||[]);
       const cmp=cumplimiento();
@@ -2490,19 +2626,24 @@ function TicketModal({tipo,isSis,modal,user,equipo,onClose,apply,toast,setFoto})
     else if(t==="encuesta"){ if(!cal){toast("Selecciona calificación");return;} await apply(item.Codigo,{Estado:"Cerrado",EncuestaCal:cal,EncuestaComentario:com,FechaEncuesta:nowISO()}); toast("¡Gracias por calificar!"); }
     onClose();
   }
-  const titles={ver:"Detalle del ticket",tomar:"Asignar fecha tentativa",asignar:"Asignar tarea al equipo",concluir:"Concluir ticket",concluirTarea:"Concluir tarea",rechazar:"Rechazar",encuesta:"Calificar el servicio"};
+  const titles={ver:"Detalle del ticket",tomar:"Asignar fecha tentativa",asignar:"Asignar tarea al equipo",avance:"Registrar avance",concluir:"Concluir ticket",concluirTarea:"Concluir tarea",rechazar:"Rechazar",encuesta:"Calificar el servicio"};
   return <Modal title={titles[t]} onClose={onClose}>
     {t==="ver" ? <div>
-      {[["Código",item.Codigo],["Solicitante",item.Solicitante],["Departamento",item.Departamento],
+      {[["Código",item.Codigo],["Solicitante",item.Solicitante],
+        ...(item.AreaSolicitante?[["Área solicitante",item.AreaSolicitante]]:[]),
+        ...(item.CreadoPor&&item.CreadoPor!==item.Solicitante?[["Registrado por",item.CreadoPor]]:[]),
+        ["Departamento",item.Departamento],
         isSis?["Urgencia",item.Urgencia]:["Tipo",item.TipoSolicitud],
         isSis?["Título",item.Titulo]:["Fecha solicitud",fmtDate(item.FechaSolicitud)],
         ["Descripción",item.Descripcion],["Estado",item.Estado],["Fecha límite",fmtDate(item.FechaTentativa)],
         ["Asignado",item.Asignado||"—"],["Cumplimiento",item.CierreCumplimiento||"—"],["Cierre",item.ComentarioSoporte||"—"],["Calificación",item.EncuestaCal?item.EncuestaCal+"/10":"—"]].map(([k,v])=>
         <div className="kv" key={k}><b>{k}</b><span style={{textAlign:"right",maxWidth:"62%"}}>{v}</span></div>)}
-      {(item.Fotos||[]).length>0 && <><h3 style={{margin:"12px 0 6px"}}>📷 Adjuntos</h3>
+      {(item.Fotos||[]).length>0 && <><h3 style={{margin:"12px 0 6px"}}>Adjuntos</h3>
         <div className="fgrid">{item.Fotos.map((f,i)=><SpImg key={i} foto={f} idx={i+1} onClick={setFoto}/>)}</div></>}
-      {(item.FotosCierre||[]).length>0 && <><h3 style={{margin:"12px 0 6px"}}>📷 Fotos de cierre</h3>
+      {(item.FotosCierre||[]).length>0 && <><h3 style={{margin:"12px 0 6px"}}>Fotos de cierre</h3>
         <div className="fgrid">{item.FotosCierre.map((f,i)=><SpImg key={i} foto={f} idx={i+1} onClick={setFoto}/>)}</div></>}
+      {!isSis && (item.Avances||[]).length>0 && (user.nombre===item.Asignado||gestionaModulo(user,"mantenimiento")||esGD(user)||esDev(user)) && <><h3 style={{margin:"12px 0 6px"}}>📝 Avances (interno)</h3>
+        <div>{item.Avances.map((a,i)=><div key={i} className="kv" style={{alignItems:"flex-start"}}><b style={{whiteSpace:"nowrap"}}>{fmtDate(a.fecha)}</b><span style={{textAlign:"right",maxWidth:"70%"}}>{a.texto}<br/><span style={{fontSize:11,color:"var(--muted)"}}>— {a.autor}</span></span></div>)}</div></>}
     </div> : <div>
       {t==="asignar" && <><Field label="Técnico responsable" req><select className="inp" value={tecnico} onChange={e=>setTecnico(e.target.value)}>
         {!opciones.length && <option value="">(sin miembros de equipo)</option>}
@@ -2510,7 +2651,7 @@ function TicketModal({tipo,isSis,modal,user,equipo,onClose,apply,toast,setFoto})
         <Field label="Fecha límite de la tarea" req hint="Según esta fecha se marcará 'a tiempo' o 'con atraso'."><input type="date" className="inp" value={fecha} onChange={e=>setFecha(e.target.value)}/></Field></>}
       {t==="tomar" && <Field label="Fecha tentativa de solución" hint="Sin fecha: queda 'Sin fecha asignada' y NO se marca vencido."><input type="date" className="inp" value={fecha} onChange={e=>setFecha(e.target.value)}/></Field>}
       {t==="encuesta" && <Field label="Calificación (1-10)"><Stars value={cal} onChange={setCal}/></Field>}
-      {["rechazar","concluir","concluirTarea","encuesta","asignar"].includes(t) && <Field label={t==="rechazar"?"Motivo del rechazo":t==="concluir"||t==="concluirTarea"?"Comentario de la tarea / soporte":t==="asignar"?"Indicaciones para el técnico (opcional)":"Comentario (opcional)"} req={["rechazar","concluir","concluirTarea"].includes(t)}>
+      {["rechazar","concluir","concluirTarea","encuesta","asignar","avance"].includes(t) && <Field label={t==="rechazar"?"Motivo del rechazo":t==="avance"?"Describe el avance (no concluye la tarea)":t==="concluir"||t==="concluirTarea"?"Comentario de la tarea / soporte":t==="asignar"?"Indicaciones para el técnico (opcional)":"Comentario (opcional)"} req={["rechazar","concluir","concluirTarea","avance"].includes(t)}>
         <textarea className="inp" value={com} onChange={e=>setCom(e.target.value)}/></Field>}
       {(t==="concluirTarea"||t==="concluir") && <PhotoField fotos={fotos} setFotos={setFotos} label={t==="concluirTarea"?"Foto de la tarea concluida":"Foto de cierre (opcional)"} req={t==="concluirTarea"} setFoto={setFoto}/>}
       <div className="row end"><button className="btn ghost" onClick={onClose}>Cancelar</button>
@@ -2520,7 +2661,7 @@ function TicketModal({tipo,isSis,modal,user,equipo,onClose,apply,toast,setFoto})
 
 /* ===== LISTADO genérico ===== */
 function Listado({items,render,empty}){
-  if(!items.length) return <div className="empty"><div className="e">🗒️</div><div>{empty}</div></div>;
+  if(!items.length) return <div className="empty"><div className="e"><Icon name="filetext" size={44}/></div><div>{empty}</div></div>;
   return <div>{items.map((r,i)=><div key={r.Codigo||r.id||i}>{render(r)}</div>)}</div>;
 }
 
@@ -2542,12 +2683,12 @@ function KanModal({proc,tabla,r,canEdit,cols,onClose,onSaved,toast,setFoto}){
       ["Descripción",r.Descripcion||r.Justificacion||"—"],["Estado",r.Estado],
       ["Asignado",r.Asignado||"—"],["Fecha",fmtDate(r.FechaTentativa)]].map(([k,v])=>
       <div className="kv" key={k}><b>{k}</b><span style={{textAlign:"right",maxWidth:"62%"}}>{v}</span></div>)}
-    {(r.Fotos||[]).length>0 && <><h3 style={{margin:"12px 0 6px"}}>📷 Adjuntos</h3>
+    {(r.Fotos||[]).length>0 && <><h3 style={{margin:"12px 0 6px"}}>Adjuntos</h3>
       <div className="fgrid">{r.Fotos.map((f,i)=><SpImg key={i} foto={f} idx={i+1} onClick={setFoto}/>)}</div></>}
     {isCom && r.Estado==="En compra" && notaPresupBox(12)}
-    {["Entregado","Cerrada","Cerrado"].includes(r.Estado) && <button className="btn ocean block" style={{marginTop:10}} onClick={()=>isCom?actaCompra(r):null} disabled={!isCom}>{isCom?"📄 Acta (PDF)":""}</button>}
+    {["Entregado","Cerrada","Cerrado"].includes(r.Estado) && <button className="btn ocean block" style={{marginTop:10}} onClick={()=>isCom?actaCompra(r):null} disabled={!isCom}>{isCom?<span><Icon name="filetext" size={15} style={{marginRight:6}}/>Acta (PDF)</span>:""}</button>}
     {canEdit ? <div className="card" style={{marginTop:12}}>
-      <h3>✎ Gestionar</h3>
+      <h3>Gestionar</h3>
       <Field label="Estado"><select className="inp" value={estado} onChange={e=>setEstado(e.target.value)}>{cols.map(c=><option key={c}>{c}</option>)}</select></Field>
       <Field label="Fecha"><input type="date" className="inp" value={fecha} onChange={e=>setFecha(e.target.value)}/></Field>
       <Field label="Comentario"><textarea className="inp" value={com} onChange={e=>setCom(e.target.value)}/></Field>
@@ -2602,8 +2743,8 @@ function Kanban({user,toast,setFoto}){
           <div style={{display:"flex",gap:6,flexWrap:"wrap",margin:"6px 0 2px"}}>
             <span className="kchip">{areaOf(r)||"—"}</span>
             {prioOf(r) && <span className={"kchip"+(isUrg(r)?" urg":"")}>{prioOf(r).split(" ")[0]}</span>}</div>
-          <div className="km">👤 {r.Solicitante}{r.FechaTentativa?` · 📅 ${fmtDate(r.FechaTentativa)}`:""}</div>
-          <div className="kchip" style={{marginTop:6,display:"inline-block"}}>{ed?"✎ Abrir / editar":"👁 Abrir"}</div></div>;})}
+          <div className="km"><Icon name="user" size={15} style={{marginRight:6}}/>{r.Solicitante}{r.FechaTentativa?` · 📅 ${fmtDate(r.FechaTentativa)}`:""}</div>
+          <div className="kchip" style={{marginTop:6,display:"inline-block"}}>{ed?"Abrir / editar":"Abrir"}</div></div>;})}
         {!cards.length && <div style={{color:"#aab2b3",fontSize:12,textAlign:"center",padding:"14px 0"}}>—</div>}
       </div>;})}</div>
     {det && <KanModal proc={proc} tabla={tabla} r={det} canEdit={canEditCard(det)} cols={cols}
@@ -2644,7 +2785,7 @@ function NotifConfig({toast}){
       <input className="inp" style={{flex:1}} value={c[k]||""} placeholder={ph||""} onChange={e=>set(k,e.target.value)}/>
       <button className="btn ghost" style={{padding:"9px 12px",flex:"0 0 auto"}} disabled={busy===c[k]} onClick={()=>probar(c[k],nombre||label)}>{busy===c[k]?"…":"✉️ Probar"}</button>
     </div></div>;
-  return <div className="card"><h3>🔔 Notificaciones (correo / Teams)</h3>
+  return <div className="card"><h3>Notificaciones (correo / Teams)</h3>
     <div className="hint">Los avisos se envían por correo con tu cuenta Microsoft (requiere el permiso <b>Mail.Send</b> con consentimiento de administrador). Para publicar en un grupo de Teams, pega el <b>correo del canal</b> (en Teams: canal → ••• → Obtener dirección de correo). El canal de Teams de <b>cada ILD</b> se asigna en <b>ILD → Configurar → Checklist → Administrar ILD</b>.</div>
     <label className="row" style={{gap:8,alignItems:"center",margin:"12px 0"}}>
       <input type="checkbox" checked={!!c.enabled} onChange={e=>set("enabled",e.target.checked)}/> <span style={{fontWeight:600}}>Activar notificaciones</span></label>
@@ -2719,7 +2860,7 @@ function ReasignarResp({toast}){
       if(n){ await Store.write("ILD",upd); } toast(n?`Restaurados ${n} responsable(s)`:"No había nada que restaurar"); load();
     }catch(e){ toast("No se pudo restaurar: "+(e.message||"")); } finally{ setBusy(false); }
   }
-  return <div className="card"><h3>🔁 Reasignar aprobador / responsable</h3>
+  return <div className="card"><h3>Reasignar aprobador / responsable</h3>
     <div className="hint">Para que el histórico de un área le aparezca a un aprobador en su bandeja, reasigna el <b>aprobador</b>. (También puedes cambiar el responsable si lo necesitas.)</div>
     <div className="row" style={{marginTop:10,gap:8,flexWrap:"wrap"}}>
       <select className="inp" style={{flex:1,minWidth:130}} value={mod} onChange={e=>setMod(e.target.value)}>{["ILD","Compras","Sistemas","Mantenimiento"].map(m=><option key={m}>{m}</option>)}</select>
@@ -2731,8 +2872,8 @@ function ReasignarResp({toast}){
       <option value="responsable">Responsable (quien envió)</option></select></Field>}
     <Field label={(mod==="ILD"&&campo==="area")?"Área destino (nombre actual)":"Persona destino"}><select className="inp" value={dest} onChange={e=>setDest(e.target.value)}><option value="">— elegir —</option>{destList.map(n=><option key={n}>{n}</option>)}</select></Field>
     <div className="hint">Se afectarán <b>{afect.length}</b> registro(s).</div>
-    <button className="btn primary block" style={{marginTop:10}} disabled={busy} onClick={aplicar}>{busy?"Aplicando…":"🔁 Aplicar"}</button>
-    <button className="btn ghost block" style={{marginTop:8}} disabled={busy} onClick={restaurarResp}>♻️ Restaurar responsable original (ILD)</button>
+    <button className="btn primary block" style={{marginTop:10}} disabled={busy} onClick={aplicar}>{busy?"Aplicando…":"Aplicar"}</button>
+    <button className="btn ghost block" style={{marginTop:8}} disabled={busy} onClick={restaurarResp}><Icon name="refresh" size={15} style={{marginRight:6}}/>Restaurar responsable original (ILD)</button>
   </div>;
 }
 function DeleteRecords({toast}){
@@ -2744,7 +2885,7 @@ function DeleteRecords({toast}){
   async function del(id){ if(!confirm("¿Eliminar este registro de prueba? Es permanente y no afectará los índices del resto."))return;
     try{ await Store.remove(mod, id); toast("Registro eliminado"); }
     catch(e){ toast("No se pudo eliminar: "+(e.message||"")); } load(); }
-  return <div className="card"><h3>🗑 Borrar registros de prueba</h3>
+  return <div className="card"><h3>Borrar registros de prueba</h3>
     <div className="hint">Elimina registros de prueba para que no afecten los indicadores. Acción permanente.</div>
     <select className="inp" style={{margin:"10px 0"}} value={mod} onChange={e=>setMod(e.target.value)}>
       {["ILD","Compras","Sistemas","Mantenimiento"].map(m=><option key={m}>{m}</option>)}</select>
@@ -2777,7 +2918,7 @@ function Admin({user,toast}){
   }
   return <div>
     <h1 className="h1">Configuración</h1><p className="sub">Conexión, datos y mantenimiento.</p>
-    <div className="card"><h3>☁️ Conexión SharePoint · Prueba7</h3>
+    <div className="card"><h3>Conexión SharePoint · Prueba7</h3>
       <div className="kv"><b>Modo</b><span>{MODE==="graph"?"En vivo (SharePoint)":"Local (demo)"}</span></div>
       {MODE==="graph" && <div className="kv"><b>Cuenta Microsoft</b><span>{graphUser||"—"}</span></div>}
       <div className="kv"><b>Registros</b><span>ILD {counts.ILD||0} · Com {counts.Compras||0} · Sis {counts.Sistemas||0} · Mto {counts.Mantenimiento||0}</span></div>
@@ -2785,34 +2926,50 @@ function Admin({user,toast}){
       <div className="kv" style={{flexDirection:"column",alignItems:"flex-start",gap:4}}><b>Redirect URI (regístralo en Azure)</b>
         <code style={{fontSize:12,wordBreak:"break-all",background:"#f3efe6",padding:"4px 8px",borderRadius:8,width:"100%"}}>{APP.ms.redirectUri}</code></div>
       <div className="row" style={{marginTop:10}}>
-        <button className="btn ocean" onClick={()=>setReloadKey(k=>k+1)}>🔄 Sincronizar</button>
+        <button className="btn ocean" onClick={()=>setReloadKey(k=>k+1)}><Icon name="refresh" size={15} style={{marginRight:6}}/>Sincronizar</button>
         <button className="btn ghost" onClick={toggleMode}>{MODE==="graph"?"Cambiar a demo local":"Conectar a SharePoint"}</button></div>
       <div className="hint" style={{marginTop:8}}>El histórico se guarda en {MODE==="graph"?"SharePoint y se abre desde cualquier dispositivo al iniciar sesión.":"este navegador (modo demo)."}</div>
     </div>
-    {MODE==="graph" && <div className="card"><h3>🩺 Diagnóstico de Listas</h3>
+    {MODE==="graph" && <div className="card"><h3>Diagnóstico de Listas</h3>
       <div className="hint">Si algo no se graba, toca “Probar conexión”: te dirá exactamente dónde está el problema (sitio, listas o permiso de escritura).</div>
       <div className="row" style={{marginTop:10}}>
-        <button className="btn ocean" disabled={diag==="...probando..."} onClick={async()=>{ setDiag("...probando..."); try{ setDiag(await diagListas()); }catch(e){ setDiag("Error: "+(e.message||e)); } }}>▶ Probar conexión</button>
-        <button className="btn ghost" onClick={()=>{ if(confirm("Cerrar sesión de Microsoft y volver a entrar? Sirve para refrescar permisos recién concedidos.")) msSignOut(); }}>🔁 Reconectar Microsoft</button>
+        <button className="btn ocean" disabled={diag==="...probando..."} onClick={async()=>{ setDiag("...probando..."); try{ setDiag(await diagListas()); }catch(e){ setDiag("Error: "+(e.message||e)); } }}><Icon name="play" size={14} style={{marginRight:6}}/>Probar conexión</button>
+        <button className="btn ghost" onClick={()=>{ if(confirm("Cerrar sesión de Microsoft y volver a entrar? Sirve para refrescar permisos recién concedidos.")) msSignOut(); }}><Icon name="refresh" size={15} style={{marginRight:6}}/>Reconectar Microsoft</button>
       </div>
       {diag && <pre style={{whiteSpace:"pre-wrap",background:"#0e1b22",color:"#d6f0f4",padding:12,borderRadius:10,fontSize:12.5,marginTop:10,lineHeight:1.5}}>{diag}</pre>}
     </div>}
-    <div className="card"><h3>🪪 App Registration propia</h3>
+    <div className="card"><h3>App Registration propia</h3>
       <div className="hint">Pega aquí el <b>Client ID</b> de tu propia App Registration de Azure (queda separada de la del ILD). El Tenant ID es opcional (por defecto usa el mismo).</div>
       <ClientIdForm toast={toast}/></div>
-    <div className="card"><h3>📊 Exportar histórico a Excel</h3>
-      <div className="row">{["ILD","Compras","Sistemas","Mantenimiento"].map(t=><button key={t} className="btn green" onClick={()=>exportar(t)}>⬇ {t}</button>)}</div>
+    <div className="card"><h3>Exportar histórico a Excel</h3>
+      <div className="row">{["ILD","Compras","Sistemas","Mantenimiento"].map(t=><button key={t} className="btn green" onClick={()=>exportar(t)}><Icon name="download" size={15} style={{marginRight:6}}/>{t}</button>)}</div>
       <div className="hint" style={{marginTop:8}}>Cada jefatura también puede exportar sus ILD desde ILD → bandeja.</div></div>
-    <div className="card"><h3>📥 Histórico de ILD</h3>
+    <div className="card"><h3>Histórico de ILD</h3>
       <div className="hint">Carga los <b>{typeof ILD_SEED!=="undefined"?ILD_SEED.length:0} ILD reales</b> (junio) en el almacenamiento, sin duplicar los ya cargados.</div>
-      <button className="btn ocean block" style={{marginTop:10}} onClick={cargarHistorico}>📥 Cargar histórico de ILD</button></div>
+      <button className="btn ocean block" style={{marginTop:10}} onClick={cargarHistorico}><Icon name="inbox" size={15} style={{marginRight:6}}/>Cargar histórico de ILD</button></div>
     <NotifConfig toast={toast}/>
     <DeleteRecords toast={toast}/>
     <RenombrarPersona toast={toast}/>
     <ReasignarResp toast={toast}/>
-    <div className="card"><h3>👥 Usuarios y aprobadores</h3>
+    <div className="card"><h3>Usuarios y aprobadores</h3>
       <div className="hint">La gestión de colaboradores, áreas asignadas, PINs y aprobadores se hace en <b>ILD → Configurar</b> (rol Desarrollador). Personalización de checklists en <b>ILD → Checklist</b>.</div></div>
   </div>;
+}
+
+function BottomNav({user,view,go,counts}){
+  const items=[{id:"home",t:"Inicio",icon:"home"}];
+  if(puede(user,'ild')) items.push({id:"ild",t:"ILD",icon:"clipboard"});
+  if(puede(user,'compras')) items.push({id:"compras",t:"Compras",icon:"cart"});
+  if(puede(user,'sistemas')) items.push({id:"sistemas",t:"Sistemas",icon:"monitor"});
+  if(puede(user,'mantenimiento')) items.push({id:"mantenimiento",t:"Manten.",icon:"wrench"});
+  if(puede(user,'kanban')) items.push({id:"kanban",t:"Kanban",icon:"kanban"});
+  if(esDev(user)) items.push({id:"admin",t:"Config",icon:"gear"});
+  if(items.length<2) return null;
+  return <nav className="bnav">{items.map(it=>{ const on=view===it.id;
+    return <button key={it.id} className={on?"on":""} onClick={()=>go(it.id)}>
+      <span className="bic"><Icon name={it.icon} size={21}/>
+        {it.id!=="home" && counts[it.id]>0 && <span className="bbadge"/>}</span>
+      <span className="bl">{it.t}</span></button>; })}</nav>;
 }
 
 /* ===== APP ROOT ===== */
@@ -2872,7 +3029,7 @@ function App(){
   if(MODE==="graph" && !connected) return <div className="login"><div className="sun"></div><div className="lcard">
     <div className="lbrand"><span className="dot"></span>Playa Paraíso</div>
     <div className="ltag">Inicia sesión con tu cuenta Microsoft para usar la app. El histórico se guarda en SharePoint (Prueba7).</div>
-    <button className="btn ocean block" onClick={()=>msSignIn()}>🔗 Iniciar sesión con Microsoft</button>
+    <button className="btn ocean block" onClick={()=>msSignIn()}><Icon name="link" size={15} style={{marginRight:6}}/>Iniciar sesión con Microsoft</button>
     {msErr && <div className="lerr" style={{marginTop:12,whiteSpace:"normal"}}>{msErr}</div>}
     <button className="lback" onClick={()=>{localStorage.setItem("pp_mode","local");location.reload();}}>Usar modo demo local</button>
   </div></div>;
@@ -2880,14 +3037,14 @@ function App(){
   const rolLbl={desarrollador:"Desarrollador",gerencia:"Gerencia",aprobador:"Aprobador",colaborador:"Colaborador"}[user.rol]||user.rol;
   const titles={ild:"ILD",compras:"Compras",sistemas:"Sistemas",mantenimiento:"Mantenimiento",kanban:"Kanban",admin:"Configuración"};
   return <div className="app">
-    <div className="topbar"><div className="brand"><span className="logobox"><img src={LOGO} alt="Playa Paraíso"/></span></div><div className="sp"></div>
+    <div className="topbar"><div className="brand"><span className="logobox" onClick={()=>setView("home")} style={{cursor:"pointer"}}><img src={LOGO} alt="Playa Paraíso"/></span></div><div className="sp"></div>
       <div className="who">{user.nombre}<br/><span style={{opacity:.85}}>{rolLbl}</span></div>
-      <button className="iconbtn" title="Notificaciones" style={{position:"relative"}} onClick={()=>setNotifOpen(true)}>🔔
+      <button className="iconbtn" title="Notificaciones" style={{position:"relative"}} onClick={()=>setNotifOpen(true)}><Icon name="bell" size={19}/>
         {notifs.length>0 && <span style={{position:"absolute",top:-4,right:-4,background:"var(--coral)",color:"#fff",borderRadius:"999px",fontSize:10,fontWeight:800,minWidth:18,height:18,display:"grid",placeItems:"center",padding:"0 4px"}}>{notifs.length}</span>}</button>
-      <button className="iconbtn" title="Salir" onClick={logout}>⎋</button></div>
+      <button className="iconbtn" title="Salir" onClick={logout}><Icon name="logout" size={19}/></button></div>
     <div className="content">
-      {gerr && <div className="banner">⚠️ {gerr}</div>}
-      {view!=="home" && <div className="backrow"><button className="backbtn" onClick={()=>setView("home")}>← Inicio</button>
+      {gerr && <div className="banner"><Icon name="alert" size={15} style={{marginRight:6}}/>{gerr}</div>}
+      {view!=="home" && <div className="backrow"><button className="backbtn" onClick={()=>setView("home")}><Icon name="chevronLeft" size={16} style={{marginRight:6,marginLeft:-2}}/>Inicio</button>
         <span style={{color:"var(--muted)",fontWeight:600}}>{titles[view]}</span></div>}
       {view==="home" && <Home user={user} go={setView} counts={counts}/>}
       {view==="ild" && <ILD key={cfgVer} user={user} toast={toast} setFoto={setFoto} bump={bump}/>}
@@ -2897,10 +3054,11 @@ function App(){
       {view==="kanban" && <Kanban user={user} toast={toast} setFoto={setFoto}/>}
       {view==="admin" && <Admin user={user} toast={toast}/>}
     </div>
+    <BottomNav user={user} view={view} go={setView} counts={counts}/>
     {toastMsg && <div className="toast">{toastMsg}</div>}
     <FotoModal src={foto} onClose={()=>setFoto(null)}/>
-    {notifOpen && <Modal title="🔔 Notificaciones" onClose={()=>setNotifOpen(false)}>
-      {!notifs.length && <div className="empty"><div className="e">📭</div>No tienes notificaciones</div>}
+    {notifOpen && <Modal title="Notificaciones" onClose={()=>setNotifOpen(false)}>
+      {!notifs.length && <div className="empty"><div className="e"><Icon name="inbox" size={44}/></div>No tienes notificaciones</div>}
       {notifs.map(n=><div key={n.id} className="item" style={{cursor:"pointer"}} onClick={()=>abrirNotif(n)}>
         <div className="ttl" style={{fontSize:14}}>{n.texto}</div>
         <div className="meta">{fmtDT(n.fecha)} · toca para ver el ILD</div></div>)}
