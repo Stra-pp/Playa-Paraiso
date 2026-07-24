@@ -2480,9 +2480,11 @@ function Tickets({tipo,user,toast,setFoto}){
     try{
       const arr=await Store.read(tipo); const Codigo=nextCode(isSis?"SIS":"MTO",arr);
       const fotosT=await subirFotos(fotos,`${isSis?'SIS':'MTO'}_${Codigo}`,Codigo);
-      const solicitanteFinal=(isSis&&chief&&solicOtro)?solicOtro:user.nombre;
+      const esProg=chief&&solicOtro==="__prog";
+      const solicitanteFinal=esProg?"Tarea programada":((chief&&solicOtro)?solicOtro:user.nombre);
       const base={Codigo,id:gid(),FechaCreacion:nowISO(),Solicitante:solicitanteFinal,...f,
-        Fotos:fotosT,CreadoPor:user.nombre,AreaSolicitante:(isSis&&chief&&solicOtro)?areaOtro:"",
+        ...(esProg?(isSis?{Urgencia:"Tarea programada"}:{TipoSolicitud:"Tarea programada"}):{}),Programada:esProg?"Si":"",
+        Fotos:fotosT,CreadoPor:user.nombre,AreaSolicitante:(chief&&solicOtro&&!esProg)?areaOtro:"",
         Estado:"Nuevo",FechaTentativa:"",Asignado:"",ComentarioSoporte:"",FechaConcluido:"",
         EncuestaCal:"",EncuestaComentario:"",FechaEncuesta:""};
       await Store.write(tipo,[base,...arr]); Notif.ticketNuevo(base,user.nombre,tipo); toast("Ticket creado: "+Codigo);
@@ -2510,31 +2512,33 @@ function Tickets({tipo,user,toast,setFoto}){
     <p className="sub">{isSis?"Requerimiento de TI.":"Requerimiento de mantenimiento."}</p>
     <div className="seg" style={{flexWrap:"wrap"}}>
       <button className={tab==="nuevo"?"on":""} onClick={()=>setTab("nuevo")}>Nuevo</button>
-      <button className={tab==="mios"?"on":""} onClick={()=>{setTab("mios");load();}}>Mis tickets</button>
+      <button className={tab==="mios"?"on":""} onClick={()=>{setTab("mios");load();}}>{chief?"Tareas programadas":"Mis tickets"}</button>
+      {user.rol==='gerencia' && <button className={tab==="prog"?"on":""} onClick={()=>{setTab("prog");load();}}>Tareas programadas</button>}
       {verTareas&&<button className={tab==="tareas"?"on":""} onClick={()=>{setTab("tareas");load();}}>Mis tareas{asignadas.length?` (${asignadas.length})`:""}</button>}
       {verEquipo&&<button className={tab==="equipo"?"on":""} onClick={()=>{setTab("equipo");load();}}>Mi equipo</button>}
       {puede(user,`${tipo.toLowerCase()}.gestion`)&&<button className={tab==="gestion"?"on":""} onClick={()=>{setTab("gestion");load();}}>Gestión {esDev(user)?"(todo)":""}</button>}
       {puede(user,`${tipo.toLowerCase()}.tablero`)&&<button className={tab==="tablero"?"on":""} onClick={()=>{setTab("tablero");load();}}><Icon name="chart" size={15} style={{marginRight:6}}/>Tablero</button>}
     </div>
     {tab==="nuevo" && <div className="card">
-      {isSis && chief
-        ? <><Field label="Usuario que solicita" req hint="Soporte puede registrar a nombre de un aprobador. La encuesta le llegará a esa persona."><select className="inp" value={solicOtro} onChange={e=>setSolicOtro(e.target.value)}><option value="">Yo mismo ({user.nombre})</option>{aprobadores.map(n=><option key={n} value={n}>{n}</option>)}</select></Field>
-          <Field label="Área del solicitante" req><select className="inp" value={areaOtro} onChange={e=>setAreaOtro(e.target.value)}>{DEPTS.map(d=><option key={d}>{d}</option>)}</select></Field></>
+      {chief
+        ? <><Field label="Usuario que solicita" req hint="Puedes registrar a nombre de un aprobador (la encuesta le llegará a esa persona) o como Tarea programada (sin encuesta)."><select className="inp" value={solicOtro} onChange={e=>setSolicOtro(e.target.value)}><option value="">Yo mismo ({user.nombre})</option><option value="__prog">Tarea programada</option>{aprobadores.map(n=><option key={n} value={n}>{n}</option>)}</select></Field>
+          {solicOtro!=="__prog" && <Field label="Área del solicitante" req><select className="inp" value={areaOtro} onChange={e=>setAreaOtro(e.target.value)}>{DEPTS.map(d=><option key={d}>{d}</option>)}</select></Field>}</>
         : <Field label={isSis?"Nombre del solicitante":"Solicitante"}><input className="inp" value={user.nombre} disabled/></Field>}
       <Field label="Departamento" req><select className="inp" value={f.Departamento} onChange={e=>ch("Departamento",e.target.value)}>{(isSis?DEPTS_SIS:DEPTS).map(d=><option key={d}>{d}</option>)}</select></Field>
       {isSis ? <>
-        <Field label="Urgencia / Prioridad" req><select className="inp" value={f.Urgencia} onChange={e=>ch("Urgencia",e.target.value)}>{URGENCIA_SIS.map(d=><option key={d}>{d}</option>)}</select></Field>
+        <Field label="Urgencia / Prioridad" req>{(chief&&solicOtro==="__prog")?<input className="inp" value="Tarea programada" disabled/>:<select className="inp" value={f.Urgencia} onChange={e=>ch("Urgencia",e.target.value)}>{URGENCIA_SIS.map(d=><option key={d}>{d}</option>)}</select>}</Field>
         <Field label="Título de la tarea" req><input className="inp" value={f.Titulo} onChange={e=>ch("Titulo",e.target.value)} placeholder="Ej. Creación de usuario"/></Field>
         <Field label="Descripción del problema o solicitud" req hint="Describe con el mayor detalle posible."><textarea className="inp" value={f.Descripcion} onChange={e=>ch("Descripcion",e.target.value)}/></Field>
         <PhotoField fotos={fotos} setFotos={setFotos} label="Adjuntos (opcional)" setFoto={setFoto}/>
       </> : <>
         <Field label="Fecha de solicitud" req><input type="date" className="inp" value={f.FechaSolicitud} onChange={e=>ch("FechaSolicitud",e.target.value)}/></Field>
-        <Field label="Tipo de solicitud" req><select className="inp" value={f.TipoSolicitud} onChange={e=>ch("TipoSolicitud",e.target.value)}><option>Normal</option><option>Urgente</option></select></Field>
+        <Field label="Tipo de solicitud" req>{(chief&&solicOtro==="__prog")?<input className="inp" value="Tarea programada" disabled/>:<select className="inp" value={f.TipoSolicitud} onChange={e=>ch("TipoSolicitud",e.target.value)}><option>Normal</option><option>Urgente</option></select>}</Field>
         <Field label="Descripción de la novedad" req><textarea className="inp" value={f.Descripcion} onChange={e=>ch("Descripcion",e.target.value)} placeholder="Describe la novedad…"/></Field>
         <PhotoField fotos={fotos} setFotos={setFotos} label="Imagen de la novedad (opcional)" setFoto={setFoto}/>
       </>}
       <button className="btn primary block" disabled={busy} onClick={crear}>{busy?"Enviando…":"Crear ticket"}</button></div>}
-    {tab==="mios" && <Listado items={mios} empty="Aún no tienes tickets" render={r=><TicketCard r={r} isSis={isSis} chief={false} onAction={(t)=>setModal({t,item:r})}/>}/>}
+    {tab==="mios" && <Listado items={chief?rows.filter(r=>r.Programada==="Si"):mios} empty={chief?"Aún no hay tareas programadas":"Aún no tienes tickets"} render={r=><TicketCard r={r} isSis={isSis} chief={chief} equipo={equipo} onAction={(t)=>setModal({t,item:r})}/>}/>}
+    {tab==="prog" && <Listado items={rows.filter(r=>r.Programada==="Si")} empty="No hay tareas programadas" render={r=><TicketCard r={r} isSis={isSis} chief={chief} equipo={equipo} onAction={(t)=>setModal({t,item:r})}/>}/>}
     {tab==="equipo" && <Listado items={delEquipo} empty="Tu equipo aún no ha subido tickets" render={r=><TicketCard r={r} isSis={isSis} chief={false} onAction={(t)=>setModal({t,item:r})}/>}/>}
     {tab==="tareas" && <div>
       <div className="row" style={{margin:"0 0 12px",gap:8}}>
@@ -2589,7 +2593,7 @@ function TicketCard({r,isSis,chief,equipo,onAction}){
       {chief && isSis && ["Nuevo","Sin fecha asignada"].includes(r.Estado) && <button className="btn ocean" onClick={()=>onAction("tomar")}>Asignar fecha</button>}
       {chief && r.Estado==="En proceso" && <button className="btn green" onClick={()=>onAction("concluir")}>Concluir</button>}
       {chief && !["Concluido","Cerrado","Rechazado"].includes(r.Estado) && <button className="btn red" onClick={()=>onAction("rechazar")}>Rechazar</button>}
-      {!chief && r.Estado==="Concluido" && !r.EncuestaCal && <button className="btn primary" onClick={()=>onAction("encuesta")}>Calificar</button>}
+      {!chief && r.Programada!=="Si" && r.Estado==="Concluido" && !r.EncuestaCal && <button className="btn primary" onClick={()=>onAction("encuesta")}>Calificar</button>}
     </div></div>;
 }
 function TicketModal({tipo,isSis,modal,user,equipo,onClose,apply,toast,setFoto}){
