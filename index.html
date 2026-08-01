@@ -742,9 +742,24 @@ const fmtDT = s => { if(!s) return "—"; const d=new Date(s); if(isNaN(d)) retu
   return d.toLocaleString("es-EC",{timeZone:TZ_EC,day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}); };
 const yr = () => new Date().getFullYear();
 let _seq = Date.now()%100000;
-/* id único: milisegundo + 3 dígitos aleatorios. Evita que dos dispositivos generen el mismo id
-   (el esquema anterior, Date.now()%100000, se repetía cada 100 segundos). Sigue siendo numérico. */
-const gid = () => (Date.now()*1000 + Math.floor(Math.random()*1000));
+/* Identificador único, en texto.
+   El esquema original (Date.now()%100000 y sumar 1) repetía la semilla cada 100
+   segundos: dos equipos que abrían la app con esa diferencia generaban los mismos
+   ids, y uno terminaba sobrescribiendo los registros del otro sin aviso.
+   Un número tampoco alcanza: por encima de 2^53 se pierde precisión, así que solo
+   quedan 3 dígitos libres por milisegundo (1000 valores) y en ráfaga colisiona.
+   Con texto se combinan tres cosas y la unicidad queda garantizada:
+     - el milisegundo
+     - 4 caracteres al azar, fijos por dispositivo y sesión
+     - un contador que avanza dentro del mismo milisegundo
+   Se usa solo [a-z0-9] para que también sirva como nombre de carpeta. */
+const _gidDev = Math.random().toString(36).slice(2,6).padEnd(4,"0");
+let _gidT = 0, _gidN = 0;
+const gid = () => {
+  const t = Date.now();
+  if(t === _gidT) _gidN++; else { _gidT = t; _gidN = 0; }
+  return t.toString(36) + _gidDev + _gidN.toString(36);
+};
 const itemText = it => (typeof it==='object'&&it!==null)?it.t:it;
 const itemTipo = it => (typeof it==='object'&&it!==null&&it.tipo)?it.tipo:'foto';
 const fotosReq = area => (CL[area]||[]).filter(it=>itemTipo(it)==='foto').length;
