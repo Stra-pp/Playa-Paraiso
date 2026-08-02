@@ -727,7 +727,35 @@ function puede(u,cap){ if(esDev(u)) return true;
   if(ACCESOS && ACCESOS[u.rol] && (cap in ACCESOS[u.rol])) return !!ACCESOS[u.rol][cap];
   return defaultPuede(u,cap); }
 const areaModo = a => AMODO[a] || (a==='Áreas Públicas'?'lista':'normal');
-const equipoDe = u => { const a=new Set(u.areas||[]); return USERS.filter(x=>x.rol==='colaborador' && (x.areas||[]).some(ar=>a.has(ar))).map(x=>x.nombre); };
+/* Quiénes pueden recibir una asignación.
+   Antes se cruzaban solo las áreas del usuario contra las de los colaboradores.
+   Eso dejaba la lista vacía en dos casos reales:
+     - Gerencia y Desarrollador no tienen áreas asignadas.
+     - Una jefatura puede no tenerlas (hoy es el caso de Soporte Sistemas).
+   Ahora se prueban tres fuentes en orden y nunca se devuelve una lista vacía
+   cuando hay un módulo de por medio: bloquear la asignación es peor que
+   mostrar de más. */
+const equipoDe = (u, modulo) => {
+  const colabs = USERS.filter(x=>x.rol==='colaborador');
+  const porAreas = set => colabs.filter(x=>(x.areas||[]).some(ar=>set.has(ar))).map(x=>x.nombre);
+  const propias = new Set((u && u.areas) || []);
+  /* Gerencia y Desarrollador ven todos los módulos, así que el área que tengan
+     asignada es incidental y no dice a quién corresponde la tarea. Para ellos
+     manda el módulo, no su área. */
+  const amplio = esGD(u) || esDev(u);
+  // 1. áreas propias, para una jefatura de área
+  if(!amplio && propias.size){ const r = porAreas(propias); if(r.length) return r; }
+  // 2. áreas de las jefaturas que gestionan ese módulo
+  if(modulo){
+    const jefes = USERS.filter(x=>x.rol==='aprobador' && gestionaModulo(x,modulo));
+    const deJefes = new Set(jefes.reduce((acc,x)=>acc.concat(x.areas||[]),[]));
+    if(deJefes.size){ const r = porAreas(deJefes); if(r.length) return r; }
+  }
+  // 3. gerencia o desarrollador sin módulo que acote: sus propias áreas
+  if(amplio && propias.size){ const r = porAreas(propias); if(r.length) return r; }
+  // 4. último recurso: todos los colaboradores, antes que dejar la lista vacía
+  return (modulo || amplio) ? colabs.map(x=>x.nombre) : [];
+};
 
 /* ===== Helpers ===== */
 const TZ_EC="America/Guayaquil";
@@ -2973,7 +3001,8 @@ function Tickets({tipo,user,toast,setFoto}){
       : "El cambio quedó guardado en este equipo. Se reintentará."),60);
     return r; }
   const mios=rows.filter(r=>r.Solicitante===user.nombre);
-  const equipo=equipoDe(user); const verEquipo=user.rol==='aprobador' && equipo.length>0;
+  const equipo=equipoDe(user, isSis?'sistemas':'mantenimiento');
+  const verEquipo=(user.rol==='aprobador'||esGD(user)||esDev(user)) && equipo.length>0;
   const delEquipo=rows.filter(r=>equipo.includes(r.Solicitante));
   const asignadas=rows.filter(r=>!isSis && enEquipoMTO(r,user.nombre) && !["Cerrado","Rechazado"].includes(r.Estado));
   const verTareas=!isSis && ildAreasDe(user).includes('Mantenimiento') && user.rol==='colaborador';
