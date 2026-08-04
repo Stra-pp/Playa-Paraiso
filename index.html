@@ -1064,6 +1064,11 @@ const DIAS_CFG = {
   reglaOcup: { activa:false, umbral:40, areas:[] }  // bajo ese umbral, estas áreas no aplican
 };
 function patronDias(p){ return p==='finde'?[0,6]:p==='vsd'?[0,5,6]:p==='diario'?[0,1,2,3,4,5,6]:null; }
+/* Un ILD marcado como duplicado sigue existiendo con sus fotos y su revisión,
+   pero no cuenta para métricas ni vuelve a pedir aprobación. La marca se pone
+   en el campo duplicadoDe, que apunta al registro que sí cuenta. */
+function esDuplicado(r){ return !!(r && r.duplicadoDe!=null && r.duplicadoDe!==''); }
+function sinDuplicados(a){ return (a||[]).filter(r=>!esDuplicado(r)); }
 function isoYMD(y,m,d){ return `${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`; }
 
 /* ¿Le toca a esta área inspeccionar este día? Se resuelve en tres capas,
@@ -1525,6 +1530,26 @@ async function subirFotosEstricto(fotos, dir, prefijo){
 const Cola = {
   /* Encola un CAMBIO sobre un registro que ya existe (aprobar, concluir, asignar…). */
   async cambio(payload, quien){
+    /* Si ya hay un cambio pendiente que lleva ESTE registro al MISMO estado,
+       se reemplaza en vez de agregar otro. Es lo que pasaba cuando la red fallaba:
+       la persona volvía a tocar "Aprobar" y quedaban tres cambios idénticos en fila.
+       Los agregados (avances) no se deduplican: cada uno es un texto distinto. */
+    const campoEst = payload.campoEstado || "Estado";
+    const destino = payload.patch ? payload.patch[campoEst] : undefined;
+    if(destino!=null){
+      try{
+        const ds = await DDB.all();
+        const gemelo = ds.find(d => d.payload && d.payload.clase==="cambio" && !d.conflicto
+          && d.payload.tabla===payload.tabla
+          && String(d.payload.recId)===String(payload.recId)
+          && (d.payload.patch ? d.payload.patch[d.payload.campoEstado||"Estado"] : undefined)===destino);
+        if(gemelo){
+          await DDB.put({ ...gemelo, intentos:0, error:"",
+            payload:{ ...payload, clase:"cambio", patchId:gemelo.payload.patchId, creado:gemelo.payload.creado } });
+          return gemelo;
+        }
+      }catch(e){}
+    }
     const it = { id: gid(), tabla: payload.tabla, quien: quien||"", conflicto:"",
                  payload: { ...payload, clase:"cambio", patchId: payload.patchId || ("p"+gid()), creado: nowISO() },
                  intentos: 0, error: "", createdAt: nowISO() };
@@ -1572,7 +1597,7 @@ const Cola = {
           const r = esCambio ? await colaAplicarCambio(d) : await colaEnviarUno(d);
           if(r.conflicto){
             conf++;
-            await DDB.put({ ...d, conflicto:`Mientras estabas sin señal, alguien lo cambió a "${r.actual}". Tu cambio esperaba "${r.esperado}".` });
+            await DDB.put({ ...d, conflicto:`Otra persona lo movió a "${r.actual}". Tu cambio salía de "${r.esperado}" y no se aplicó para no borrar su trabajo.` });
             if(onPaso) try{ await onPaso(); }catch(_){}
             continue;
           }
@@ -1660,9 +1685,21 @@ async function colaAplicarCambio(d){
   if(pl.patchId && hechos.indexOf(pl.patchId)>=0) return { dup:true, codigo:rec.Codigo };
 
   /* ILD guarda el estado en "estado" y los demás módulos en "Estado". */
+  /* Un conflicto solo existe si se cumplen tres cosas a la vez:
+       a. el cambio mueve el estado (un avance o un comentario no compiten con nadie),
+       b. el registro no está donde yo lo dejé, y
+       c. tampoco está ya donde yo lo quería llevar.
+     Si falta cualquiera de las tres, el cambio se aplica sin molestar a nadie.
+     El último caso es frecuente: dos personas concluyen la misma tarea. No es un
+     conflicto, es que ya está hecho — y se aplica igual para no perder el
+     comentario ni las horas que traía este cambio. */
   const campoEst = pl.campoEstado || "Estado";
-  if(!pl.forzar && pl.estadoPrevio!=null && rec[campoEst]!=null && rec[campoEst]!==pl.estadoPrevio)
-    return { conflicto:true, actual:rec[campoEst], esperado:pl.estadoPrevio, codigo:rec.Codigo };
+  const actual = rec[campoEst];
+  const destino = pl.patch ? pl.patch[campoEst] : undefined;
+  if(!pl.forzar && destino!=null && pl.estadoPrevio!=null && actual!=null
+     && actual!==pl.estadoPrevio && actual!==destino){
+    return { conflicto:true, actual, esperado:pl.estadoPrevio, codigo:rec.Codigo };
+  }
 
   const extra = {};
   if((pl.fotos||[]).length){
@@ -1893,8 +1930,11 @@ function ILDForm({user,toast,onSaved,setFoto,onDraft}){
 
 function ILDPanel({user,regs,reload,toast,setFoto}){
   const [filtro,setFiltro]=useState("todos"); const [per,setPer]=useState(90); const [det,setDet]=useState(null); const [fGrupo,setFGrupo]=useState("__todas");
+  const [verDup,setVerDup]=useState(false);
   const lim=new Date(); lim.setDate(lim.getDate()-per);
   let base=regs.filter(r=>new Date(r.fecha)>=lim);
+  const nDupPeriodo=base.filter(esDuplicado).length;
+  if(!verDup) base=base.filter(r=>!esDuplicado(r));
   const esSuyo=r=>(user.areas||[]).includes(r.area)||r.aprobadorEsperado===user.nombre||r.aprobador===user.nombre;
   if(!esGD(user)) base=base.filter(esSuyo);
   const grupoDe=r=>(AC[r.area]&&AC[r.area].g)||"(otros)";
@@ -1922,12 +1962,20 @@ function ILDPanel({user,regs,reload,toast,setFoto}){
       {[[30,"30d"],[90,"90d"],[365,"1 año"]].map(([d,l])=>
         <button key={d} className={"btn "+(per===d?"ocean":"ghost")} style={{padding:"8px 14px"}} onClick={()=>setPer(d)}>{l}</button>)}
     </div>
+    {nDupPeriodo>0 && <div className="row" style={{marginBottom:12,alignItems:"center",gap:8,flexWrap:"wrap"}}>
+      <span style={{fontSize:12.5,color:"var(--muted)",flex:1,minWidth:180}}>
+        {nDupPeriodo} ILD marcados como duplicados. No cuentan para métricas ni requieren aprobación.</span>
+      <button className={"btn "+(verDup?"ocean":"ghost")} style={{padding:"8px 12px",fontSize:12.5}} onClick={()=>setVerDup(v=>!v)}>
+        {verDup?"Ocultarlos":"Verlos"}</button>
+    </div>}
     {!base.length && <div className="empty"><div className="e"><Icon name="inbox" size={44}/></div>No hay ILD en este período</div>}
     {base.map(r=><div key={r.id} className="item" onClick={()=>setDet(r)}>
       <div className="top"><div>
         <div className="code">{r.Codigo||("ILD #"+r.id)}</div>
         <div className="ttl">{r.area}{r.turno?` · ${r.turno}`:""}</div>
         <div className="meta">{r.usuario} · {fmtDT(r.fecha)} · 📷 {(r.fotos||[]).length} · ✓ {r.completados}/{r.totalItems}</div>
+        {esDuplicado(r) && <div className="meta" style={{marginTop:4,color:"#8f2020",fontWeight:700}}>
+          Duplicado de {r.duplicadoCodigo||r.duplicadoDe} · no cuenta para métricas</div>}
       </div><Pill estado={r.estado==="Con observaciones"?"Con observaciones":r.estado==="Aprobado"?"Aprobado":"Solicitado"}/></div></div>)}
     {det && <ILDDetail user={user} r={det} onClose={()=>setDet(null)} reload={reload} toast={toast} setFoto={setFoto}/>}
   </div>;
@@ -1935,18 +1983,24 @@ function ILDPanel({user,regs,reload,toast,setFoto}){
 
 function ILDMios({user,regs,setFoto}){
   const [det,setDet]=useState(null);
-  const mios=regs.filter(r=>r.usuario===user.nombre).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
-  const ap=mios.filter(r=>r.estado==='Aprobado').length, ob=mios.filter(r=>r.estado==='Con observaciones').length, pe=mios.filter(r=>r.estado==='Pendiente').length;
+  const todosMios=regs.filter(r=>r.usuario===user.nombre).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+  const mios=todosMios;
+  const validos=sinDuplicados(todosMios);
+  const nDup=todosMios.length-validos.length;
+  const ap=validos.filter(r=>r.estado==='Aprobado').length, ob=validos.filter(r=>r.estado==='Con observaciones').length, pe=validos.filter(r=>r.estado==='Pendiente').length;
   return <div>
     <div className="kpis">
-      {[["Total",mios.length,"--blue"],["Aprobados",ap,"--green"],["Con obs.",ob,"--purple"],["Pendientes",pe,"--amber"]].map(([l,v,c])=>
+      {[["Total",validos.length,"--blue"],["Aprobados",ap,"--green"],["Con obs.",ob,"--purple"],["Pendientes",pe,"--amber"]].map(([l,v,c])=>
         <div className="kpi" key={l} style={{borderTop:"3px solid "+cssVar(c)}}><div className="kn" style={{color:cssVar(c)}}>{v}</div><div className="kl">{l}</div></div>)}
     </div>
+    {nDup>0 && <div className="hint" style={{marginBottom:10}}>
+      {nDup} de tus envíos quedaron marcados como duplicados y no se cuentan. Se conservan con sus fotos; aparecen abajo señalados.</div>}
     {!mios.length && <div className="empty"><div className="e"><Icon name="clipboard" size={44}/></div>Aún no has subido ILD</div>}
     {mios.map(r=><div key={r.id} className="item" onClick={()=>setDet(r)} style={{cursor:"pointer"}}>
       <div className="top"><div>
         <div className="code">{r.Codigo||("ILD-"+r.id)}</div>
         <div className="ttl">{r.area}{r.turno?` · ${r.turno}`:""}</div>
+        {esDuplicado(r) && <div className="meta" style={{color:"#8f2020",fontWeight:700}}>Duplicado de {r.duplicadoCodigo||r.duplicadoDe}</div>}
         <div className="meta">{fmtDT(r.fecha)}{r.aprobador?` · revisó: ${r.aprobador}`:""}</div></div>
         <Pill estado={r.estado==="Con observaciones"?"Con observaciones":r.estado==="Aprobado"?"Aprobado":"Solicitado"}/></div>
       {(r.notaJef||r.notaGerencia) && <div className="meta" style={{marginTop:6}}><Icon name="chat" size={15} style={{marginRight:6}}/>Toca para ver el comentario</div>}</div>)}
@@ -2006,6 +2060,17 @@ function actaILD(r){
 }
 function ILDDetail({user,r,onClose,reload,toast,setFoto}){
   const items=itemsDe(r);
+  /* ¿Hay ya un cambio de este ILD esperando en la cola? Si lo hay, no se vuelve
+     a ofrecer el botón de aprobar: repetirlo solo llenaba la cola de gemelos. */
+  const [pendCola,setPendCola]=useState(null);
+  useEffect(()=>{ let vivo=true;
+    (async()=>{ try{ const c=await Cola.todas();
+      const m=c.find(d=>d.payload && d.payload.clase==="cambio" && d.payload.tabla==="ILD"
+        && String(d.payload.recId)===String(r.id));
+      if(vivo) setPendCola(m||null);
+    }catch(e){ if(vivo) setPendCola(null); } })();
+    return ()=>{ vivo=false; };
+  },[r.id]);
   const esApro=user.rol==='aprobador'&&(user.areas||[]).includes(r.area);
   const esGer=user.rol==='gerencia', esDevv=user.rol==='desarrollador';
   const puedeAprobar=esDevv||esApro||esGer;
@@ -2066,7 +2131,18 @@ function ILDDetail({user,r,onClose,reload,toast,setFoto}){
     {r.notaJef && <div className="note jef"><b><Icon name="chat" size={15} style={{marginRight:6}}/>{r.aprobador} · {fmtDT(r.fechaAprobacion)}</b><div>{r.notaJef}</div></div>}
     {r.notaGerencia && <div className="note ger"><b><Icon name="building" size={15} style={{marginRight:6}}/>Gerencia</b><div>{r.notaGerencia}</div></div>}
 
-    {puedeAprobar && r.estado==='Pendiente' && <div className="card" style={{marginTop:12}}>
+    {pendCola && !pendCola.conflicto && <div className="card" style={{marginTop:12,background:"#FFF4E0",borderColor:"#F3D9A6"}}>
+      <b style={{color:"#7a5a12"}}>Tu revisión ya está guardada, esperando señal</b>
+      <div style={{fontSize:13,marginTop:4}}>No hace falta volver a aprobar: se enviará sola cuando vuelva el internet.
+      Repetirla no la adelanta.</div>
+    </div>}
+    {esDuplicado(r) && <div className="card" style={{marginTop:12,background:"#FDF0F0",borderColor:"#F3C9C9"}}>
+      <b style={{color:"#8f2020"}}>Marcado como duplicado</b>
+      <div style={{fontSize:13,marginTop:4}}>Este ILD repite a <b>{r.duplicadoCodigo||r.duplicadoDe}</b>. Se conserva con sus fotos como respaldo,
+      pero no cuenta para métricas ni necesita aprobación.</div>
+      <div className="hint" style={{marginTop:6}}>Marcado por {r.duplicadoMarcadoPor||"—"}{r.duplicadoFecha?" el "+fmtDate(r.duplicadoFecha):""}.</div>
+    </div>}
+    {puedeAprobar && !esDuplicado(r) && !(pendCola && !pendCola.conflicto) && r.estado==='Pendiente' && <div className="card" style={{marginTop:12}}>
       <h3>Aprobación</h3>
       <textarea className="inp" placeholder="Observación (opcional)…" value={nota} onChange={e=>setNota(e.target.value)}/>
       <div className="row" style={{marginTop:10}}>
@@ -2095,7 +2171,7 @@ function ILDDash({user,regs}){
   const filasDe=area=>{ const ac=AC[area]; if(!ac) return [];
     const turnos = ac.turno ? ["Apertura","Cierre"] : [ac.t||"Diurno"]; return turnos; };
   function rowData(area,turno){
-    const recs=regs.filter(r=>r.area===area && (AC[area]?.turno ? r.turno===turno : true)
+    const recs=regs.filter(r=>!esDuplicado(r) && r.area===area && (AC[area]?.turno ? r.turno===turno : true)
       && new Date(r.fecha).getFullYear()===year && new Date(r.fecha).getMonth()===mes);
     const ap=recs.filter(r=>r.estado==='Aprobado').length;
     const ob=recs.filter(r=>r.estado==='Con observaciones').length;
@@ -2769,7 +2845,11 @@ function Compras({user,toast,setFoto}){
   async function apply(ref,patch,nota,extras){
     const rid=(ref&&typeof ref==="object")?ref.id:ref;
     const cod=(ref&&typeof ref==="object")?(ref.Codigo||""):"";
-    const prev=(ref&&typeof ref==="object")?ref.Estado:undefined;
+    /* La ventana abierta puede tener una copia vieja del registro. Si la lista
+       ya se recargó, ese dato es más reciente que el de la ventana. */
+    const fila=(rows||[]).find(x=>x.id===rid);
+    const base=fila||((ref&&typeof ref==="object")?ref:null);
+    const prev=base?base.Estado:undefined;
     await Cola.cambio({ tabla:"Compras", recId:rid, recCodigo:cod, patch:patch||{}, nota:nota||"",
       estadoPrevio:prev, campoEstado:"Estado", ...(extras||{}),
       resumen:{ titulo:((patch&&patch.Estado)?"→ "+patch.Estado:"Cambio")+(cod?" · "+cod:""), sub:"Compras" } }, user.nombre);
@@ -2987,7 +3067,11 @@ function Tickets({tipo,user,toast,setFoto}){
   async function apply(ref,patch,nota,extras){
     const rid=(ref&&typeof ref==="object")?ref.id:ref;
     const cod=(ref&&typeof ref==="object")?(ref.Codigo||""):"";
-    const prev=(ref&&typeof ref==="object")?ref.Estado:undefined;
+    /* La ventana abierta puede tener una copia vieja del registro. Si la lista
+       ya se recargó, ese dato es más reciente que el de la ventana. */
+    const fila=(rows||[]).find(x=>x.id===rid);
+    const base=fila||((ref&&typeof ref==="object")?ref:null);
+    const prev=base?base.Estado:undefined;
     await Cola.cambio({ tabla:tipo, recId:rid, recCodigo:cod, patch:patch||{}, nota:nota||"",
       estadoPrevio:prev, campoEstado:"Estado", ...(extras||{}),
       resumen:{ titulo:((patch&&patch.Estado)?"→ "+patch.Estado:"Cambio")+(cod?" · "+cod:""), sub:tipo } }, user.nombre);
@@ -3699,7 +3783,7 @@ function App(){
       compras:pendChief(c,"compras",["Solicitado","En Gerencia","En compra","Listo para entregar"]),
       sistemas:pendChief(s,"sistemas",["Nuevo","Sin fecha asignada","En proceso"]),
       mantenimiento:pendChief(m,"mantenimiento",["Nuevo","Sin fecha asignada","En proceso"]),
-      ild:(esGD(who)||who.rol==='aprobador')?il.filter(r=>r.estado==='Pendiente'&&(esGD(who)||(who.areas||[]).includes(r.area))).length:0
+      ild:(esGD(who)||who.rol==='aprobador')?il.filter(r=>!esDuplicado(r)&&r.estado==='Pendiente'&&(esGD(who)||(who.areas||[]).includes(r.area))).length:0
     });
   }
   useEffect(()=>{ if(user){ reloadCounts(); loadNotifs(); } },[user,view,cfgVer]);
