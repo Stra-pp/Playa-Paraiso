@@ -3141,19 +3141,21 @@ function Tickets({tipo,user,toast,setFoto}){
     return r; }
   const mios=rows.filter(r=>r.Solicitante===user.nombre);
   const equipo=equipoDe(user, isSis?'sistemas':'mantenimiento');
-  const verEquipo=(user.rol==='aprobador'||esGD(user)||esDev(user)) && equipo.length>0;
+  /* "Mi equipo" listaba los tickets SOLICITADOS por los técnicos, que no es lo que
+     una jefatura de mantenimiento necesita ver: sus tareas ya están en Gestión y en
+     Productividad. Queda solo en Sistemas. */
+  const verEquipo=isSis && (user.rol==='aprobador'||esGD(user)||esDev(user)) && equipo.length>0;
   const delEquipo=rows.filter(r=>equipo.includes(r.Solicitante));
   const asignadas=rows.filter(r=>!isSis && enEquipoMTO(r,user.nombre) && !["Cerrado","Rechazado"].includes(r.Estado));
   const verTareas=!isSis && ildAreasDe(user).includes('Mantenimiento') && user.rol==='colaborador';
   const [soloHoy,setSoloHoy]=useState(false); const [gHoy,setGHoy]=useState(false); const [gFiltro,setGFiltro]=useState("todas");
   const hoyStr=hoyEC();
   const tareasMostrar=soloHoy?asignadas.filter(r=>(r.FechaTentativa||"").slice(0,10)===hoyStr):asignadas;
-  let gestionRows=gHoy?rows.filter(r=>(r.FechaTentativa||"").slice(0,10)===hoyStr):rows;
-  let gView=gestionRows;
-  if(gFiltro==="nuevas") gView=gView.filter(r=>bucketEstado(r.Estado)==="nuevas").sort((a,b)=>new Date(fechaBase(a))-new Date(fechaBase(b)));
-  else if(gFiltro==="proceso") gView=gView.filter(r=>bucketEstado(r.Estado)==="proceso");
-  else if(gFiltro==="concluidas") gView=gView.filter(r=>bucketEstado(r.Estado)==="concluidas");
-  else if(gFiltro==="v15") gView=gView.filter(r=>bucketEstado(r.Estado)==="nuevas" && diasEnEstado(r)>=15).sort((a,b)=>new Date(fechaBase(a))-new Date(fechaBase(b)));
+  /* Gestión son los requerimientos que llegan del hotel. Las tareas programadas
+     son planificación interna y tienen su propia pestaña: mezclarlas distorsionaba
+     los conteos y los tiempos de respuesta. */
+  const correctivas=rows.filter(r=>r.Programada!=="Si");
+  const programadas=rows.filter(r=>r.Programada==="Si");
   return <div>
     <h1 className="h1">{isSis?"Soporte de Sistemas":"Mantenimiento"}</h1>
     <p className="sub">{isSis?"Requerimiento de TI.":"Requerimiento de mantenimiento."}</p>
@@ -3185,8 +3187,14 @@ function Tickets({tipo,user,toast,setFoto}){
         <PhotoField fotos={fotos} setFotos={setFotos} label="Imagen de la novedad (opcional)" setFoto={setFoto}/>
       </>}
       <button className="btn primary block" disabled={busy} onClick={crear}>{busy?"Enviando…":"Crear ticket"}</button></div>}
-    {tab==="mios" && <Listado items={chief?rows.filter(r=>r.Programada==="Si"):mios} empty={chief?"Aún no hay tareas programadas":"Aún no tienes tickets"} render={r=><TicketCard r={r} isSis={isSis} chief={chief} equipo={equipo} onAction={(t)=>setModal({t,item:r})}/>}/>}
-    {tab==="prog" && <Listado items={rows.filter(r=>r.Programada==="Si")} empty="No hay tareas programadas" render={r=><TicketCard r={r} isSis={isSis} chief={chief} equipo={equipo} onAction={(t)=>setModal({t,item:r})}/>}/>}
+    {tab==="mios" && (chief
+      ? <ListaFiltrada items={programadas} tipo={tipo} isSis={isSis} chief={chief} equipo={equipo}
+          onAction={(t,r)=>setModal({t,item:r})} vacio="Aún no hay tareas programadas" unidad="tarea(s) programada(s)"
+          toast={toast} nombreExport={`${tipo}_Programadas_PlayaParaiso`}/>
+      : <Listado items={mios} empty="Aún no tienes tickets" render={r=><TicketCard r={r} isSis={isSis} chief={chief} equipo={equipo} onAction={(t)=>setModal({t,item:r})}/>}/>)}
+    {tab==="prog" && <ListaFiltrada items={programadas} tipo={tipo} isSis={isSis} chief={chief} equipo={equipo}
+      onAction={(t,r)=>setModal({t,item:r})} vacio="No hay tareas programadas" unidad="tarea(s) programada(s)"
+      toast={toast} nombreExport={`${tipo}_Programadas_PlayaParaiso`}/>}
     {tab==="equipo" && <Listado items={delEquipo} empty="Tu equipo aún no ha subido tickets" render={r=><TicketCard r={r} isSis={isSis} chief={false} onAction={(t)=>setModal({t,item:r})}/>}/>}
     {tab==="tareas" && <div>
       <div className="row" style={{margin:"0 0 12px",gap:8}}>
@@ -3194,20 +3202,9 @@ function Tickets({tipo,user,toast,setFoto}){
         <button className={"btn "+(soloHoy?"primary":"ghost")} onClick={()=>setSoloHoy(true)}><Icon name="calendar" size={15} style={{marginRight:6}}/>Hoy ({asignadas.filter(r=>(r.FechaTentativa||"").slice(0,10)===hoyStr).length})</button></div>
       <Listado items={tareasMostrar} empty={soloHoy?"No tienes tareas para hoy":"No tienes tareas asignadas"}
         render={r=><TareaCard r={r} onAction={(t)=>setModal({t,item:r})}/>}/></div>}
-    {tab==="gestion" && <div>
-      <div className="seg" style={{flexWrap:"wrap"}}>
-        <button className={gFiltro==="todas"?"on":""} onClick={()=>setGFiltro("todas")}>Todas</button>
-        <button className={gFiltro==="nuevas"?"on":""} onClick={()=>setGFiltro("nuevas")}>🆕 Nuevas</button>
-        <button className={gFiltro==="proceso"?"on":""} onClick={()=>setGFiltro("proceso")}>🔄 En proceso</button>
-        <button className={gFiltro==="concluidas"?"on":""} onClick={()=>setGFiltro("concluidas")}>✅ Concluidas / cerradas</button>
-        <button className={gFiltro==="v15"?"on":""} onClick={()=>setGFiltro("v15")}>⏰ +15 días en nuevo</button>
-      </div>
-      <div className="row" style={{margin:"8px 0 12px",gap:8,flexWrap:"wrap"}}>
-        <button className={"btn "+(gHoy?"ghost":"primary")} onClick={()=>setGHoy(false)}>Todas fechas</button>
-        <button className={"btn "+(gHoy?"primary":"ghost")} onClick={()=>setGHoy(true)}>📅 Vencen hoy ({rows.filter(r=>(r.FechaTentativa||"").slice(0,10)===hoyStr).length})</button>
-        <button className="btn ocean" onClick={()=>{ if(!exportXLSX(gView,tipo,`${tipo}_PlayaParaiso`)) toast("No hay datos para exportar"); else toast("Exportando…"); }}>⬇️ Exportar</button></div>
-      <div className="kcount">{gView.length} ticket(s)</div>
-      <Listado items={gView} empty="No hay tickets en este filtro" render={r=><TicketCard r={r} isSis={isSis} chief={chief} equipo={equipo} onAction={(t)=>setModal({t,item:r})}/>}/></div>}
+    {tab==="gestion" && <ListaFiltrada items={correctivas} tipo={tipo} isSis={isSis} chief={chief} equipo={equipo}
+      onAction={(t,r)=>setModal({t,item:r})} vacio="No hay tickets en este filtro" unidad="ticket(s)"
+      toast={toast} nombreExport={`${tipo}_PlayaParaiso`}/>}
     {tab==="tablero" && <Tablero tipo={tipo}/>}
     {tab==="prod" && !isSis && <ProductividadMant rows={rows}/>}
     {modal && <TicketModal tipo={tipo} isSis={isSis} modal={modal} user={user} equipo={equipo} onClose={()=>setModal(null)} apply={apply} toast={toast} setFoto={setFoto}/>}
@@ -3240,6 +3237,40 @@ function respuestaHrs(r){
 }
 function fmtHrs(h){ if(h==null) return "—"; if(h<24) return (Math.round(h*10)/10)+" h";
   return (Math.round(h/24*10)/10)+" d"; }
+
+/* Barra de filtros + listado. La usan Gestión y Tareas programadas, así las dos
+   tienen exactamente los mismos filtros y no hay dos copias del mismo código.
+   Cada instancia lleva su propio estado: cambiar de pestaña no arrastra el filtro. */
+function ListaFiltrada({items,tipo,isSis,chief,equipo,onAction,vacio,unidad,toast,nombreExport}){
+  const [fil,setFil]=useState("todas");
+  const [soloHoy,setSoloHoy]=useState(false);
+  const hoyStr=hoyEC();
+  const base = soloHoy ? (items||[]).filter(r=>(r.FechaTentativa||"").slice(0,10)===hoyStr) : (items||[]);
+  const porFecha=(a,b)=>new Date(fechaBase(a))-new Date(fechaBase(b));
+  let v=base;
+  if(fil==="nuevas") v=base.filter(r=>bucketEstado(r.Estado)==="nuevas").sort(porFecha);
+  else if(fil==="proceso") v=base.filter(r=>bucketEstado(r.Estado)==="proceso");
+  else if(fil==="concluidas") v=base.filter(r=>bucketEstado(r.Estado)==="concluidas");
+  else if(fil==="v15") v=base.filter(r=>bucketEstado(r.Estado)==="nuevas" && diasEnEstado(r)>=15).sort(porFecha);
+  const venceHoy=(items||[]).filter(r=>(r.FechaTentativa||"").slice(0,10)===hoyStr).length;
+  return <div>
+    <div className="seg" style={{flexWrap:"wrap"}}>
+      <button className={fil==="todas"?"on":""} onClick={()=>setFil("todas")}>Todas</button>
+      <button className={fil==="nuevas"?"on":""} onClick={()=>setFil("nuevas")}>🆕 Nuevas</button>
+      <button className={fil==="proceso"?"on":""} onClick={()=>setFil("proceso")}>🔄 En proceso</button>
+      <button className={fil==="concluidas"?"on":""} onClick={()=>setFil("concluidas")}>✅ Concluidas / cerradas</button>
+      <button className={fil==="v15"?"on":""} onClick={()=>setFil("v15")}>⏰ +15 días en nuevo</button>
+    </div>
+    <div className="row" style={{margin:"8px 0 12px",gap:8,flexWrap:"wrap"}}>
+      <button className={"btn "+(soloHoy?"ghost":"primary")} onClick={()=>setSoloHoy(false)}>Todas fechas</button>
+      <button className={"btn "+(soloHoy?"primary":"ghost")} onClick={()=>setSoloHoy(true)}>📅 Vencen hoy ({venceHoy})</button>
+      <button className="btn ocean" onClick={()=>{ if(!exportXLSX(v,tipo,nombreExport||`${tipo}_PlayaParaiso`)) toast("No hay datos para exportar"); else toast("Exportando…"); }}>⬇️ Exportar</button>
+    </div>
+    <div className="kcount">{v.length} {unidad||"ticket(s)"}{["nuevas","proceso","v15"].includes(fil)?" · de la más antigua a la más reciente":""}</div>
+    <Listado items={v} empty={vacio||"No hay registros en este filtro"}
+      render={r=><TicketCard r={r} isSis={isSis} chief={chief} equipo={equipo} onAction={(t)=>onAction(t,r)}/>}/>
+  </div>;
+}
 
 function TareaCard({r,onAction}){
   const venc = r.FechaTentativa && (r.FechaTentativa||"").slice(0,10) < hoyEC() && !["Concluido","Cerrado"].includes(r.Estado);
