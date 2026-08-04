@@ -1435,18 +1435,21 @@ function ILD({user,toast,setFoto,bump}){
   const [tab,setTab]=useState(esGer?"bandeja":"nuevo");
   const [regs,setRegs]=useState([]);
   const [drafts,setDrafts]=useState([]);
-  const cargarDrafts=async()=>{ try{ setDrafts(await Cola.todas(user.nombre)); }catch(e){} };
+  /* Ids de ILD que ya tienen una revisión esperando en la cola. Se sacan de la
+     bandeja: si siguen apareciendo como Pendiente, la gente los vuelve a aprobar. */
+  const [enCola,setEnCola]=useState([]);
+  const cargarDrafts=async()=>{ try{ const c=await Cola.todas(user.nombre); setDrafts(c);
+    setEnCola(c.filter(d=>d.payload&&d.payload.clase==="cambio"&&d.payload.tabla==="ILD"&&!d.conflicto)
+      .map(d=>String(d.payload.recId))); }catch(e){} };
   async function enviarPendientes(silencioso){
     if(!navigator.onLine){ if(!silencioso)toast("Aún sin conexión. Intenta cuando tengas internet."); return; }
-    const pend=await Cola.todas(user.nombre); if(!pend.length){ if(!silencioso)toast("No hay formularios pendientes por enviar."); return; }
-    if(Cola.ocupado()){ if(!silencioso)toast("Ya se está enviando. Espera un momento."); return; }
-    if(!silencioso) toast("Enviando pendientes…");
+    const pend=await Cola.todas(user.nombre); if(!pend.length){ if(!silencioso)toast("No hay nada pendiente."); return; }
+    if(Cola.ocupado()) return;
     const r=await Cola.enviar(user.nombre, cargarDrafts); await cargarDrafts(); load();
-    if(r.ocupado) return;
-    const yaEstaban = r.dup ? ` ${r.dup} ya se habían aplicado antes (no se duplicaron).` : "";
-    const enConflicto = r.conf ? ` ${r.conf} en conflicto: revísalos abajo.` : "";
-    toast(r.fail ? `Enviados ${r.ok} de ${r.total}. ${r.fail} siguen pendientes (revisa la señal).${yaEstaban}${enConflicto}`
-                 : `Listo: ${r.ok} pendiente(s) enviado(s).${yaEstaban}${enConflicto} ✅`);
+    if(r.ocupado || silencioso) return;
+    if(r.sinRed) toast("Sin conexión todavía.");
+    else if(r.fail) toast(`Quedan ${r.fail} por enviar.`);
+    else if(r.ok) toast(`Listo, se enviaron ${r.ok}.`);
   }
   const load=async()=>setRegs(await Store.readDesde("ILD", desdeDias(150)));
   useEffect(()=>{load(); cargarDrafts();},[]);
@@ -1467,8 +1470,8 @@ function ILD({user,toast,setFoto,bump}){
     </div>}
     {tab==="nuevo" && showNuevo && <ILDForm user={user} toast={toast} onSaved={()=>{load();setTab("mios");}} onDraft={()=>{cargarDrafts();setTab("drafts");}} setFoto={setFoto}/>}
     {tab==="mios" && showNuevo && <ILDMios user={user} regs={regs} setFoto={setFoto}/>}
-    {tab==="drafts" && showNuevo && <DraftsPanel drafts={drafts} onEnviar={()=>enviarPendientes(false)} onReload={cargarDrafts} setFoto={setFoto} toast={toast}/>}
-    {tab==="bandeja" && <ILDPanel user={user} regs={regs} reload={load} toast={toast} setFoto={setFoto}/>}
+    {tab==="drafts" && showNuevo && <DraftsPanel user={user} drafts={drafts} onEnviar={()=>enviarPendientes(false)} onReload={cargarDrafts} setFoto={setFoto} toast={toast}/>}
+    {tab==="bandeja" && <ILDPanel user={user} regs={regs} enCola={enCola} reload={()=>{load();cargarDrafts();}} toast={toast} setFoto={setFoto}/>}
     {tab==="dash" && <ILDDash user={user} regs={regs}/>}
     {tab==="resumen" && <ResumenGerencialILD/>}
     {tab==="check" && showChecklist && <ChecklistEditor user={user} toast={toast} onSave={guardarCfg}/>}
@@ -1582,6 +1585,40 @@ const Cola = {
     return quien ? out.filter(d=>(d.quien||"")===quien) : out;
   },
   async del(id){ await DDB.del(id); },
+  /* Cuántos hay realmente por enviar y cuántos esperan una decisión. */
+  async resumen(quien){
+    const c = await this.todas(quien);
+    return { porEnviar: c.filter(d=>!d.conflicto).length, enConflicto: c.filter(d=>!!d.conflicto).length, total: c.length };
+  },
+  /* Se ejecuta sola al abrir la app. Nadie tiene que decidir nada:
+     los conflictos que ya no tienen sentido se descartan en silencio. */
+  async autoLimpiar(quien){
+    try{
+      if(!navigator.onLine) return {quitados:0,quedan:0};
+      const hay=(await this.todas(quien)).some(d=>!!d.conflicto);
+      if(!hay) return {quitados:0,quedan:0};
+      return await this.limpiarResueltos(quien);
+    }catch(e){ return {quitados:0,quedan:0}; }
+  },
+  /* Descarta los conflictos que dejaron de tener sentido porque el registro ya
+     quedó en el estado al que esa persona lo quería llevar. Es el caso típico:
+     tocó "Aprobar" varias veces porque la red falló, y el primero sí llegó. */
+  async limpiarResueltos(quien){
+    const c = (await this.todas(quien)).filter(d=>!!d.conflicto);
+    let quitados=0, quedan=0;
+    for(const d of c){
+      try{
+        const pl=d.payload||{}; const campoEst=pl.campoEstado||"Estado";
+        const destino=pl.patch?pl.patch[campoEst]:undefined;
+        if(destino==null){ quedan++; continue; }
+        const arr=await Store.read(pl.tabla);
+        const rec=arr.find(x=>x.id===pl.recId) || (pl.recCodigo?arr.find(x=>x.Codigo===pl.recCodigo):null);
+        if(!rec){ await DDB.del(d.id); quitados++; continue; }
+        if(rec[campoEst]===destino){ await DDB.del(d.id); quitados++; } else quedan++;
+      }catch(e){ quedan++; }
+    }
+    return { quitados, quedan };
+  },
   _enviando: false,
   ocupado(){ return this._enviando; },
   async enviar(quien, onPaso){
@@ -1590,7 +1627,10 @@ const Cola = {
     this._enviando = true;
     let ok=0, fail=0, dup=0, conf=0, ultimo="", err="";
     try{
-      const ds = await this.todas(quien);
+      /* Los conflictos quedan fuera del reintento: nunca se resuelven solos y
+         reintentarlos en cada parpadeo de la red era lo que llenaba la pantalla
+         de mensajes. Esperan una decisión de la persona. */
+      const ds = (await this.todas(quien)).filter(d=>!d.conflicto);
       for(const d of ds){
         try{
           const esCambio = d.payload && d.payload.clase==="cambio";
@@ -1745,7 +1785,11 @@ function colaNotificar(n, nuevo){
 async function draftsILDde(nombre){ return (await Cola.todas(nombre)).filter(d=>d.tabla==="ILD"); }
 async function flushDraftsILD(nombre){ return await Cola.enviar(nombre); }
 
-function DraftsPanel({drafts,onEnviar,onReload,setFoto,toast}){
+function DraftsPanel({user,drafts,onEnviar,onReload,setFoto,toast}){
+  /* Un conflicto no lo resuelve el personal operativo: la app ya descartó sola
+     los que no aplican, y los que quedan los revisa gerencia o desarrollo. */
+  const puedeResolver = esGD(user)||esDev(user);
+  drafts = puedeResolver ? drafts : (drafts||[]).filter(d=>!d.conflicto);
   const [online,setOnline]=useState(navigator.onLine);
   useEffect(()=>{ const on=()=>setOnline(true),off=()=>setOnline(false);
     window.addEventListener("online",on); window.addEventListener("offline",off);
@@ -1762,6 +1806,10 @@ function DraftsPanel({drafts,onEnviar,onReload,setFoto,toast}){
       <div className="hint">Quedaron aquí porque no había señal o falló el envío. {online?"Ya tienes conexión: puedes enviarlos ahora.":"Cuando vuelva el internet se enviarán solos."}</div>
       <div className="hint" style={{marginTop:6}}>Cada formulario se envía <b>una sola vez</b>: si un envío quedó a medias, la app lo detecta y no lo repite.</div>
       <button className="btn primary block" style={{marginTop:10}} disabled={!online} onClick={onEnviar}>{online?"📤 Enviar ahora los pendientes":"Sin conexión…"}</button>
+      {drafts.some(d=>d.conflicto) && <button className="btn ghost block" style={{marginTop:8}} disabled={!online}
+        onClick={async()=>{ const r=await Cola.limpiarResueltos(); onReload&&onReload();
+          toast(r.quedan?`Se resolvieron ${r.quitados}. Quedan ${r.quedan}.`:`Listo, se resolvieron ${r.quitados}.`); }}>
+        Resolver los que ya no aplican</button>}
     </div>
     {drafts.map(d=>{ const pl=d.payload||{}; const rs=pl.resumen||{}; const fs=pl.fotos||[];
       return <div key={d.id} className="item">
@@ -1825,8 +1873,7 @@ function ILDForm({user,toast,onSaved,setFoto,onDraft}){
        Dejarlo lleno invitaría a reenviarlo a mano y eso sí duplicaría. */
     resetCampos(); setArea(""); onDraft&&onDraft();
     if(r.ok||r.dup){ toast("ILD enviado"+(r.ultimo?": "+r.ultimo:"")); onSaved(); }
-    else if(r.sinRed) toast("Sin señal: el ILD quedó guardado en esta tablet y se enviará solo cuando vuelva el internet.");
-    else toast("Guardado en la tablet. No se pudo enviar ahora"+(r.err?" ("+r.err+")":"")+". Se reintentará.");
+    else toast("Guardado sin señal. Se envía solo.");
   }
   async function enviar(){
     if(!area){toast("Selecciona un área");return;}
@@ -1928,13 +1975,17 @@ function ILDForm({user,toast,onSaved,setFoto,onDraft}){
   </div>;
 }
 
-function ILDPanel({user,regs,reload,toast,setFoto}){
+function ILDPanel({user,regs,enCola,reload,toast,setFoto}){
   const [filtro,setFiltro]=useState("todos"); const [per,setPer]=useState(90); const [det,setDet]=useState(null); const [fGrupo,setFGrupo]=useState("__todas");
   const [verDup,setVerDup]=useState(false);
   const lim=new Date(); lim.setDate(lim.getDate()-per);
   let base=regs.filter(r=>new Date(r.fecha)>=lim);
   const nDupPeriodo=base.filter(esDuplicado).length;
   if(!verDup) base=base.filter(r=>!esDuplicado(r));
+  /* Los que ya tienen revisión en cola se muestran como enviándose, nunca como
+     pendientes de aprobar: así nadie los vuelve a tocar. */
+  const espera=(enCola||[]).map(String);
+  const nEspera=base.filter(r=>espera.includes(String(r.id))).length;
   const esSuyo=r=>(user.areas||[]).includes(r.area)||r.aprobadorEsperado===user.nombre||r.aprobador===user.nombre;
   if(!esGD(user)) base=base.filter(esSuyo);
   const grupoDe=r=>(AC[r.area]&&AC[r.area].g)||"(otros)";
@@ -1962,6 +2013,8 @@ function ILDPanel({user,regs,reload,toast,setFoto}){
       {[[30,"30d"],[90,"90d"],[365,"1 año"]].map(([d,l])=>
         <button key={d} className={"btn "+(per===d?"ocean":"ghost")} style={{padding:"8px 14px"}} onClick={()=>setPer(d)}>{l}</button>)}
     </div>
+    {nEspera>0 && <div style={{background:"#FFF4E0",border:"1px solid #F3D9A6",borderRadius:9,padding:"9px 11px",marginBottom:12,fontSize:12.5,color:"#7a5a12"}}>
+      {nEspera} ILD ya tienen tu revisión guardada, esperando señal. No hace falta volver a aprobarlos.</div>}
     {nDupPeriodo>0 && <div className="row" style={{marginBottom:12,alignItems:"center",gap:8,flexWrap:"wrap"}}>
       <span style={{fontSize:12.5,color:"var(--muted)",flex:1,minWidth:180}}>
         {nDupPeriodo} ILD marcados como duplicados. No cuentan para métricas ni requieren aprobación.</span>
@@ -1976,6 +2029,8 @@ function ILDPanel({user,regs,reload,toast,setFoto}){
         <div className="meta">{r.usuario} · {fmtDT(r.fecha)} · 📷 {(r.fotos||[]).length} · ✓ {r.completados}/{r.totalItems}</div>
         {esDuplicado(r) && <div className="meta" style={{marginTop:4,color:"#8f2020",fontWeight:700}}>
           Duplicado de {r.duplicadoCodigo||r.duplicadoDe} · no cuenta para métricas</div>}
+        {espera.includes(String(r.id)) && <div className="meta" style={{marginTop:4,color:"#7a5a12",fontWeight:700}}>
+          Tu revisión ya está guardada · se envía sola</div>}
       </div><Pill estado={r.estado==="Con observaciones"?"Con observaciones":r.estado==="Aprobado"?"Aprobado":"Solicitado"}/></div></div>)}
     {det && <ILDDetail user={user} r={det} onClose={()=>setDet(null)} reload={reload} toast={toast} setFoto={setFoto}/>}
   </div>;
@@ -2856,9 +2911,9 @@ function Compras({user,toast,setFoto}){
     const r=await Cola.enviar(user.nombre);
     if(r.ok||r.dup){ load(); return r; }
     setRows(rs=>rs.map(x=>x.id===rid?{...x,...(patch||{}),_pendiente:true}:x));
-    setTimeout(()=>toast(r.sinRed
-      ? "Sin señal: el cambio quedó guardado y se aplicará solo cuando vuelva el internet."
-      : "El cambio quedó guardado en este equipo. Se reintentará."),60);
+    /* Un solo aviso, corto. El módulo ya dijo lo suyo y el aviso de arriba lleva
+       la cuenta; repetir la explicación completa en cada acción era ruido. */
+    setTimeout(()=>toast("Guardado sin señal. Se envía solo."),60);
     return r; }
   const mias=rows.filter(r=>r.Solicitante===user.nombre);
   const verGestion=puede(user,'compras.gestion')||canGG;
@@ -3080,9 +3135,9 @@ function Tickets({tipo,user,toast,setFoto}){
     /* Se refleja en pantalla lo que quedó pendiente, y el aviso se muestra con
        un pequeño retraso porque el módulo lanza el suyo justo después. */
     setRows(rs=>rs.map(x=>x.id===rid?{...x,...(patch||{}),_pendiente:true}:x));
-    setTimeout(()=>toast(r.sinRed
-      ? "Sin señal: el cambio quedó guardado y se aplicará solo cuando vuelva el internet."
-      : "El cambio quedó guardado en este equipo. Se reintentará."),60);
+    /* Un solo aviso, corto. El módulo ya dijo lo suyo y el aviso de arriba lleva
+       la cuenta; repetir la explicación completa en cada acción era ruido. */
+    setTimeout(()=>toast("Guardado sin señal. Se envía solo."),60);
     return r; }
   const mios=rows.filter(r=>r.Solicitante===user.nombre);
   const equipo=equipoDe(user, isSis?'sistemas':'mantenimiento');
@@ -3705,31 +3760,90 @@ function Admin({user,toast}){
 
 /* Aviso permanente de formularios sin enviar. Se ve desde cualquier pantalla,
    así el pendiente no queda escondido dentro de una pestaña. */
-function AvisoPendientes({user,toast}){
-  const [n,setN]=useState(0); const [enviando,setEnviando]=useState(false);
+/* Estado de la conexión, siempre visible en la barra de arriba.
+   Antes nadie sabía si la app estaba en línea, y eso llevaba a reenviar por si acaso. */
+function EstadoRed({user}){
   const [online,setOnline]=useState(navigator.onLine);
-  const contar=async()=>{ try{ setN((await Cola.todas(user.nombre)).length); }catch(e){} };
-  useEffect(()=>{ contar(); const t=setInterval(contar,20000);
+  const [pend,setPend]=useState(0);
+  useEffect(()=>{
+    const on=()=>setOnline(true), off=()=>setOnline(false);
+    window.addEventListener("online",on); window.addEventListener("offline",off);
+    const contar=async()=>{ try{ const r=await Cola.resumen(user&&user.nombre); setPend(r.porEnviar); }catch(e){} };
+    contar(); const t=setInterval(contar,30000);
+    return ()=>{ clearInterval(t); window.removeEventListener("online",on); window.removeEventListener("offline",off); };
+  },[user]);
+  return <span title={online?"Con conexión":"Sin conexión: lo que envíes queda guardado"}
+    style={{display:"inline-flex",alignItems:"center",gap:6,background:online?"rgba(255,255,255,.16)":"rgba(0,0,0,.28)",
+      borderRadius:999,padding:"4px 10px",fontSize:11.5,fontWeight:700,color:"#fff",whiteSpace:"nowrap",
+      border:"1px solid "+(online?"rgba(255,255,255,.28)":"#FFA11F")}}>
+    <span style={{width:8,height:8,borderRadius:"50%",background:online?"#3ddc97":"#FFA11F",flexShrink:0}}></span>
+    {online?"En línea":"Sin conexión"}
+    {pend>0 && <span style={{opacity:.9}}>· {pend} por enviar</span>}
+  </span>;
+}
+
+function AvisoPendientes({user,toast,onIr}){
+  const [res,setRes]=useState({porEnviar:0,enConflicto:0});
+  const [enviando,setEnviando]=useState(false); const [limpiando,setLimpiando]=useState(false);
+  const [online,setOnline]=useState(navigator.onLine);
+  const ref=useRef({ultimo:0});
+  const contar=async()=>{ try{ setRes(await Cola.resumen(user.nombre)); }catch(e){} };
+
+  /* El envío automático es MUDO a propósito. Antes avisaba en cada reintento y,
+     con la red del hotel parpadeando, eso llenaba la pantalla de mensajes.
+     El contador de este aviso ya comunica el estado sin interrumpir a nadie. */
+  async function auto(){
+    const ahoraMs=Date.now();
+    if(ahoraMs-ref.current.ultimo < 15000) return;   // no más de una vez cada 15 s
+    ref.current.ultimo=ahoraMs;
+    if(Cola.ocupado()) return;
+    try{ await Cola.enviar(user.nombre); }catch(e){}
+    await contar();
+  }
+  useEffect(()=>{
+    /* Al entrar: primero se limpia lo que ya no aplica, después se cuenta.
+       Así el equipo no se encuentra con conflictos que ya están resueltos. */
+    (async()=>{ await Cola.autoLimpiar(user.nombre); await contar(); })();
+    const t=setInterval(contar,60000);
     const on=()=>{ setOnline(true); auto(); }, off=()=>setOnline(false);
     window.addEventListener("online",on); window.addEventListener("offline",off);
-    return ()=>{ clearInterval(t); window.removeEventListener("online",on); window.removeEventListener("offline",off); }; },[user]);
-  async function auto(){ if(Cola.ocupado()) return; const r=await Cola.enviar(user.nombre); await contar();
-    if(r.ok) toast(`Se enviaron ${r.ok} formulario(s) que estaban pendientes. ✅`); }
-  async function ahora(){ if(Cola.ocupado()){ toast("Ya se está enviando."); return; }
+    return ()=>{ clearInterval(t); window.removeEventListener("online",on); window.removeEventListener("offline",off); };
+  },[user]);
+
+  async function enviarAhora(){
+    if(Cola.ocupado()) return;
     setEnviando(true);
     try{ const r=await Cola.enviar(user.nombre); await contar();
-      if(r.sinRed) toast("Sigues sin conexión.");
-      else if(r.conf) toast(`${r.conf} cambio(s) quedaron en conflicto: revísalos en “Sin enviar”.`);
-      else if(r.fail) toast(`Enviados ${r.ok} de ${r.total}. ${r.fail} siguen pendientes.`);
-      else toast(`Listo: ${r.ok} pendiente(s) enviado(s). ✅`);
+      if(r.sinRed) toast("Sin conexión todavía.");
+      else if(r.fail) toast(`Quedan ${r.fail} por enviar. Se reintentará.`);
+      else if(r.ok) toast(`Listo, se enviaron ${r.ok}.`);
     } finally { setEnviando(false); } }
-  if(!n) return null;
-  return <div style={{background:"#FFF4E0",border:"1px solid #F3D9A6",borderLeft:"4px solid #FFA11F",
-    borderRadius:10,padding:"10px 12px",marginBottom:10,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-    <div style={{flex:1,minWidth:170,fontSize:13,color:"#7a5a12"}}>
-      📥 <b>{n} formulario(s) sin enviar.</b> {online?"Ya hay conexión.":"Se enviarán solos cuando vuelva el internet."}</div>
-    <button className="btn primary" style={{padding:"8px 12px",fontSize:13}} disabled={!online||enviando} onClick={ahora}>
-      {enviando?"Enviando…":"Enviar ahora"}</button>
+
+  async function limpiar(){
+    setLimpiando(true);
+    try{ const r=await Cola.limpiarResueltos(user.nombre); await contar();
+      toast(r.quedan ? `Se resolvieron ${r.quitados}. Quedan ${r.quedan} que necesitan tu decisión.`
+                     : `Listo, se resolvieron ${r.quitados}.`);
+    } finally { setLimpiando(false); } }
+
+  const {porEnviar,enConflicto}=res;
+  if(!porEnviar && !enConflicto) return null;
+  const caja=(borde,fondo)=>({background:fondo,border:"1px solid "+borde,borderLeft:"4px solid "+borde,
+    borderRadius:10,padding:"10px 12px",marginBottom:10,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"});
+  return <div>
+    {porEnviar>0 && <div style={caja("#F3D9A6","#FFF4E0")}>
+      <div style={{flex:1,minWidth:160,fontSize:13,color:"#7a5a12"}}>
+        <b>{porEnviar} sin enviar.</b> {online?"Ya hay conexión.":"Se envían solos cuando vuelva el internet."}</div>
+      {online && <button className="btn primary" style={{padding:"8px 12px",fontSize:13}} disabled={enviando} onClick={enviarAhora}>
+        {enviando?"Enviando…":"Enviar ahora"}</button>}
+    </div>}
+    {enConflicto>0 && (esGD(user)||esDev(user)) && <div style={caja("#F3C9C9","#FDF0F0")}>
+      <div style={{flex:1,minWidth:160,fontSize:13,color:"#8f2020"}}>
+        <b>{enConflicto} necesitan tu revisión.</b> Otra persona cambió esos registros mientras no tenías señal.</div>
+      <button className="btn ghost" style={{padding:"8px 12px",fontSize:13}} disabled={limpiando} onClick={limpiar}>
+        {limpiando?"Revisando…":"Resolver solos"}</button>
+      {onIr && <button className="btn ocean" style={{padding:"8px 12px",fontSize:13}} onClick={onIr}>Ver</button>}
+    </div>}
   </div>;
 }
 
@@ -3814,13 +3928,14 @@ function App(){
   const titles={ild:"ILD",compras:"Compras",sistemas:"Sistemas",mantenimiento:"Mantenimiento",kanban:"Kanban",admin:"Configuración"};
   return <div className="app">
     <div className="topbar"><div className="brand"><span className="logobox" onClick={()=>setView("home")} style={{cursor:"pointer"}}><img src={LOGO} alt="Playa Paraíso"/></span></div><div className="sp"></div>
+      <EstadoRed user={user}/>
       <div className="who">{user.nombre}<br/><span style={{opacity:.85}}>{rolLbl}</span></div>
       <button className="iconbtn" title="Notificaciones" style={{position:"relative"}} onClick={()=>setNotifOpen(true)}><Icon name="bell" size={19}/>
         {notifs.length>0 && <span style={{position:"absolute",top:-4,right:-4,background:"var(--coral)",color:"#fff",borderRadius:"999px",fontSize:10,fontWeight:800,minWidth:18,height:18,display:"grid",placeItems:"center",padding:"0 4px"}}>{notifs.length}</span>}</button>
       <button className="iconbtn" title="Salir" onClick={logout}><Icon name="logout" size={19}/></button></div>
     <div className="content">
       {gerr && <div className="banner"><Icon name="alert" size={15} style={{marginRight:6}}/>{gerr}</div>}
-      <AvisoPendientes user={user} toast={toast}/>
+      <AvisoPendientes user={user} toast={toast} onIr={()=>setView('ild')}/>
       {view!=="home" && <div className="backrow"><button className="backbtn" onClick={()=>setView("home")}><Icon name="chevronLeft" size={16} style={{marginRight:6,marginLeft:-2}}/>Inicio</button>
         <span style={{color:"var(--muted)",fontWeight:600}}>{titles[view]}</span></div>}
       {view==="home" && <Home user={user} go={setView} counts={counts}/>}
