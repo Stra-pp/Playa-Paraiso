@@ -2822,16 +2822,37 @@ function Tablero({tipo}){
       ["Calificación",dPromCal(f),"--green"],["Encuestas",f.filter(r=>r.EncuestaCal).length,"--blue"]];
     extra=<div className="card"><h3>Solicitudes por departamento</h3><BarsH data={dCuenta(f,"Area")} color="var(--ocean)"/></div>;
   } else {
-    const concl=f.filter(r=>["Concluido","Cerrado"].includes(r.Estado)).length;
-    const validas=f.filter(r=>r.Estado!=="Rechazado");
-    const cumpl=validas.length?Math.round(concl/validas.length*100):0;
-    kpis=[["Recibidas",f.length,"--ocean"],["Concluidas",concl,"--green"],["Cumplimiento",cumpl+"%",cumpl>=100?"--green":"--amber"],
-      ["T. prom. respuesta",dPromMin(f,"FechaCreacion","FechaConcluido"),"--purple"],
+    /* Tareas programadas y tickets se miden aparte: son trabajos distintos y
+       promediarlos escondía el desempeño de los dos. */
+    const prog=f.filter(r=>r.Programada==="Si");
+    const tick=f.filter(r=>r.Programada!=="Si");
+    const bloque=(a)=>{
+      const c=a.filter(r=>["Concluido","Cerrado"].includes(r.Estado)).length;
+      const val=a.filter(r=>r.Estado!=="Rechazado");
+      const ejs=a.map(ejecucionHrs).filter(x=>x!=null);
+      return { total:a.length, concl:c, cumpl:val.length?Math.round(c/val.length*100):0,
+        ejec:ejs.length?fmtHrs(ejs.reduce((x,y)=>x+y,0)/ejs.length):"—", medibles:ejs.length };
+    };
+    const bT=bloque(tick), bP=bloque(prog);
+    kpis=[["Recibidas",f.length,"--ocean"],["Concluidas",bT.concl+bP.concl,"--green"],
       ["Calificación",dPromCal(f),"--green"],["Encuestas",f.filter(r=>r.EncuestaCal).length,"--blue"]];
     const prioCampo=isSis?"Urgencia":"TipoSolicitud";
+    const Panel=({t,b,col})=><div className="card">
+      <h3>{t}</h3>
+      <div style={{display:"flex",flexWrap:"wrap",gap:14,marginTop:6}}>
+        {[["Total",b.total],["Concluidas",b.concl],["Cumplimiento",b.cumpl+"%"],["Ejecución prom.",b.ejec]].map(([l,v])=>
+          <div key={l} style={{flex:"1 1 92px",minWidth:92}}>
+            <div style={{fontSize:10.5,letterSpacing:".04em",textTransform:"uppercase",color:"var(--muted)",fontWeight:700}}>{l}</div>
+            <div style={{fontSize:18,fontWeight:800,color:col}}>{v}</div></div>)}
+      </div>
+      {b.total>0 && b.medibles<b.concl && <div className="hint" style={{marginTop:8}}>
+        {b.concl-b.medibles} concluida(s) sin fecha de asignación registrada: no entran en el promedio de ejecución.</div>}
+    </div>;
     extra=<>
-      <div className="card"><h3>Solicitudes por departamento</h3><BarsH data={dCuenta(f,"Departamento")} color="var(--ocean)"/></div>
-      <div className="card"><h3>Por prioridad</h3><BarsH data={dCuenta(f,prioCampo)} color="var(--blue)"/></div>
+      {!isSis && <Panel t="Tareas programadas" b={bP} col={cssVar("--purple")}/>}
+      {!isSis && <Panel t="Tickets (correctivos)" b={bT} col={cssVar("--ocean")}/>}
+      <div className="card"><h3>Solicitudes por departamento</h3><BarsH data={dCuenta(tick,"Departamento")} color="var(--ocean)"/></div>
+      <div className="card"><h3>Por prioridad</h3><BarsH data={dCuenta(tick,prioCampo)} color="var(--blue)"/></div>
       {!isSis && <div className="card"><h3>Cumplimiento de cierre</h3><BarsH data={dCuenta(f.filter(r=>r.CierreCumplimiento),"CierreCumplimiento")} color="var(--green)"/></div>}
     </>;
   }
@@ -3165,7 +3186,7 @@ function Tickets({tipo,user,toast,setFoto}){
       {user.rol==='gerencia' && <button className={tab==="prog"?"on":""} onClick={()=>{setTab("prog");load();}}>Tareas programadas</button>}
       {verTareas&&<button className={tab==="tareas"?"on":""} onClick={()=>{setTab("tareas");load();}}>Mis tareas{asignadas.length?` (${asignadas.length})`:""}</button>}
       {verEquipo&&<button className={tab==="equipo"?"on":""} onClick={()=>{setTab("equipo");load();}}>Mi equipo</button>}
-      {puede(user,`${tipo.toLowerCase()}.gestion`)&&<button className={tab==="gestion"?"on":""} onClick={()=>{setTab("gestion");load();}}>Gestión {esDev(user)?"(todo)":""}</button>}
+      {puede(user,`${tipo.toLowerCase()}.gestion`)&&<button className={tab==="gestion"?"on":""} onClick={()=>{setTab("gestion");load();}}>Tickets {esDev(user)?"(todo)":""}</button>}
       {puede(user,`${tipo.toLowerCase()}.tablero`)&&<button className={tab==="tablero"?"on":""} onClick={()=>{setTab("tablero");load();}}><Icon name="chart" size={15} style={{marginRight:6}}/>Tablero</button>}
       {!isSis && puede(user,`${tipo.toLowerCase()}.tablero`)&&<button className={tab==="prod"?"on":""} onClick={()=>{setTab("prod");load();}}><Icon name="trendup" size={15} style={{marginRight:6}}/>Productividad</button>}
     </div>
@@ -3201,7 +3222,7 @@ function Tickets({tipo,user,toast,setFoto}){
         <button className={"btn "+(soloHoy?"ghost":"primary")} onClick={()=>setSoloHoy(false)}>Todas ({asignadas.length})</button>
         <button className={"btn "+(soloHoy?"primary":"ghost")} onClick={()=>setSoloHoy(true)}><Icon name="calendar" size={15} style={{marginRight:6}}/>Hoy ({asignadas.filter(r=>(r.FechaTentativa||"").slice(0,10)===hoyStr).length})</button></div>
       <Listado items={tareasMostrar} empty={soloHoy?"No tienes tareas para hoy":"No tienes tareas asignadas"}
-        render={r=><TareaCard r={r} onAction={(t)=>setModal({t,item:r})}/>}/></div>}
+        render={r=><TareaCard r={r} usuario={user.nombre} onAction={(t)=>setModal({t,item:r})}/>}/></div>}
     {tab==="gestion" && <ListaFiltrada items={correctivas} tipo={tipo} isSis={isSis} chief={chief} equipo={equipo}
       onAction={(t,r)=>setModal({t,item:r})} vacio="No hay tickets en este filtro" unidad="ticket(s)"
       toast={toast} nombreExport={`${tipo}_PlayaParaiso`}/>}
@@ -3216,6 +3237,12 @@ function equipoMTO(r){
   return r.Asignado ? [{nombre:r.Asignado,papel:"responsable",desde:r.FechaCreacion||"",hasta:"",horas:null}] : [];
 }
 function enEquipoMTO(r,nombre){ return equipoMTO(r).some(p=>p.nombre===nombre && !p.hasta); }
+/* Solo el responsable principal cierra la tarea. Los apoyos registran avances. */
+function esResponsableMTO(r,nombre){ const p=equipoMTO(r).find(x=>x.papel==="responsable" && !x.hasta); return !!p && p.nombre===nombre; }
+/* Quién ve las indicaciones y los avances: mantenimiento, los técnicos asignados,
+   Gerencia General y desarrollo. El resto solo ve el comentario final. */
+function veInterno(u,r){ return gestionaModulo(u,"mantenimiento") || esGD(u) || esDev(u)
+  || (u && u.areas||[]).includes('Mantenimiento') || enEquipoMTO(r,u&&u.nombre); }
 function respMTO(r){ const p=equipoMTO(r).find(x=>x.papel==="responsable"); return p?p.nombre:(r.Asignado||""); }
 function apoyosMTO(r){ return equipoMTO(r).filter(x=>x.papel==="apoyo").map(x=>x.nombre); }
 function horasNum(v){ const h=Number(v); return (isFinite(h)&&h>0)?h:0; }
@@ -3223,7 +3250,9 @@ function horasNum(v){ const h=Number(v); return (isFinite(h)&&h>0)?h:0; }
    en los anteriores no existe el sello de la asignación y el dato no sería comparable. */
 function ejecucionHrs(r){
   const h=Array.isArray(r.historial)?r.historial:[];
-  const asg=h.find(x=>x.estado==="Asignada"||x.estado==="En proceso");
+  /* Desde la ASIGNACIÓN hasta la conclusión. Si no hay sello de asignación se
+     omite: no se mezcla con la fecha de creación, que mide a la jefatura. */
+  const asg=h.find(x=>x.estado==="Asignada") || h.find(x=>x.estado==="En proceso");
   if(!asg || !r.FechaConcluido) return null;
   const ms=new Date(r.FechaConcluido)-new Date(asg.fecha);
   return ms>0 ? ms/3600000 : null;
@@ -3272,7 +3301,7 @@ function ListaFiltrada({items,tipo,isSis,chief,equipo,onAction,vacio,unidad,toas
   </div>;
 }
 
-function TareaCard({r,onAction}){
+function TareaCard({r,onAction,usuario}){
   const venc = r.FechaTentativa && (r.FechaTentativa||"").slice(0,10) < hoyEC() && !["Concluido","Cerrado"].includes(r.Estado);
   return <div className="item">
     <div className="top"><div><div className="code">{r.Codigo}</div><div className="ttl">{r.Descripcion}</div>
@@ -3284,7 +3313,9 @@ function TareaCard({r,onAction}){
     <div className="acts">
       <button className="btn ghost" onClick={()=>onAction("ver")}>Ver</button>
       {!["Concluido","Cerrado"].includes(r.Estado) && <button className="btn ocean" onClick={()=>onAction("avance")}>📝 Registrar avance</button>}
-      {!["Concluido","Cerrado"].includes(r.Estado) && <button className="btn green" onClick={()=>onAction("concluirTarea")}>✅ Concluir tarea</button>}
+      {!["Concluido","Cerrado"].includes(r.Estado) && (esResponsableMTO(r,usuario)
+        ? <button className="btn green" onClick={()=>onAction("concluirTarea")}>✅ Concluir tarea</button>
+        : <span className="hint" style={{alignSelf:"center"}}>Solo {respMTO(r)||"el responsable"} puede concluirla</span>)}
     </div></div>;
 }
 function TicketCard({r,isSis,chief,equipo,onAction}){
@@ -3303,6 +3334,7 @@ function TicketCard({r,isSis,chief,equipo,onAction}){
       {chief && !isSis && !["Concluido","Cerrado","Rechazado"].includes(r.Estado) && <button className="btn ocean" onClick={()=>onAction("asignar")}><Icon name="user" size={15} style={{marginRight:6}}/>Asignar tarea</button>}
       {chief && isSis && ["Nuevo","Sin fecha asignada"].includes(r.Estado) && <button className="btn ocean" onClick={()=>onAction("tomar")}>Asignar fecha</button>}
       {chief && r.Estado==="En proceso" && <button className="btn green" onClick={()=>onAction("concluir")}>Concluir</button>}
+      {chief && !isSis && r.Estado==="Concluido" && <button className="btn warn" onClick={()=>onAction("reactivar")}>↩︎ Reactivar</button>}
       {chief && !["Concluido","Cerrado","Rechazado"].includes(r.Estado) && <button className="btn red" onClick={()=>onAction("rechazar")}>Rechazar</button>}
       {!chief && r.Programada!=="Si" && r.Estado==="Concluido" && !r.EncuestaCal && <button className="btn primary" onClick={()=>onAction("encuesta")}>Calificar</button>}
     </div></div>;
@@ -3316,7 +3348,8 @@ function TicketModal({tipo,isSis,modal,user,equipo,onClose,apply,toast,setFoto})
   const eqActual=equipoMTO(item).filter(p=>!p.hasta);
   const [horas,setHoras]=useState(()=>{ const o={}; eqActual.forEach(p=>{ o[p.nombre]=(p.horas!=null?String(p.horas):""); }); return o; });
   const idDe=(n)=>{ const u=USERS.find(x=>x.nombre===n); return u?u.id:""; };
-  function equipoConHoras(){ return eqActual.map(p=>({...p,horas:horasNum(horas[p.nombre]),hasta:nowISO()})); }
+  /* Al cerrar solo se sella la fecha de salida de cada integrante. */
+  function equipoConHoras(){ return eqActual.map(p=>({...p,hasta:nowISO()})); }
   function cumplimiento(){ if(!item.FechaTentativa) return "Concluida"; const lim=(item.FechaTentativa||"").slice(0,10);
     return (hoyEC() <= lim) ? "Concluida a tiempo" : "Concluida con atraso"; }
   async function go(){
@@ -3339,7 +3372,9 @@ function TicketModal({tipo,isSis,modal,user,equipo,onClose,apply,toast,setFoto})
       const nuevoAv={fecha:nowISO(),autor:user.nombre,texto:com.trim()};
       /* Se envía como agregado, no como arreglo completo: así dos avances
          registrados sin señal no se pisan entre sí. */
-      await apply(item,{},com,{appends:[{campo:"Avances",item:nuevoAv}]});
+      const fa = fotos.length ? await subirFotos(fotos,`MTO_${item.Codigo}`,item.Codigo+"_avance") : [];
+      const nuevoAv2={...nuevoAv, fotos:fa.filter(x=>x&&!x.error)};
+      await apply(item,{},com,{appends:[{campo:"Avances",item:nuevoAv2}]});
       const jefes=USERS.filter(u=>gestionaModulo(u,"mantenimiento")).map(u=>u.nombre).filter(n=>n&&n!==user.nombre);
       for(const j of [...new Set(jefes)]) await addNotif(j,`Avance en ${item.Codigo} (${user.nombre}): ${com.trim().slice(0,80)}`,"",item.Codigo);
       toast("Avance registrado"); }
@@ -3349,6 +3384,12 @@ function TicketModal({tipo,isSis,modal,user,equipo,onClose,apply,toast,setFoto})
         ...(isSis?{}:{Equipo:equipoConHoras()})},com,
         fotos.length?{fotos:[...fotos],fotoField:"FotosCierre",fotoDir:"MTO_{COD}",fotoPrefix:"{COD}_cierre"}:null);
       Notif.ticketFinalizado({...item,ComentarioSoporte:com,FechaConcluido:nowISO(),CierreCumplimiento:cmp},tipo); toast("Concluido"); }
+    else if(t==="reactivar"){ if(!com.trim()){toast("Explica por qué se reactiva");return;}
+      await apply(item,{Estado:"En proceso",FechaConcluido:"",CierreCumplimiento:"",
+        ReactivadaPor:user.nombre, ReactivadaFecha:nowISO(), ReactivadaMotivo:com.trim()},"Reactivada: "+com.trim());
+      for(const pp of equipoMTO(item).filter(x=>!x.hasta))
+        await addNotif(pp.nombre,`La tarea ${item.Codigo} se reactivó: ${com.trim().slice(0,90)}`,"",item.Codigo);
+      toast("Tarea reactivada"); }
     else if(t==="concluirTarea"){ if(!com.trim()){toast("Escribe un comentario de la tarea");return;}
       if(!fotos.length){toast("Adjunta al menos una foto de la tarea concluida");return;} setBusy(true);
       const cmp=cumplimiento();
@@ -3360,7 +3401,7 @@ function TicketModal({tipo,isSis,modal,user,equipo,onClose,apply,toast,setFoto})
     else if(t==="encuesta"){ if(!cal){toast("Selecciona calificación");return;} await apply(item,{Estado:"Cerrado",EncuestaCal:cal,EncuestaComentario:com,FechaEncuesta:nowISO()}); toast("¡Gracias por calificar!"); }
     onClose();
   }
-  const titles={ver:"Detalle del ticket",tomar:"Asignar fecha tentativa",asignar:"Asignar tarea al equipo",avance:"Registrar avance",concluir:"Concluir ticket",concluirTarea:"Concluir tarea",rechazar:"Rechazar",encuesta:"Calificar el servicio"};
+  const titles={ver:"Detalle del ticket",tomar:"Asignar fecha tentativa",asignar:"Asignar tarea al equipo",avance:"Registrar avance",concluir:"Concluir ticket",concluirTarea:"Concluir tarea",rechazar:"Rechazar",encuesta:"Calificar el servicio",reactivar:"Reactivar la tarea"};
   return <Modal title={titles[t]} onClose={onClose}>
     {t==="ver" ? <div>
       {[["Código",item.Codigo],["Solicitante",item.Solicitante],
@@ -3380,7 +3421,7 @@ function TicketModal({tipo,isSis,modal,user,equipo,onClose,apply,toast,setFoto})
         <div className="fgrid">{item.Fotos.map((f,i)=><SpImg key={i} foto={f} idx={i+1} onClick={setFoto}/>)}</div></>}
       {(item.FotosCierre||[]).length>0 && <><h3 style={{margin:"12px 0 6px"}}>Fotos de cierre</h3>
         <div className="fgrid">{item.FotosCierre.map((f,i)=><SpImg key={i} foto={f} idx={i+1} onClick={setFoto}/>)}</div></>}
-      {!isSis && equipoMTO(item).some(pp=>horasNum(pp.horas)>0) && <><h3 style={{margin:"12px 0 6px"}}>⏱️ Horas dedicadas</h3>
+      {!isSis && veInterno(user,item) && equipoMTO(item).some(pp=>horasNum(pp.horas)>0) && <><h3 style={{margin:"12px 0 6px"}}>⏱️ Horas registradas (histórico)</h3>
         {equipoMTO(item).filter(pp=>horasNum(pp.horas)>0).map((pp,i)=>
           <div className="kv" key={i}><b>{pp.nombre}{pp.papel==="apoyo"?" · apoyo":""}</b><span>{horasNum(pp.horas)} h</span></div>)}</>}
       {!isSis && (item.historial||[]).length>0 && (gestionaModulo(user,"mantenimiento")||esGD(user)||esDev(user)) && <><h3 style={{margin:"12px 0 6px"}}>🕘 Historial</h3>
@@ -3388,8 +3429,23 @@ function TicketModal({tipo,isSis,modal,user,equipo,onClose,apply,toast,setFoto})
           <b style={{whiteSpace:"nowrap"}}>{fmtDate(hh.fecha)}</b>
           <span style={{textAlign:"right",maxWidth:"70%"}}>{hh.estado}{hh.nota?<><br/><span style={{fontSize:11,color:"var(--muted)"}}>{hh.nota}</span></>:null}<br/>
           <span style={{fontSize:11,color:"var(--muted)"}}>— {hh.quien||"—"}</span></span></div>)}</>}
-      {!isSis && (item.Avances||[]).length>0 && (enEquipoMTO(item,user.nombre)||gestionaModulo(user,"mantenimiento")||esGD(user)||esDev(user)) && <><h3 style={{margin:"12px 0 6px"}}>📝 Avances (interno)</h3>
-        <div>{item.Avances.map((a,i)=><div key={i} className="kv" style={{alignItems:"flex-start"}}><b style={{whiteSpace:"nowrap"}}>{fmtDate(a.fecha)}</b><span style={{textAlign:"right",maxWidth:"70%"}}>{a.texto}<br/><span style={{fontSize:11,color:"var(--muted)"}}>— {a.autor}</span></span></div>)}</div></>}
+      {/* Indicaciones y avances son internos del área. Quien no es de mantenimiento
+           ni técnico asignado solo ve el comentario final de la tarea. */}
+      {!isSis && veInterno(user,item) && (item.ComentarioJefe||"").trim() && <><h3 style={{margin:"12px 0 6px"}}>📋 Indicaciones de la tarea</h3>
+        <div className="card" style={{margin:0,background:"var(--ocean-l,#e6f2f3)"}}>{item.ComentarioJefe}</div></>}
+      {!isSis && veInterno(user,item) && (item.Avances||[]).length>0 && <><h3 style={{margin:"12px 0 6px"}}>📝 Avances (interno)</h3>
+        <div>{item.Avances.map((a,i)=><div key={i} style={{borderTop:i?"1px solid var(--line)":"none",padding:"8px 0"}}>
+          <div className="kv" style={{alignItems:"flex-start",padding:0}}>
+            <b style={{whiteSpace:"nowrap"}}>{fmtDate(a.fecha)}</b>
+            <span style={{textAlign:"right",maxWidth:"70%"}}>{a.texto}<br/><span style={{fontSize:11,color:"var(--muted)"}}>— {a.autor}</span></span></div>
+          {(a.fotos||[]).length>0 && <div className="fgrid" style={{marginTop:6}}>
+            {a.fotos.map((x,k)=><div key={k} className="fthumb"><img src={x.url||x} onClick={()=>setFoto(x.url||x)}/><span className="fnum">{k+1}</span></div>)}</div>}
+        </div>)}</div></>}
+      {!isSis && !veInterno(user,item) && (item.ComentarioSoporte||"").trim() && <><h3 style={{margin:"12px 0 6px"}}>Resultado de la tarea</h3>
+        <div className="card" style={{margin:0}}>{item.ComentarioSoporte}</div></>}
+      {!isSis && veInterno(user,item) && item.ReactivadaMotivo && <><h3 style={{margin:"12px 0 6px"}}>↩︎ Reactivación</h3>
+        <div className="card" style={{margin:0,background:"#FFF4E0"}}>{item.ReactivadaMotivo}
+          <div className="hint" style={{marginTop:4}}>Por {item.ReactivadaPor}{item.ReactivadaFecha?" el "+fmtDate(item.ReactivadaFecha):""}</div></div></>}
     </div> : <div>
       {t==="asignar" && <><Field label="Técnico responsable" req hint="Es quien rinde cuentas por la tarea y declara las horas al cerrarla."><select className="inp" value={tecnico} onChange={e=>{setTecnico(e.target.value); setApoyos(a=>a.filter(x=>x!==e.target.value));}}>
         {!opciones.length && <option value="">(sin miembros de equipo)</option>}
@@ -3404,15 +3460,12 @@ function TicketModal({tipo,isSis,modal,user,equipo,onClose,apply,toast,setFoto})
         <Field label="Fecha límite de la tarea" req hint="Según esta fecha se marcará 'a tiempo' o 'con atraso'."><input type="date" className="inp" value={fecha} onChange={e=>setFecha(e.target.value)}/></Field></>}
       {t==="tomar" && <Field label="Fecha tentativa de solución" hint="Sin fecha: queda 'Sin fecha asignada' y NO se marca vencido."><input type="date" className="inp" value={fecha} onChange={e=>setFecha(e.target.value)}/></Field>}
       {t==="encuesta" && <Field label="Calificación (1-10)"><Stars value={cal} onChange={setCal}/></Field>}
-      {["rechazar","concluir","concluirTarea","encuesta","asignar","avance"].includes(t) && <Field label={t==="rechazar"?"Motivo del rechazo":t==="avance"?"Describe el avance (no concluye la tarea)":t==="concluir"||t==="concluirTarea"?"Comentario de la tarea / soporte":t==="asignar"?"Indicaciones para el técnico (opcional)":"Comentario (opcional)"} req={["rechazar","concluir","concluirTarea","avance"].includes(t)}>
+      {["rechazar","concluir","concluirTarea","encuesta","asignar","avance","reactivar"].includes(t) && <Field label={t==="rechazar"?"Motivo del rechazo":t==="avance"?"Describe el avance (no concluye la tarea)":t==="reactivar"?"¿Por qué se reactiva? (lo verán los técnicos)":t==="concluir"||t==="concluirTarea"?"Comentario de la tarea / soporte":t==="asignar"?"Indicaciones para el técnico (opcional)":"Comentario (opcional)"} req={["rechazar","concluir","concluirTarea","avance","reactivar"].includes(t)}>
         <textarea className="inp" value={com} onChange={e=>setCom(e.target.value)}/></Field>}
-      {(t==="concluirTarea"||t==="concluir") && !isSis && eqActual.length>0 && <Field label="Horas dedicadas" hint="Cuántas horas puso cada persona en esta tarea. Sirve para el reporte de productividad.">
-        {eqActual.map(pp=><div key={pp.nombre} style={{display:"flex",alignItems:"center",gap:10,marginBottom:7}}>
-          <span style={{flex:1,fontSize:13.5}}>{pp.nombre}{pp.papel==="apoyo"?" · apoyo":" · responsable"}</span>
-          <input type="number" min="0" step="0.5" className="inp" style={{maxWidth:96}} placeholder="0"
-            value={horas[pp.nombre]||""} onChange={e=>setHoras(h=>({...h,[pp.nombre]:e.target.value}))}/>
-        </div>)}</Field>}
+      {/* Las horas ya no se piden al técnico: el tiempo se mide solo, desde que
+           se asigna la tarea hasta que se marca concluida. */}
       {(t==="concluirTarea"||t==="concluir") && <PhotoField fotos={fotos} setFotos={setFotos} label={t==="concluirTarea"?"Foto de la tarea concluida":"Foto de cierre (opcional)"} req={t==="concluirTarea"} setFoto={setFoto}/>}
+      {t==="avance" && <PhotoField fotos={fotos} setFotos={setFotos} label="Fotos del avance (opcional)" setFoto={setFoto}/>}
       <div className="row end"><button className="btn ghost" onClick={onClose}>Cancelar</button>
         <button className={"btn "+(t==="rechazar"?"red":"primary")} disabled={busy} onClick={go}>{busy?"Guardando…":"Confirmar"}</button></div></div>}
   </Modal>;
@@ -3432,13 +3485,13 @@ function ProductividadMant({rows}){
     return true;
   });
   const st={};
-  const g=n=>st[n]||(st[n]={nombre:n,resp:0,apoyo:0,cerr:0,aTiempo:0,horas:0,calSum:0,calN:0,ejSum:0,ejN:0,salidas:0,abiertas:0});
+  const g=n=>st[n]||(st[n]={nombre:n,resp:0,apoyo:0,cerr:0,aTiempo:0,prog:0,calSum:0,calN:0,ejSum:0,ejN:0,salidas:0,abiertas:0});
   fil.forEach(r=>{
     const ej=ejecucionHrs(r); const cerrada=["Concluido","Cerrado"].includes(r.Estado);
     equipoMTO(r).forEach(pp=>{
       if(!pp.nombre) return; const a=g(pp.nombre);
       if(pp.papel==="apoyo") a.apoyo++; else a.resp++;
-      a.horas+=horasNum(pp.horas);
+      if(r.Programada==="Si") a.prog++;
       if(pp.hasta) a.salidas++;
       if(!cerrada && !pp.hasta) a.abiertas++;
       if(pp.papel!=="apoyo" && cerrada){
@@ -3476,7 +3529,7 @@ function ProductividadMant({rows}){
         <M k="Cerradas" v={a.cerr}/>
         <M k="A tiempo" v={a.cerr?Math.round(100*a.aTiempo/a.cerr)+"%":"—"} c={a.cerr&&(a.aTiempo/a.cerr)<0.8?"var(--coral)":"var(--green)"}/>
         <M k="Ejecución" v={a.ejN?fmtHrs(a.ejSum/a.ejN):"—"}/>
-        <M k="Horas" v={a.horas?Math.round(a.horas*10)/10:"—"}/>
+        <M k="Programadas" v={a.prog}/>
         <M k="Calificación" v={a.calN?(Math.round(a.calSum/a.calN*10)/10)+" ("+a.calN+")":"—"}/>
         {a.salidas>0 && <M k="Reasignadas" v={a.salidas} c="var(--coral)"/>}
       </div>
