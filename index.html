@@ -769,6 +769,33 @@ const equipoDe = (u, modulo) => {
 const TZ_EC="America/Guayaquil";
 const nowISO = () => new Date().toISOString();
 function hoyEC(){ try{ return new Date().toLocaleDateString("en-CA",{timeZone:TZ_EC}); }catch(e){ return new Date(Date.now()-5*3600000).toISOString().slice(0,10); } }
+/* ===== v6.8 · Todas las fechas en hora de Ecuador (UTC-5) =====
+   Los registros se guardan en UTC (nowISO). Cortar ese ISO a 10 caracteres
+   devuelve el día UTC, así que todo lo enviado después de las 19:00 de Ecuador
+   aparecía como del día siguiente: por eso algunos ILD y tickets caían en el
+   día equivocado. ymdEC() es el único camino permitido para responder
+   "¿de qué día calendario es esto?" y hoyEC() para "¿qué día es hoy?". */
+function ymdEC(v){
+  if(v==null || v==="") return "";
+  const s=String(v).trim();
+  /* Una fecha sin hora (input type=date, FechaTentativa, FechaSolicitud) ya es
+     un día de calendario: convertirla otra vez la correría un día. */
+  if(/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const d=new Date(s);
+  if(isNaN(d)) return s.slice(0,10);
+  try{ return d.toLocaleDateString("en-CA",{timeZone:TZ_EC}); }
+  catch(e){ return new Date(d.getTime()-5*3600000).toISOString().slice(0,10); }
+}
+/* Hoy en Ecuador, descompuesto. Reemplaza a new Date() cuando lo que se busca
+   es el año, el mes o el día actual (los selectores de mes, los días esperados). */
+function hoyPartesEC(){ const p=hoyEC().split("-").map(Number); return {y:p[0],m:p[1]-1,d:p[2]}; }
+function hoyDateEC(){ const p=hoyPartesEC(); return new Date(p.y,p.m,p.d); }
+const anioEC = v => Number(ymdEC(v).slice(0,4));
+const mesEC  = v => Number(ymdEC(v).slice(5,7))-1;
+/* Suma días a un "YYYY-MM-DD" sin salirse del calendario. */
+function sumaDiasYMD(ymd,n){ const p=String(ymd).split("-").map(Number);
+  const d=new Date(p[0],p[1]-1,p[2]+n);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
 const fmtDate = s => { if(!s) return "—"; const str=String(s);
   if(/^\d{4}-\d{2}-\d{2}/.test(str)){ const p=str.slice(0,10).split("-"); const d=new Date(+p[0],+p[1]-1,+p[2]);
     if(isNaN(d)) return str; return d.toLocaleDateString("es-EC",{day:"2-digit",month:"short",year:"numeric"}); }
@@ -776,7 +803,7 @@ const fmtDate = s => { if(!s) return "—"; const str=String(s);
   return d.toLocaleDateString("es-EC",{timeZone:TZ_EC,day:"2-digit",month:"short",year:"numeric"}); };
 const fmtDT = s => { if(!s) return "—"; const d=new Date(s); if(isNaN(d)) return s;
   return d.toLocaleString("es-EC",{timeZone:TZ_EC,day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}); };
-const yr = () => new Date().getFullYear();
+const yr = () => hoyPartesEC().y;
 let _seq = Date.now()%100000;
 /* Identificador único, en texto.
    El esquema original (Date.now()%100000 y sumar 1) repetía la semilla cada 100
@@ -887,7 +914,9 @@ const GraphStore = {
 const LIST_TABLES=["ILD","Compras","Sistemas","Mantenimiento","Notif"];
 let SP_SITE=null; const SP_LIST={}; const SP_MAP={}; const SP_COLS={}; const SP_DCOL={}; let SP_LISTNAMES=[];
 const PREFER_NX={Prefer:"HonorNonIndexedQueriesWarningMayFailRandomly"};
-const recFecha=r=>String(r.fecha||r.FechaSolicitud||r.FechaCreacion||"").slice(0,10);
+/* Día calendario de Ecuador del registro. Es la clave con la que se indexa
+   y se filtra por mes, así que tiene que ser la fecha local, no la UTC. */
+const recFecha=r=>ymdEC(r.fecha||r.FechaSolicitud||r.FechaCreacion||"");
 const recEstado=r=>String(r.estado||r.Estado||"");
 const norm=s=>String(s||"").toLowerCase().replace(/[\s_-]+/g,"");
 async function spSite(){ if(SP_SITE) return SP_SITE;
@@ -937,7 +966,12 @@ const ListStore={
     catch(e){ return (await this.read(t)).filter(r=>recFecha(r)>=since); } },
   async readRango(t,desde,hasta){ await spEnsureList(t); const c=SP_COLS[t]||{};
     if(!c.f) return (await this.read(t)).filter(r=>recFecha(r)>=desde&&recFecha(r)<hasta);
-    try{ const items=await spPages(t,`$filter=fields/${c.f} ge '${desde}' and fields/${c.f} lt '${hasta}'`); spMerge(t,items); return spParse(t,items); }
+    /* La columna indexada de fecha pudo escribirse en UTC por versiones anteriores.
+       Se pide un día más a cada lado y el recorte fino lo hace recFecha, que ya
+       traduce a hora de Ecuador. Así no se pierden los registros del borde. */
+    const d0=sumaDiasYMD(desde,-1), d1=sumaDiasYMD(hasta,1);
+    try{ const items=await spPages(t,`$filter=fields/${c.f} ge '${d0}' and fields/${c.f} lt '${d1}'`); spMerge(t,items);
+      return spParse(t,items).filter(r=>recFecha(r)>=desde&&recFecha(r)<hasta); }
     catch(e){ return (await this.read(t)).filter(r=>recFecha(r)>=desde&&recFecha(r)<hasta); } },
   async write(t,arr){ const site=await spSite(); const lid=await spEnsureList(t); const c=SP_COLS[t]||{d:"Data"};
     if(!SP_MAP[t]) await this.read(t); const map=SP_MAP[t]||new Map();
@@ -963,7 +997,7 @@ async function migrarAListas(){ if(localStorage.getItem("pp_lists_migrated2")) r
     if(!cur.length){ let old=[]; try{ old=await GraphStore.read(t); }catch{} if(Array.isArray(old)&&old.length) await ListStore.write(t,old); }
   }catch(e){} } localStorage.setItem("pp_lists_migrated2","1"); }
 const hoyISO=()=>hoyEC();
-const desdeDias=n=>{ const d=new Date(); d.setDate(d.getDate()-n); return d.toISOString().slice(0,10); };
+const desdeDias=n=>sumaDiasYMD(hoyEC(),-n);
 const Store = {
   read(t){ if(MODE!=="graph") return Local.read(t); return LIST_TABLES.includes(t)?ListStore.read(t):GraphStore.read(t); },
   write(t,a){ if(MODE!=="graph") return Local.write(t,a); return LIST_TABLES.includes(t)?ListStore.write(t,a):GraphStore.write(t,a); },
@@ -1111,8 +1145,8 @@ function esExcepcion(area, iso){
   return ex.todas!=null;
 }
 function diasEsperados(area,year,month,hastaHoy){
-  const hoy=new Date(); const lastDay=new Date(year,month+1,0).getDate();
-  const limit = (hastaHoy && hoy.getFullYear()===year && hoy.getMonth()===month) ? hoy.getDate() : lastDay;
+  const hoy=hoyPartesEC(); const lastDay=new Date(year,month+1,0).getDate();
+  const limit = (hastaHoy && hoy.y===year && hoy.m===month) ? hoy.d : lastDay;
   let n=0; for(let d=1; d<=limit; d++) if(aplicaDia(area,isoYMD(year,month,d))) n++;
   return n;
 }
@@ -1174,7 +1208,7 @@ const NOTIF_DEF = {
   mailSistemas:"sistemas@playaparaiso.com.ec"
 };
 let NOTIF = {...NOTIF_DEF};
-function fmtFecha(iso){ try{ return new Date(iso).toLocaleDateString('es-EC',{day:'2-digit',month:'2-digit',year:'numeric'}); }catch{ return iso||""; } }
+function fmtFecha(iso){ try{ return new Date(iso).toLocaleDateString('es-EC',{timeZone:TZ_EC,day:'2-digit',month:'2-digit',year:'numeric'}); }catch{ return iso||""; } }
 function linkVer(mod,code){ const u=(NOTIF.appUrl||"").replace(/\/+$/,"/"); const q=`?ver=${encodeURIComponent(mod)}:${encodeURIComponent(code||"")}`; return (u||"")+q; }
 function mailHTML(titulo,lineas,mod,code){
   const link=linkVer(mod,code);
@@ -1280,10 +1314,10 @@ try{ migrarV67(); }catch(e){}
 /* ===== EXPORTACIÓN A EXCEL ===== */
 function ildToRow(r){ return {
   Codigo:r.Codigo||("ILD-"+r.id), Area:r.area, Turno:r.turno||"", Responsable:r.usuario,
-  Fecha:r.fecha?new Date(r.fecha).toLocaleString("es-EC"):"", Estado:r.estado,
+  Fecha:r.fecha?new Date(r.fecha).toLocaleString("es-EC",{timeZone:TZ_EC}):"", Estado:r.estado,
   Completados:r.completados, Total:r.totalItems,
   Cumplimiento:r.totalItems?Math.round((r.completados/r.totalItems)*100)+"%":"",
-  Fotos:(r.fotos||[]).length, Aprobador:r.aprobador||"", FechaAprobacion:r.fechaAprobacion?new Date(r.fechaAprobacion).toLocaleString("es-EC"):"",
+  Fotos:(r.fotos||[]).length, Aprobador:r.aprobador||"", FechaAprobacion:r.fechaAprobacion?new Date(r.fechaAprobacion).toLocaleString("es-EC",{timeZone:TZ_EC}):"",
   Observaciones:r.obs||"", NotaJefatura:r.notaJef||"", NotaGerencia:r.notaGerencia||"" }; }
 function exportXLSX(rows,sheet,filename){
   if(!rows||!rows.length) return false;
@@ -2112,7 +2146,7 @@ function SpImg({foto,idx,onClick}){
 }
 function actaILD(r){
   const esc=s=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-  const f=d=>d?new Date(d).toLocaleString('es-EC'):'—';
+  const f=d=>d?new Date(d).toLocaleString('es-EC',{timeZone:TZ_EC}):'—';
   const items=itemsDe(r);
   const filas=items.map((it,i)=>{ const tx=itemText(it),tp=itemTipo(it); let val="—";
     if(tp==='sino'){ const v=(r.checks&&r.checks['yn-'+i])||""; val=v==='si'?'Sí':v==='no'?'No':'—'; }
@@ -2277,13 +2311,13 @@ function subTurno(area,turno){
 
 function ILDDash({user,regs}){
   const meses=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
-  const hoy=new Date();
+  const hoy=hoyDateEC();
   const areasUser = esGD(user)?Object.keys(AC):(user.areas||[]);
   const grupos=[...new Set(areasUser.map(a=>AC[a]?.g).filter(Boolean))];
   const [grp,setGrp]=useState("todas"); const [mes,setMes]=useState(hoy.getMonth()); const year=hoy.getFullYear();
   const esMesActual = mes===hoy.getMonth();
-  const diaDe = r => String(r.fecha||"").slice(0,10);
-  const delMes = r => { const d=new Date(r.fecha); return d.getFullYear()===year && d.getMonth()===mes; };
+  const diaDe = r => ymdEC(r.fecha);
+  const delMes = r => { const f=ymdEC(r.fecha); return Number(f.slice(0,4))===year && Number(f.slice(5,7))-1===mes; };
   /* Métricas comunes. Se cuentan DÍAS CUBIERTOS, no registros: dos ILD del mismo
      día son un día, y solo cuentan los días en que al área le tocaba. Así no
      pasa de 100% aunque el desayuno se reporte por dos outlets el mismo día. */
@@ -2561,7 +2595,7 @@ function AccesosEditor({toast,onSave}){
 }
 function CalendarioAplicabilidad({user,toast,onSave}){
   const [,force]=useState(0); const re=()=>force(x=>x+1);
-  const hoy=new Date();
+  const hoy=hoyDateEC();
   const [year,setYear]=useState(hoy.getFullYear());
   const [mes,setMes]=useState(hoy.getMonth());
   const areas=esGD(user)?Object.keys(AC):(user.areas||[]);
@@ -2688,7 +2722,7 @@ function CalendarioAplicabilidad({user,toast,onSave}){
 function DiasEsperadosEditor({user,toast,onSave}){
   const [,force]=useState(0); const re=()=>force(x=>x+1);
   const areas=esGD(user)?Object.keys(AC):(user.areas||[]);
-  const [fer,setFer]=useState(""); const hoy=new Date();
+  const [fer,setFer]=useState(""); const hoy=hoyDateEC();
   const setPatron=(a,p)=>{ DIAS_CFG.areas[a]={...(DIAS_CFG.areas[a]||{}),patron:p}; re(); };
   const toggleDia=(a,d)=>{ const c=DIAS_CFG.areas[a]||{patron:'personalizado',dias:[]}; const dias=c.dias||[];
     DIAS_CFG.areas[a]={patron:'personalizado',dias:dias.includes(d)?dias.filter(x=>x!==d):[...dias,d]}; re(); };
@@ -2814,7 +2848,7 @@ function NuevoILD({toast,onSave}){
 }
 
 function ResumenGerencialILD(){
-  const now=new Date();
+  const now=hoyDateEC();
   const [anio,setAnio]=useState(now.getFullYear()); const [mes,setMes]=useState(now.getMonth());
   const [regs,setRegs]=useState([]); const [cargando,setCargando]=useState(true);
   const anios=[now.getFullYear()-2,now.getFullYear()-1,now.getFullYear()];
@@ -2833,7 +2867,7 @@ function ResumenGerencialILD(){
   const cumplGlobal=tot?Math.round((tAprob+tObs)/tot*100):0;
   const calidadGlobal=tot?Math.round(tAprob/tot*100):0;
   const pObsGlobal=tot?Math.round(tObs/tot*100):0;
-  const diasActivos=new Set(regs.map(r=>String(r.fecha).slice(0,10))).size;
+  const diasActivos=new Set(regs.map(r=>ymdEC(r.fecha))).size;
   const cumplBar=[...grupos].sort((a,b)=>b.cumpl-a.cumpl||b.total-a.total).map(g=>({label:g.label,value:g.cumpl}));
   const obsBar=[...grupos].filter(g=>g.obs>0).sort((a,b)=>b.obs-a.obs).slice(0,10).map(g=>({label:g.label,value:g.obs}));
   const pendBar=[...grupos].filter(g=>g.pend>0).sort((a,b)=>b.pend-a.pend).slice(0,10).map(g=>({label:g.label,value:g.pend}));
@@ -2889,9 +2923,9 @@ function ResumenGerencialILD(){
 }
 /* ===== TABLEROS EN TIEMPO REAL (Compras / Sistemas / Mantenimiento) ===== */
 function dFiltro(rows,campo,anio,mes){
-  return rows.filter(r=>{ const d=r[campo]?new Date(r[campo]):null; if(!d||isNaN(d)) return false;
-    if(anio && d.getFullYear()!==anio) return false;
-    if(mes!=null && d.getMonth()!==mes) return false; return true; });
+  return rows.filter(r=>{ const f=r[campo]?ymdEC(r[campo]):""; if(!f) return false;
+    if(anio && Number(f.slice(0,4))!==anio) return false;
+    if(mes!=null && Number(f.slice(5,7))-1!==mes) return false; return true; });
 }
 function dCuenta(rows,campo){ const m={}; rows.forEach(r=>{ const k=(r[campo]||"—"); m[k]=(m[k]||0)+1; });
   return Object.entries(m).map(([label,value])=>({label,value})).sort((a,b)=>b.value-a.value); }
@@ -2918,7 +2952,7 @@ function BarsH({data,color}){ const max=Math.max(1,...data.map(d=>d.value));
 }
 function Tablero({tipo}){
   const isCom=tipo==="Compras"; const isSis=tipo==="Sistemas";
-  const now=new Date();
+  const now=hoyDateEC();
   const [anio,setAnio]=useState(now.getFullYear()); const [mes,setMes]=useState(null);
   const [f,setF]=useState([]); const [cargando,setCargando]=useState(true);
   const anios=[now.getFullYear()-2,now.getFullYear()-1,now.getFullYear()];
@@ -3108,7 +3142,7 @@ function Compras({user,toast,setFoto}){
   </div>;
 }
 function actaCompra(item){
-  const f=(d)=>d?new Date(d).toLocaleString('es-EC'):'—';
+  const f=(d)=>d?new Date(d).toLocaleString('es-EC',{timeZone:TZ_EC}):'—';
   const conf=item.ActaEntrega||'Recibido conforme';
   const esc=s=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
   const html=`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Acta ${esc(item.Codigo)}</title>
@@ -3232,7 +3266,13 @@ function Tickets({tipo,user,toast,setFoto}){
   const ch=(k,v)=>setF(s=>({...s,[k]:v}));
   async function crear(){
     if(isSis){ if(!f.Titulo.trim()){toast("Falta el título de la tarea");return;} if(!f.Descripcion.trim()){toast("Falta la descripción");return;} }
-    else { if(!f.Descripcion.trim()){toast("Falta la descripción de la novedad");return;} }
+    else { if(!f.Descripcion.trim()){toast("Falta la descripción de la novedad");return;}
+      /* La foto es obligatoria en las órdenes de mantenimiento: sin imagen el
+         técnico no sabe qué va a encontrar y el cierre no se puede comparar.
+         Las tareas programadas quedan exentas porque nacen de la planificación,
+         no de una novedad observada. */
+      const esProgFoto = chief && solicOtro==="__prog";
+      if(!esProgFoto && !fotos.length){toast("Adjunta la foto de la novedad: es obligatoria");return;} }
     if(busy) return; setBusy(true);
     try{
       const esProg=chief&&solicOtro==="__prog";
@@ -3320,7 +3360,9 @@ function Tickets({tipo,user,toast,setFoto}){
         <Field label="Fecha de solicitud" req><input type="date" className="inp" value={f.FechaSolicitud} onChange={e=>ch("FechaSolicitud",e.target.value)}/></Field>
         <Field label="Tipo de solicitud" req>{(chief&&solicOtro==="__prog")?<input className="inp" value="Tarea programada" disabled/>:<select className="inp" value={f.TipoSolicitud} onChange={e=>ch("TipoSolicitud",e.target.value)}><option>Normal</option><option>Urgente</option></select>}</Field>
         <Field label="Descripción de la novedad" req><textarea className="inp" value={f.Descripcion} onChange={e=>ch("Descripcion",e.target.value)} placeholder="Describe la novedad…"/></Field>
-        <PhotoField fotos={fotos} setFotos={setFotos} label="Imagen de la novedad (opcional)" setFoto={setFoto}/>
+        {(chief&&solicOtro==="__prog")
+          ? <PhotoField fotos={fotos} setFotos={setFotos} label="Imagen de la tarea (opcional)" setFoto={setFoto}/>
+          : <PhotoField fotos={fotos} setFotos={setFotos} label="Imagen de la novedad" req hint="Obligatoria. Sin la foto no se puede crear la orden." setFoto={setFoto}/>}
       </>}
       <button className="btn primary block" disabled={busy} onClick={crear}>{busy?"Enviando…":"Crear ticket"}</button></div>}
     {tab==="mios" && (chief
@@ -3593,7 +3635,7 @@ function ProductividadMant({rows}){
   const [desde,setDesde]=useState(ini); const [hasta,setHasta]=useState(hoy);
   const [tipoF,setTipoF]=useState("todas");
   const fil=rows.filter(r=>{
-    const f=(r.FechaCreacion||r.FechaSolicitud||"").slice(0,10);
+    const f=ymdEC(r.FechaCreacion||r.FechaSolicitud||"");
     if(!f || f<desde || f>hasta) return false;
     if(tipoF==="programado") return r.Programada==="Si";
     if(tipoF==="correctivo") return r.Programada!=="Si";
@@ -3698,7 +3740,12 @@ function Kanban({user,toast,setFoto}){
   const tabla={compras:"Compras",sistemas:"Sistemas",mantenimiento:"Mantenimiento"}[proc];
   const [rows,setRows]=useState([]); const [over,setOver]=useState(null); const drag=useRef(null);
   const [fArea,setFArea]=useState(""); const [fSolic,setFSolic]=useState(""); const [det,setDet]=useState(null);
-  const load=async()=>setRows(await Store.read(tabla)); useEffect(()=>{load();setFArea("");setFSolic("");},[proc]);
+  /* En Mantenimiento conviven dos trabajos distintos: las tareas programadas
+     (planificación propia) y los correctivos (novedades que reporta el hotel).
+     Mezclarlos en el tablero distorsiona la lectura de carga. */
+  const [fTipo,setFTipo]=useState("todas");
+  const esMto = proc==='mantenimiento';
+  const load=async()=>setRows(await Store.read(tabla)); useEffect(()=>{load();setFArea("");setFSolic("");setFTipo("todas");},[proc]);
   const cols=KANBAN[proc];
   const areaOf=r=>tabla==="Compras"?r.Area:r.Departamento;
   const titleOf=r=>tabla==="Compras"?r.Modelo:tabla==="Sistemas"?r.Titulo:r.Descripcion;
@@ -3706,7 +3753,11 @@ function Kanban({user,toast,setFoto}){
   const isUrg=r=>{const p=prioOf(r).toLowerCase();return p.includes("urgente")||p.includes("alta");};
   const areas=[...new Set(rows.map(areaOf).filter(Boolean))].sort();
   const solics=[...new Set(rows.map(r=>r.Solicitante).filter(Boolean))].sort();
-  const visibles=rows.filter(r=>(!fArea||areaOf(r)===fArea)&&(!fSolic||r.Solicitante===fSolic));
+  const pasaTipo=r=>{ if(!esMto||fTipo==="todas") return true;
+    return fTipo==="programadas" ? r.Programada==="Si" : r.Programada!=="Si"; };
+  const visibles=rows.filter(r=>(!fArea||areaOf(r)===fArea)&&(!fSolic||r.Solicitante===fSolic)&&pasaTipo(r));
+  const nProg=rows.filter(r=>r.Programada==="Si").length;
+  const nCorr=rows.length-nProg;
   function canEditCard(r){ if(esCerrada(r)) return false; if(esDev(user)) return true;
     if(gestionaModulo(user,proc)) return true;
     if(user.rol==='gerencia' && proc==='compras' && r.Estado==='En Gerencia') return true;
@@ -3728,9 +3779,13 @@ function Kanban({user,toast,setFoto}){
     <div className="kfilters">
       <select value={fArea} onChange={e=>setFArea(e.target.value)}><option value="">Todas las áreas</option>{areas.map(a=><option key={a}>{a}</option>)}</select>
       <select value={fSolic} onChange={e=>setFSolic(e.target.value)}><option value="">Todos los solicitantes</option>{solics.map(s=><option key={s}>{s}</option>)}</select>
-      {(fArea||fSolic) && <button className="btn ghost" style={{flex:"0 0 auto"}} onClick={()=>{setFArea("");setFSolic("");}}>Limpiar</button>}
+      {esMto && <select value={fTipo} onChange={e=>setFTipo(e.target.value)}>
+        <option value="todas">Programadas y correctivas</option>
+        <option value="programadas">Solo tareas programadas ({nProg})</option>
+        <option value="correctivas">Solo correctivas ({nCorr})</option></select>}
+      {(fArea||fSolic||fTipo!=="todas") && <button className="btn ghost" style={{flex:"0 0 auto"}} onClick={()=>{setFArea("");setFSolic("");setFTipo("todas");}}>Limpiar</button>}
     </div>
-    <div className="kcount">{visibles.length} de {rows.length} tarjeta(s){fArea?` · ${fArea}`:""}{fSolic?` · ${fSolic}`:""}</div>
+    <div className="kcount">{visibles.length} de {rows.length} tarjeta(s){fArea?` · ${fArea}`:""}{fSolic?` · ${fSolic}`:""}{esMto&&fTipo!=="todas"?` · ${fTipo==="programadas"?"programadas":"correctivas"}`:""}</div>
     <div className="kan">{cols.map(col=>{ const cards=visibles.filter(r=>r.Estado===col);
       return <div key={col} className={"kcol"+(over===col?" over":"")} onDragOver={e=>{e.preventDefault();setOver(col);}}
         onDragLeave={()=>setOver(null)} onDrop={e=>{e.preventDefault();setOver(null); if(drag.current) move(drag.current,col);}}>
@@ -3743,7 +3798,8 @@ function Kanban({user,toast,setFoto}){
           <div className="kt">{titleOf(r)}</div>
           <div style={{display:"flex",gap:6,flexWrap:"wrap",margin:"6px 0 2px"}}>
             <span className="kchip">{areaOf(r)||"—"}</span>
-            {prioOf(r) && <span className={"kchip"+(isUrg(r)?" urg":"")}>{prioOf(r).split(" ")[0]}</span>}</div>
+            {prioOf(r) && <span className={"kchip"+(isUrg(r)?" urg":"")}>{prioOf(r).split(" ")[0]}</span>}
+            {esMto && <span className="kchip" style={{background:r.Programada==="Si"?"#efe6fb":"#e2f0f1",color:r.Programada==="Si"?"#5b3a95":"#0a565c",fontWeight:700}}>{r.Programada==="Si"?"Programada":"Correctiva"}</span>}</div>
           <div className="km"><Icon name="user" size={15} style={{marginRight:6}}/>{r.Solicitante}{r.FechaTentativa?` · 📅 ${fmtDate(r.FechaTentativa)}`:""}</div>
           <div className="kchip" style={{marginTop:6,display:"inline-block"}}>{ed?"Abrir / editar":"Abrir"}</div></div>;})}
         {!cards.length && <div style={{color:"#aab2b3",fontSize:12,textAlign:"center",padding:"14px 0"}}>—</div>}
