@@ -153,6 +153,16 @@ textarea.inp{min-height:88px;resize:vertical}
 .dnum.p{color:var(--purple);border-color:#ddccf0}
 .dcirc{display:inline-grid;place-items:center;width:42px;height:42px;border-radius:50%;font-weight:800;font-size:12px;border:2.5px solid}
 .ddias{font-size:11px;color:var(--muted)}
+.dild{font-weight:800;font-size:13.5px;color:var(--ink);line-height:1.25}
+.dtable td:first-child .dsub{font-weight:700;text-transform:uppercase;letter-spacing:.3px;font-size:10.5px;margin-top:2px;color:var(--muted)}
+.dtable td:first-child .dmix{font-size:10.5px;margin-top:2px;color:var(--muted);font-weight:600}
+.apitem{display:grid;grid-template-columns:1fr 90px 40px;grid-template-areas:"n b c" "m m m";align-items:center;gap:8px;padding:7px 0;border-top:1px solid #f4f0e7}
+.apitem:first-child{border-top:0}
+.apname{grid-area:n;font-size:12.5px;font-weight:700}
+.apbar{grid-area:b;height:7px;border-radius:6px;background:#efe9de;overflow:hidden}
+.apbar span{display:block;height:100%;border-radius:6px}
+.apnum{grid-area:c;text-align:right;font-size:13px}
+.apmeta{grid-area:m;font-size:10.5px;color:var(--muted);margin-top:-2px}
 .kcard .kc{font-size:11px;color:var(--muted);font-weight:700}
 .kcard .kt{font-weight:600;font-size:13.5px;margin:3px 0;line-height:1.3}
 .kcard .km{font-size:11.5px;color:var(--muted)}
@@ -251,15 +261,15 @@ const AC={
   'Servicio Buffet':           {r:4,  g:'Servicio',     t:'Diurno',   turno:false},
   'Servicio Buffet Plaza':     {r:4,  g:'Servicio',     t:'Diurno',   turno:false},
   'Cierre Plaza Paraíso':      {r:7,  g:'Servicio',     t:'Cierre',   turno:false},
-  'Servicio Almeja Playera':   {r:4,  g:'Servicio',     t:'Diurno',   turno:false},
-  'Servicio Chiringuito':      {r:4,  g:'Servicio',     t:'Diurno',   turno:false},
+  'Servicio Almeja Playera':   {r:4,  g:'Servicio',     t:'Diurno',   turno:true},
+  'Servicio Chiringuito':      {r:4,  g:'Servicio',     t:'Diurno',   turno:true},
   'Apertura Cocina':           {r:5,  g:'Cocina',       t:'Apertura', turno:false},
   'Cocina Central':            {r:6,  g:'Cocina',       t:'Diurno',   turno:true},
   'Cocina Almeja Playera':     {r:9,  g:'Cocina',       t:'Diurno',   turno:true},
   'Chiringuito Apertura':      {r:8,  g:'Cocina',       t:'Apertura', turno:false},
   'Cierre Chiringuito':        {r:8,  g:'Cocina',       t:'Cierre',   turno:false},
   'Sunset Bar':                {r:11, g:'Servicio',     t:'Diurno',   turno:true},
-  'Sunset Deck':               {r:6,  g:'Servicio',     t:'Diurno',   turno:false},
+  'Sunset Deck':               {r:6,  g:'Servicio',     t:'Diurno',   turno:true},
   'Apertura Spa':              {r:7,  g:'Spa',          t:'Apertura', turno:false},
   'Cierre Spa':                {r:7,  g:'Spa',          t:'Cierre',   turno:false},
   'Mantenimiento':             {r:6,  g:'Mantenimiento',t:'Apertura', turno:false},
@@ -425,7 +435,6 @@ let CL={
     'Televisores sala: encendidos / apagados',
   ],
   'Servicio Chiringuito':[
-    {t:'Tipo de ILD',tipo:'apertura_cierre'},
     'Bodega de servicio: ordenada y limpia',
     'Rack de audio: encendido / apagado',
     'Mesa mise en place snacks salsas + queso: montaje / desmontaje',
@@ -536,7 +545,6 @@ let CL={
     'Dispensador Coca Cola con/sin Boquillas instaladas',
   ],
   'Sunset Deck':[
-    {t:'ILD de',tipo:'apertura_cierre'},
     'Vista frontal del Sunset Deck: montaje / desmontaje',
     'Nevera #1 - Parte Alta',
     'Nevera #1 - Parte Baja',
@@ -1122,7 +1130,33 @@ function applyIldConfig(cfg){ if(!cfg) return;
   if(Array.isArray(cfg.usuarios) && cfg.usuarios.length){ USERS.length=0; cfg.usuarios.forEach(u=>USERS.push(u)); applyGestiona(); }
   if(cfg.accesos) ACCESOS=cfg.accesos;
   if(cfg.amodo) AMODO=cfg.amodo;
-  if(cfg.notif) NOTIF={...NOTIF_DEF,...cfg.notif}; }
+  if(cfg.notif) NOTIF={...NOTIF_DEF,...cfg.notif};
+  migrarV67(); }
+
+/* ===== v6.7 · Normalización estructural =====
+   Se ejecuta SIEMPRE tras cargar la configuración guardada (SharePoint o local),
+   para que estos cambios no se pierdan si quedó un ILD_Config anterior.
+   Es estructural, no por nombre: sobrevive a que una jefatura renombre el ILD.
+     1. Si un checklist tiene una pregunta tipo 'apertura_cierre', ese ILD pasa a
+        turno:true (Apertura/Cierre en la configuración del formulario, como
+        Sunset Bar) y la pregunta se elimina del checklist.
+     2. Almeja Playera de Servicio también opera con apertura y cierre. */
+function _nrm(s){ return String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]/g,""); }
+function migrarV67(){
+  try{
+    Object.keys(CL).forEach(a=>{
+      if(!Array.isArray(CL[a])) return;
+      if(CL[a].some(it=>itemTipo(it)==='apertura_cierre')){
+        CL[a]=CL[a].filter(it=>itemTipo(it)!=='apertura_cierre');
+        if(AC[a]) AC[a].turno=true;
+      }
+    });
+    Object.keys(AC).forEach(a=>{
+      const n=_nrm(a);
+      if(n.indexOf('almejaplayera')>=0 && _nrm(AC[a].g)==='servicio') AC[a].turno=true;
+    });
+  }catch(e){}
+}
 async function cfgSave(){ await Store.write("ILD_Config",{checklist:CL,areas:AC,aprobadores:APR,usuarios:USERS,diasCfg:DIAS_CFG,accesos:ACCESOS,amodo:AMODO,notif:NOTIF}); }
 
 /* ===== Notificaciones (correo Graph + Teams por correo de canal) ===== */
@@ -1241,6 +1275,7 @@ const Notif = {
 // Aplica configuración guardada en modo local (demo) al cargar
 try{ const raw=localStorage.getItem("pp_ILD_Config");
   if(raw){ const c=JSON.parse(raw); if(c && !Array.isArray(c)) applyIldConfig(c); } }catch{}
+try{ migrarV67(); }catch(e){}
 
 /* ===== EXPORTACIÓN A EXCEL ===== */
 function ildToRow(r){ return {
@@ -2215,6 +2250,31 @@ function ILDDetail({user,r,onClose,reload,toast,setFoto}){
 }
 
 function colorCumpl(p){ return p>=85?"--green":p>=50?"--amber":"--red"; }
+
+/* ===== v6.7 · ILD de servicio con selector Desayuno/Almuerzo/Cena =====
+   Estos ILD no se miden por outlet sino por COMIDA: desayuno, almuerzo y cena
+   deben reportarse todos los días del mes, sin importar si ese día el servicio
+   salió A la carta, Buffet o Buffet Plaza. La detección es estructural (checklist
+   con un ítem tipo 'comida'), así que sobrevive a que se renombre el ILD. */
+const COMIDAS = ['Desayuno','Almuerzo','Cena'];
+const tieneComida = a => (CL[a]||[]).some(it=>itemTipo(it)==='comida');
+/* Nombre corto para el desglose: quita el prefijo "ILD" y el sufijo "- Grupo" */
+function cortoILD(a){
+  return String(a).replace(/^\s*ILD\s+/i,"").replace(/\s*[-–]\s*[^-–]+$/,"").trim() || a;
+}
+/* Comida elegida en un registro (el índice depende del checklist vigente al enviar) */
+function comidaDe(r){
+  const its = (r && r.clItems && r.clItems.length) ? r.clItems : (CL[r.area]||[]);
+  for(let i=0;i<its.length;i++){ if(itemTipo(its[i])==='comida') return (r.selecciones && r.selecciones[i])||""; }
+  return "";
+}
+/* Etiqueta bajo el nombre del ILD: Apertura / Cierre. "Diurno" no se muestra. */
+function subTurno(area,turno){
+  if(AC[area] && AC[area].turno) return turno||"";
+  const t=(AC[area] && AC[area].t)||"";
+  return (t==='Diurno')?"":t;
+}
+
 function ILDDash({user,regs}){
   const meses=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
   const hoy=new Date();
@@ -2222,43 +2282,82 @@ function ILDDash({user,regs}){
   const grupos=[...new Set(areasUser.map(a=>AC[a]?.g).filter(Boolean))];
   const [grp,setGrp]=useState("todas"); const [mes,setMes]=useState(hoy.getMonth()); const year=hoy.getFullYear();
   const esMesActual = mes===hoy.getMonth();
-  // filas por grupo -> área -> turno
-  const filasDe=area=>{ const ac=AC[area]; if(!ac) return [];
-    const turnos = ac.turno ? ["Apertura","Cierre"] : [ac.t||"Diurno"]; return turnos; };
-  function rowData(area,turno){
-    const recs=regs.filter(r=>!esDuplicado(r) && r.area===area && (AC[area]?.turno ? r.turno===turno : true)
-      && new Date(r.fecha).getFullYear()===year && new Date(r.fecha).getMonth()===mes);
+  const diaDe = r => String(r.fecha||"").slice(0,10);
+  const delMes = r => { const d=new Date(r.fecha); return d.getFullYear()===year && d.getMonth()===mes; };
+  /* Métricas comunes. Se cuentan DÍAS CUBIERTOS, no registros: dos ILD del mismo
+     día son un día, y solo cuentan los días en que al área le tocaba. Así no
+     pasa de 100% aunque el desayuno se reporte por dos outlets el mismo día. */
+  function metricas(recs,areaDia){
     const ap=recs.filter(r=>r.estado==='Aprobado').length;
     const ob=recs.filter(r=>r.estado==='Con observaciones').length;
     const pe=recs.filter(r=>r.estado==='Pendiente').length;
-    const dias=diasEsperados(area,year,mes,esMesActual);
-    const diasMes=diasEsperados(area,year,mes,false);
-    /* Se cuentan DÍAS CUBIERTOS, no registros: dos ILD del mismo día son un día,
-       y solo cuentan los días en que al área le tocaba. Así no pasa de 100%. */
-    const diaDe=r=>String(r.fecha||"").slice(0,10);
-    const cubiertos=new Set(recs.filter(r=>aplicaDia(area,diaDe(r))).map(diaDe)).size;
-    const revisados=new Set(recs.filter(r=>r.estado!=='Pendiente'&&aplicaDia(area,diaDe(r))).map(diaDe)).size;
-    /* Dos indicadores separados: enviar es del operativo, revisar es de la jefatura. */
-    const cumpl=dias?Math.min(100,Math.round(cubiertos/dias*100)):0;
-    const cumplRev=dias?Math.min(100,Math.round(revisados/dias*100)):0;
+    const cubiertos=new Set(recs.filter(r=>r.estado!=='Pendiente' && aplicaDia(areaDia,diaDe(r))).map(diaDe)).size;
     const aprob=recs.filter(r=>r.fechaAprobacion);
     const horas=aprob.length?(aprob.reduce((s,r)=>s+(new Date(r.fechaAprobacion)-new Date(r.fecha)),0)/aprob.length/3600000):0;
-    return {area,turno,subidos:recs.length,ap,ob,pe,dias,diasMes,cumpl,cumplRev,cubiertos,revisados,horas};
+    return {ap,ob,pe,cubiertos,horas};
+  }
+  // filas por grupo -> área -> turno
+  const filasDe=area=>{ const ac=AC[area]; if(!ac) return [];
+    return ac.turno ? ["Apertura","Cierre"] : [ac.t||"Diurno"]; };
+  function rowData(area,turno){
+    const recs=regs.filter(r=>!esDuplicado(r) && r.area===area && (AC[area]?.turno ? r.turno===turno : true) && delMes(r));
+    const {ap,ob,pe,cubiertos,horas}=metricas(recs,area);
+    const dias=diasEsperados(area,year,mes,esMesActual);
+    const diasMes=diasEsperados(area,year,mes,false);
+    const cumpl=dias?Math.min(100,Math.round(cubiertos/dias*100)):0;
+    return {area,turno,nombre:area,sub:subTurno(area,turno),mix:"",
+      subidos:recs.length,ap,ob,pe,dias,diasMes,cubiertos,cumpl,horas};
+  }
+  /* Una fila por comida, sumando todos los outlets de servicio visibles */
+  function rowComida(comida,areas){
+    const recs=regs.filter(r=>!esDuplicado(r) && areas.indexOf(r.area)>=0 && comidaDe(r)===comida && delMes(r));
+    const ref=areas[0];
+    const {ap,ob,pe,cubiertos,horas}=metricas(recs,ref);
+    const dias=diasEsperados(ref,year,mes,esMesActual);
+    const diasMes=diasEsperados(ref,year,mes,false);
+    const cumpl=dias?Math.min(100,Math.round(cubiertos/dias*100)):0;
+    const mix=areas.map(a=>`${cortoILD(a)} ${recs.filter(r=>r.area===a).length}`).join(" · ");
+    return {area:ref,turno:comida,nombre:comida,sub:"",mix,esComida:true,
+      subidos:recs.length,ap,ob,pe,dias,diasMes,cubiertos,cumpl,horas};
   }
   const gruposVis=(grp==="todas"?grupos:[grp]);
-  const tablas=gruposVis.map(g=>{ const areasG=areasUser.filter(a=>AC[a]?.g===g);
-    const rows=[]; areasG.forEach(a=>filasDe(a).forEach(t=>rows.push(rowData(a,t))));
-    return {g,rows};
+  const tablas=gruposVis.map(g=>{
+    const areasG=areasUser.filter(a=>AC[a]?.g===g);
+    const comidaG=areasG.filter(tieneComida);
+    const normales=areasG.filter(a=>comidaG.indexOf(a)<0);
+    const rows=[]; normales.forEach(a=>filasDe(a).forEach(t=>rows.push(rowData(a,t))));
+    if(comidaG.length) COMIDAS.forEach(c=>rows.push(rowComida(c,comidaG)));
+    return {g,rows,comidaG};
   }).filter(t=>t.rows.length);
   // resumen global del mes
   const allRows=tablas.flatMap(t=>t.rows);
   const tot=allRows.reduce((s,r)=>s+r.subidos,0), tAp=allRows.reduce((s,r)=>s+r.ap,0),
         tOb=allRows.reduce((s,r)=>s+r.ob,0), tPe=allRows.reduce((s,r)=>s+r.pe,0),
-        tDias=allRows.reduce((s,r)=>s+r.dias,0), cumGlobal=tDias?Math.round(((tAp+tOb)/tDias)*100):0;
-  function exportar(){ const rows=allRows.map(r=>({Grupo:AC[r.area]?.g,Area:r.area,Turno:r.turno,
-    DiasEsperados:r.dias,DiasMes:r.diasMes,Subidos:r.subidos,Aprobados:r.ap,ConObs:r.ob,Pendientes:r.pe,
-    CumplEnvio:r.cumpl+"%",CumplRevision:r.cumplRev+"%",DiasCubiertos:r.cubiertos,TiempoPromHoras:r.horas.toFixed(2)}));
+        tDias=allRows.reduce((s,r)=>s+r.dias,0), tCub=allRows.reduce((s,r)=>s+r.cubiertos,0),
+        cumGlobal=tDias?Math.min(100,Math.round(tCub/tDias*100)):0;
+
+  /* Detalle por ítem de los ILD en modo lista (Áreas Públicas): cuántos envíos
+     hubo en el mes por cada zona. Detectado por modo, no por nombre. */
+  const areasLista = areasUser.filter(a=>areaModo(a)==='lista' && (grp==="todas" || AC[a]?.g===grp));
+  const detallesLista = areasLista.map(a=>{
+    const recs=regs.filter(r=>!esDuplicado(r) && r.area===a && delMes(r));
+    const items=(CL[a]||[]).map(it=>{ const tx=itemText(it); const rs=recs.filter(r=>r.zona===tx);
+      return {tx,n:rs.length,ap:rs.filter(r=>r.estado==='Aprobado').length,
+              ob:rs.filter(r=>r.estado==='Con observaciones').length,
+              pe:rs.filter(r=>r.estado==='Pendiente').length}; });
+    const sinZona=recs.filter(r=>!r.zona).length;
+    return {area:a,items,total:recs.length,sinZona,max:Math.max(1,...items.map(i=>i.n))};
+  }).filter(d=>d.items.length);
+
+  function exportar(){
+    const rows=allRows.map(r=>({Grupo:AC[r.area]?.g,ILD:r.nombre,Turno:r.sub||r.turno,Desglose:r.mix||"",
+      DiasEsperados:r.dias,DiasMes:r.diasMes,DiasCubiertos:r.cubiertos,Subidos:r.subidos,
+      Aprobados:r.ap,ConObs:r.ob,Pendientes:r.pe,Cumplimiento:r.cumpl+"%",TiempoPromHoras:r.horas.toFixed(2)}));
+    detallesLista.forEach(d=>d.items.forEach(i=>rows.push({Grupo:AC[d.area]?.g,ILD:d.area,Turno:"Zona: "+i.tx,Desglose:"",
+      DiasEsperados:"",DiasMes:"",DiasCubiertos:"",Subidos:i.n,Aprobados:i.ap,ConObs:i.ob,Pendientes:i.pe,
+      Cumplimiento:"",TiempoPromHoras:""})));
     exportXLSX(rows,"Dashboard",`Dashboard_ILD_${meses[mes]}_${year}`); }
+
   return <div>
     <div className="row" style={{marginBottom:12}}>
       <select className="inp" style={{flex:1}} value={grp} onChange={e=>setGrp(e.target.value)}>
@@ -2274,23 +2373,39 @@ function ILDDash({user,regs}){
         <div className="kpi" key={l} style={{borderTop:"3px solid "+cssVar(c)}}>
           <div className="kn" style={{color:cssVar(c)}}>{v}</div><div className="kl">{l}</div></div>)}
     </div>
-    <div className="hint" style={{margin:"-4px 0 12px"}}>Cumplimiento = (Aprobados + Con obs.) ÷ días esperados{esMesActual?` hasta hoy (día ${hoy.getDate()})`:" del mes"}.</div>
+    <div className="hint" style={{margin:"-4px 0 12px"}}>Cumplimiento = (Aprobados + Con obs.) ÷ días esperados{esMesActual?` hasta hoy (día ${hoy.getDate()})`:" del mes"}. Se cuenta por día: si un mismo día llegan dos reportes, el día cuenta una sola vez.</div>
     {!tablas.length && <div className="empty"><div className="e"><Icon name="inbox" size={44}/></div>Sin ILD en {meses[mes]}</div>}
-    {tablas.map(({g,rows})=><div className="dgrp" key={g}>
+    {tablas.map(({g,rows,comidaG})=><div className="dgrp" key={g}>
       <div className="ghead"><Icon name="folder" size={15} style={{marginRight:6}}/>{g.toUpperCase()}</div>
       <div className="dscroll"><table className="dtable">
-        <thead><tr><th>Turno</th><th>Días</th><th>Subidos</th><th>Aprob.</th><th>Obs.</th><th>Envío</th><th>Revisión</th><th>Tiempo (h)</th></tr></thead>
+        <thead><tr><th>ILD</th><th>Días</th><th>Subidos</th><th>Aprob.</th><th>Obs.</th><th>Cumplimiento</th><th>Tiempo (h)</th></tr></thead>
         <tbody>{rows.map((r,i)=><tr key={i}>
-          <td>{r.turno}<div className="ddias">{r.area}</div></td>
+          <td><div className="dild">{r.nombre}</div>
+              {r.sub && <div className="dsub">{r.sub}</div>}
+              {r.mix && <div className="dmix">{r.mix}</div>}</td>
           <td><span className="dnum">{r.dias}</span><div className="ddias">/{r.diasMes} mes</div></td>
           <td><span className="dnum">{r.subidos}</span></td>
           <td><span className="dnum g">{r.ap}</span></td>
           <td>{r.ob?<span className="dnum p">{r.ob}</span>:<span style={{color:"#ccc"}}>–</span>}</td>
           <td><span className="dcirc" style={{borderColor:cssVar(colorCumpl(r.cumpl)),color:cssVar(colorCumpl(r.cumpl))}}>{r.cumpl}%</span>
             <div className="ddias">{r.cubiertos}/{r.dias} días</div></td>
-          <td><span className="dcirc" style={{borderColor:cssVar(colorCumpl(r.cumplRev)),color:cssVar(colorCumpl(r.cumplRev))}}>{r.cumplRev}%</span></td>
           <td>{r.horas?r.horas.toFixed(2):"0.00"}</td></tr>)}</tbody>
       </table></div>
+      {comidaG && comidaG.length>0 && <div className="hint" style={{padding:"9px 14px",borderTop:"1px solid #f0ebe1",margin:0}}>
+        Desayuno, Almuerzo y Cena se miden por comida: cada una debe reportarse todos los días del mes, sea {comidaG.map(a=>cortoILD(a)).join(", ")}. El desglose bajo cada comida indica cuántos ILD aportó cada uno.</div>}
+    </div>)}
+
+    {detallesLista.map(d=><div className="dgrp" key={"lst-"+d.area}>
+      <div className="ghead"><Icon name="clipboard" size={15} style={{marginRight:6}}/>{d.area.toUpperCase()} · ENVÍOS POR ÍTEM EN {meses[mes].toUpperCase()}</div>
+      <div style={{padding:"10px 14px 14px"}}>
+        <div className="hint" style={{marginBottom:10}}>Total del mes: <b>{d.total}</b> envío(s) en {d.items.filter(i=>i.n>0).length} de {d.items.length} ítems.{d.sinZona?` ${d.sinZona} sin ítem registrado.`:""}</div>
+        {d.items.map((i,k)=><div key={k} className="apitem">
+          <div className="apname">{i.tx}</div>
+          <div className="apbar"><span style={{width:(i.n/d.max*100)+"%",background:i.n?"var(--ocean)":"transparent"}}/></div>
+          <div className="apnum">{i.n?<b>{i.n}</b>:<span style={{color:"#c9c2b6"}}>0</span>}</div>
+          <div className="apmeta">{i.n?<>{i.ap} aprob.{i.ob?` · ${i.ob} obs.`:""}{i.pe?` · ${i.pe} pend.`:""}</>:"sin envíos"}</div>
+        </div>)}
+      </div>
     </div>)}
   </div>;
 }
