@@ -716,6 +716,11 @@ const puedeAprobarArea = (u,area) => esGD(u) || (u.rol==='aprobador' && (u.areas
 const gestionaModulo = (u,m) => esDev(u) || (u.gestiona||[]).includes(m);
 let ACCESOS = null;     // {rol:{cap:bool}} configurable por el desarrollador
 let AMODO = {};         // {area:'normal'|'lista'} modo del ILD por área
+/* {area:true|false} · Qué ILD de servicio se consolidan en las filas
+   Desayuno/Almuerzo/Cena del Dashboard. Se configura desde Config › ILD ›
+   Comidas: detectarlo solo por "tiene pregunta de comida" agrupaba también los
+   ILD de apertura y cierre, que deben medirse uno por uno. */
+let AGRUPA_COMIDA = {};
 function defaultPuede(u,cap){
   if(!u) return false;
   const [mod,sub]=cap.split(".");
@@ -1164,6 +1169,7 @@ function applyIldConfig(cfg){ if(!cfg) return;
   if(Array.isArray(cfg.usuarios) && cfg.usuarios.length){ USERS.length=0; cfg.usuarios.forEach(u=>USERS.push(u)); applyGestiona(); }
   if(cfg.accesos) ACCESOS=cfg.accesos;
   if(cfg.amodo) AMODO=cfg.amodo;
+  if(cfg.agrupaComida) AGRUPA_COMIDA=cfg.agrupaComida;
   if(cfg.notif) NOTIF={...NOTIF_DEF,...cfg.notif};
   migrarV67(); }
 
@@ -1191,7 +1197,7 @@ function migrarV67(){
     });
   }catch(e){}
 }
-async function cfgSave(){ await Store.write("ILD_Config",{checklist:CL,areas:AC,aprobadores:APR,usuarios:USERS,diasCfg:DIAS_CFG,accesos:ACCESOS,amodo:AMODO,notif:NOTIF}); }
+async function cfgSave(){ await Store.write("ILD_Config",{checklist:CL,areas:AC,aprobadores:APR,usuarios:USERS,diasCfg:DIAS_CFG,accesos:ACCESOS,amodo:AMODO,agrupaComida:AGRUPA_COMIDA,notif:NOTIF}); }
 
 /* ===== Notificaciones (correo Graph + Teams por correo de canal) ===== */
 const NOTIF_DEF = {
@@ -2292,6 +2298,20 @@ function colorCumpl(p){ return p>=85?"--green":p>=50?"--amber":"--red"; }
    con un ítem tipo 'comida'), así que sobrevive a que se renombre el ILD. */
 const COMIDAS = ['Desayuno','Almuerzo','Cena'];
 const tieneComida = a => (CL[a]||[]).some(it=>itemTipo(it)==='comida');
+/* Tener una pregunta de comida NO basta para agrupar: los ILD de apertura y
+   cierre también la tienen y deben medirse individualmente. Se agrupan solo los
+   ILD de servicio de sala (a la carta y buffets), y siempre se puede corregir a
+   mano desde Config › ILD › Comidas. */
+function agrupaComidaDefault(a){
+  if(!tieneComida(a)) return false;
+  const n=_nrm(a);
+  if(n.indexOf('apertura')>=0 || n.indexOf('cierre')>=0) return false;
+  return n.indexOf('alacarta')>=0 || n.indexOf('buffet')>=0;
+}
+function agrupaComida(a){
+  if(!tieneComida(a)) return false;
+  return (AGRUPA_COMIDA[a]!=null) ? !!AGRUPA_COMIDA[a] : agrupaComidaDefault(a);
+}
 /* Nombre corto para el desglose: quita el prefijo "ILD" y el sufijo "- Grupo" */
 function cortoILD(a){
   return String(a).replace(/^\s*ILD\s+/i,"").replace(/\s*[-–]\s*[^-–]+$/,"").trim() || a;
@@ -2357,7 +2377,7 @@ function ILDDash({user,regs}){
   const gruposVis=(grp==="todas"?grupos:[grp]);
   const tablas=gruposVis.map(g=>{
     const areasG=areasUser.filter(a=>AC[a]?.g===g);
-    const comidaG=areasG.filter(tieneComida);
+    const comidaG=areasG.filter(agrupaComida);
     const normales=areasG.filter(a=>comidaG.indexOf(a)<0);
     const rows=[]; normales.forEach(a=>filasDe(a).forEach(t=>rows.push(rowData(a,t))));
     if(comidaG.length) COMIDAS.forEach(c=>rows.push(rowComida(c,comidaG)));
@@ -2561,6 +2581,7 @@ function ILDConfig({user,toast,onSave}){
       <button className={sec==="aprob"?"on":""} onClick={()=>setSec("aprob")}>Aprobadores</button>
       <button className={sec==="dias"?"on":""} onClick={()=>setSec("dias")}>Días esperados</button>
       <button className={sec==="cal"?"on":""} onClick={()=>setSec("cal")}>Calendario</button>
+      <button className={sec==="comidas"?"on":""} onClick={()=>setSec("comidas")}>Comidas</button>
       <button className={sec==="nuevo"?"on":""} onClick={()=>setSec("nuevo")}>Nuevo ILD</button>
       <button className={sec==="accesos"?"on":""} onClick={()=>setSec("accesos")}>Accesos</button>
     </div>
@@ -2568,8 +2589,37 @@ function ILDConfig({user,toast,onSave}){
     {sec==="aprob" && <AprobadoresEditor toast={toast} onSave={onSave}/>}
     {sec==="dias" && <DiasEsperadosEditor user={user} toast={toast} onSave={onSave}/>}
     {sec==="cal" && <CalendarioAplicabilidad user={user} toast={toast} onSave={onSave}/>}
+    {sec==="comidas" && <ComidasEditor user={user} toast={toast} onSave={onSave}/>}
     {sec==="nuevo" && <NuevoILD toast={toast} onSave={onSave}/>}
     {sec==="accesos" && <AccesosEditor toast={toast} onSave={onSave}/>}
+  </div>;
+}
+/* Config › ILD › Comidas: decide qué ILD se consolidan en Desayuno/Almuerzo/Cena
+   y cuáles se miden uno por uno. Solo aparecen los que tienen la pregunta. */
+function ComidasEditor({user,toast,onSave}){
+  const [,force]=useState(0); const re=()=>force(x=>x+1);
+  const areas=(esGD(user)?Object.keys(AC):(user.areas||[])).filter(tieneComida);
+  const set=(a,v)=>{ AGRUPA_COMIDA[a]=v; re(); };
+  const reset=a=>{ delete AGRUPA_COMIDA[a]; re(); };
+  const agrupados=areas.filter(agrupaComida);
+  return <div>
+    <div className="card">
+      <h3>Medición de los ILD con Desayuno / Almuerzo / Cena</h3>
+      <div className="hint">Los ILD <b>agrupados</b> desaparecen como fila propia y se suman en tres filas — Desayuno, Almuerzo y Cena — donde cada comida debe reportarse todos los días del mes, sin importar por cuál de ellos haya salido. Los ILD <b>individuales</b> se miden uno por uno, como cualquier otro.</div>
+      {!areas.length && <div className="hint" style={{marginTop:8}}>Ningún ILD tiene la pregunta de Desayuno/Almuerzo/Cena.</div>}
+      {agrupados.length>0 && <div className="hint" style={{marginTop:8}}>Se consolidan <b>{agrupados.length}</b> ILD en las filas de comida.</div>}
+      {agrupados.length===1 && <div className="note obs" style={{marginTop:8}}>Solo hay un ILD agrupado. Agrupar sirve cuando la misma comida puede salir por dos o más ILD; con uno solo, el resultado es igual a medirlo individual.</div>}
+    </div>
+    {areas.map(a=>{ const on=agrupaComida(a); const manual=AGRUPA_COMIDA[a]!=null;
+      return <div key={a} className="card" style={{padding:12,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+        <div style={{minWidth:0}}>
+          <div style={{fontWeight:700,fontSize:13.5}}>{a}</div>
+          <div className="meta">{AC[a]?.g||"—"}{manual?" · definido a mano":" · por defecto"}{manual&&<> · <span style={{cursor:"pointer",color:"var(--ocean-d)"}} onClick={()=>reset(a)}>volver a automático</span></>}</div>
+        </div>
+        <button className={"btn "+(on?"green":"ghost")} style={{flex:"0 0 auto"}} onClick={()=>set(a,!on)}>{on?"Agrupado ✓":"Individual"}</button>
+      </div>; })}
+    {areas.length>0 && <button className="btn primary block" onClick={()=>{onSave();toast("Configuración de comidas guardada");}}>
+      <Icon name="save" size={15} style={{marginRight:6}}/>Guardar</button>}
   </div>;
 }
 function AccesosEditor({toast,onSave}){
