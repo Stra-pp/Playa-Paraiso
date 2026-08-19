@@ -893,6 +893,20 @@ async function refreshToken(){
     graphToken=r.accessToken; SESSION_EXPIRED=false; return true;
   }catch(e){ SESSION_EXPIRED=true; return false; }
 }
+/* Antes cada pantalla hacía "setRows(await Store.read(...))" sin try/catch: un
+   401 por token vencido dejaba la lista vacía en silencio (pantallas "en blanco"
+   como el caso de Mantenimiento/Mis tareas). Este helper reintenta una vez tras
+   renovar el token y, si de verdad no hay forma de traer los datos, avisa en vez
+   de quedarse callado. Se usa en todas las pantallas que cargan listas. */
+async function cargarConReintento(leer, setter, toastFn, nombre){
+  try{ setter(await leer()); return true; }
+  catch(e){
+    const ok = MODE==="graph" ? await refreshToken() : false;
+    if(ok){ try{ setter(await leer()); return true; }catch(e2){} }
+    if(toastFn) toastFn(`No se pudo cargar ${nombre||"la información"}. Toca "Reconectar Microsoft" arriba y vuelve a intentar. (${(e&&e.message)||e})`);
+    return false;
+  }
+}
 async function gfetch(path,method="GET",body=null,raw=false,headers=null,_retry){
   const h={Authorization:`Bearer ${graphToken}`};
   if(headers) Object.assign(h,headers);
@@ -1540,7 +1554,7 @@ function ILD({user,toast,setFoto,bump}){
     else if(r.fail) toast(`Quedan ${r.fail} por enviar.`);
     else if(r.ok) toast(`Listo, se enviaron ${r.ok}.`);
   }
-  const load=async()=>setRegs(await Store.readDesde("ILD", desdeDias(150)));
+  const load=async()=>cargarConReintento(()=>Store.readDesde("ILD", desdeDias(150)), setRegs, toast, "los ILD");
   useEffect(()=>{load(); cargarDrafts();},[]);
   useEffect(()=>{ const h=()=>enviarPendientes(true); window.addEventListener("online",h); return ()=>window.removeEventListener("online",h); },[user]);
   const guardarCfg=()=>{ cfgSave(); bump&&bump(); };
@@ -3103,7 +3117,7 @@ function Compras({user,toast,setFoto}){
   const canGG=esGD(user)||user.rol==='gerencia';
   const [tab,setTab]=useState("nueva"); const [rows,setRows]=useState([]); const [modal,setModal]=useState(null);
   const [gFiltro,setGFiltro]=useState("todas"); const [gArea,setGArea]=useState("todas");
-  const load=async()=>setRows(await Store.read("Compras")); useEffect(()=>{load();},[]);
+  const load=async()=>cargarConReintento(()=>Store.read("Compras"), setRows, toast, "Compras"); useEffect(()=>{load();},[]);
   const vacio={Area:DEPTS[0],TiempoCompra:TIEMPO_COMPRA[1],TipoCompra:TIPO_COMPRA[0],FechaNecesidad:"",
     Presupuesto:"",Justificacion:"",Cantidad:"",Unidad:UNIDADES[0],Modelo:"",Descripcion:"",Proveedores:""};
   const [f,setF]=useState(vacio); const [fotos,setFotos]=useState([]); const [busy,setBusy]=useState(false); const [cotiz,setCotiz]=useState(null);
@@ -3322,7 +3336,7 @@ function Tickets({tipo,user,toast,setFoto}){
   const isSis=tipo==="Sistemas";
   const chief=gestionaModulo(user,tipo.toLowerCase());
   const [tab,setTab]=useState("nuevo"); const [rows,setRows]=useState([]); const [modal,setModal]=useState(null);
-  const load=async()=>setRows(await Store.read(tipo)); useEffect(()=>{load();},[]);
+  const load=async()=>cargarConReintento(()=>Store.read(tipo), setRows, toast, tipo); useEffect(()=>{load();},[]);
   const hoy=hoyEC();
   const vacioSis={Departamento:DEPTS_SIS[0],Urgencia:URGENCIA_SIS[1],Titulo:"",Descripcion:""};
   const vacioMto={Departamento:DEPTS[0],FechaSolicitud:hoy,TipoSolicitud:"Normal",Descripcion:""};
@@ -3809,7 +3823,7 @@ function Kanban({user,toast,setFoto}){
      Mezclarlos en el tablero distorsiona la lectura de carga. */
   const [fTipo,setFTipo]=useState("todas");
   const esMto = proc==='mantenimiento';
-  const load=async()=>setRows(await Store.read(tabla)); useEffect(()=>{load();setFArea("");setFSolic("");setFTipo("todas");},[proc]);
+  const load=async()=>cargarConReintento(()=>Store.read(tabla), setRows, toast, tabla); useEffect(()=>{load();setFArea("");setFSolic("");setFTipo("todas");},[proc]);
   const cols=KANBAN[proc];
   const areaOf=r=>tabla==="Compras"?r.Area:r.Departamento;
   const titleOf=r=>tabla==="Compras"?r.Modelo:tabla==="Sistemas"?r.Titulo:r.Descripcion;
@@ -3952,7 +3966,7 @@ function ReasignarResp({toast}){
   const [area,setArea]=useState("__todas"); const [dest,setDest]=useState(""); const [busy,setBusy]=useState(false);
   const [campo,setCampo]=useState("aprobador"); // solo ILD: aprobador | responsable
   const areaField=mod==="ILD"?"area":(mod==="Compras"?"Area":"Departamento");
-  const load=async()=>{ try{ setRows(await Store.read(mod)); }catch(e){ setRows([]); } };
+  const load=async()=>cargarConReintento(()=>Store.read(mod), setRows, toast, mod);
   useEffect(()=>{ load(); setArea("__todas"); setCampo(mod==="ILD"?"aprobador":"solicitante"); },[mod]);
   const nombres=[...new Set(USERS.map(u=>u.nombre))].sort();
   const areas=[...new Set(rows.map(r=>r[areaField]).filter(Boolean))].sort();
@@ -3999,7 +4013,7 @@ function ReasignarResp({toast}){
 }
 function DeleteRecords({toast}){
   const [mod,setMod]=useState("ILD"); const [rows,setRows]=useState([]);
-  const load=async()=>setRows(await Store.read(mod)); useEffect(()=>{load();},[mod]);
+  const load=async()=>cargarConReintento(()=>Store.read(mod), setRows, toast, mod); useEffect(()=>{load();},[mod]);
   const idOf=r=>r.id||r.Codigo;
   const codeOf=r=>r.Codigo||("#"+r.id);
   const titleOf=r=> mod==="ILD"?`${r.area} · ${r.usuario}` : mod==="Compras"?r.Modelo : mod==="Sistemas"?r.Titulo : r.Descripcion;
