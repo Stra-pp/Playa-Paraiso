@@ -4112,16 +4112,20 @@ function EstadoRed({user}){
   },[user]);
   async function reconectar(){ setReconectando(true); const ok=await refreshToken(); setExpirada(!ok); setReconectando(false); if(!ok) msSignIn(); }
   /* Antes "En línea" solo miraba el wifi del dispositivo (navigator.onLine), así que
-     se quedaba en verde aunque la sesión de Microsoft hubiera vencido y nada se
-     estuviera guardando. Ahora distingue: sin wifi, con wifi pero sesión vencida,
-     y todo bien. */
-  const estado = !online ? {t:"Sin conexión",c:"#FFA11F",titulo:"Sin conexión: lo que envíes queda guardado en la tablet"}
-    : expirada ? {t:"Sesión vencida",c:"#ff6b6b",titulo:"Tu sesión de Microsoft venció. Toca para reconectar."}
-    : {t:"En línea",c:"#3ddc97",titulo:"Con conexión"};
+     se quedaba en verde aunque la sesión de Microsoft/SharePoint hubiera vencido y
+     nada se estuviera guardando. Ahora "En línea" exige AMBAS condiciones: wifi Y
+     sesión de SharePoint válida. Si falta cualquiera de las dos, se muestra "Offline"
+     (el motivo exacto queda en el tooltip y, si es por sesión vencida, es tocable
+     para reconectar sin tener que cerrar/abrir la app). */
+  const conectado = online && !expirada;
+  const motivo = !online ? "Sin conexión a internet" : expirada ? "Sesión de SharePoint vencida — toca para reconectar" : "";
+  const estado = conectado
+    ? {t:"En línea",c:"#3ddc97",titulo:"Con conexión a internet y a SharePoint"}
+    : {t:"Offline",c: !online ? "#FFA11F" : "#ff6b6b",titulo: motivo+". Lo que envíes queda guardado en la tablet y se sincroniza solo."};
   return <span title={estado.titulo} onClick={expirada?reconectar:undefined}
-    style={{display:"inline-flex",alignItems:"center",gap:6,background:online?"rgba(255,255,255,.16)":"rgba(0,0,0,.28)",
+    style={{display:"inline-flex",alignItems:"center",gap:6,background:conectado?"rgba(255,255,255,.16)":"rgba(0,0,0,.28)",
       borderRadius:999,padding:"4px 10px",fontSize:11.5,fontWeight:700,color:"#fff",whiteSpace:"nowrap",cursor:expirada?"pointer":"default",
-      border:"1px solid "+(online?"rgba(255,255,255,.28)":"#FFA11F")}}>
+      border:"1px solid "+(conectado?"rgba(255,255,255,.28)":"#FFA11F")}}>
     <span style={{width:8,height:8,borderRadius:"50%",background:estado.c,flexShrink:0}}></span>
     {reconectando?"Reconectando…":estado.t}
     {pend>0 && <span style={{opacity:.9}}>· {pend} por enviar</span>}
