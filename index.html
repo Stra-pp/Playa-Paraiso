@@ -684,8 +684,8 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v6.6 · UI 5.9 (pulido + nav inferior) · SharePoint Prueba7(Listas) · Notif+Offline",
-  versionShort: "Playa Paraíso v6.6",
+  version: "Playa Paraíso · App unificada v6.7 · UI 5.9 (pulido + nav inferior) · SharePoint Prueba7(Listas) · Notif+Offline · Fix conexión/exportación/fotos avance",
+  versionShort: "Playa Paraíso v6.7",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -808,6 +808,28 @@ const fmtDate = s => { if(!s) return "—"; const str=String(s);
   return d.toLocaleDateString("es-EC",{timeZone:TZ_EC,day:"2-digit",month:"short",year:"numeric"}); };
 const fmtDT = s => { if(!s) return "—"; const d=new Date(s); if(isNaN(d)) return s;
   return d.toLocaleString("es-EC",{timeZone:TZ_EC,day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}); };
+/* Para exportar a Excel: los campos "Fecha..." mezclan dos formas (una fecha
+   pura de un input type=date, ej. "2026-08-11", y una fecha con hora de
+   nowISO(), ej. "2026-08-11T19:32:00.000Z"). Antes se exportaba el valor
+   crudo tal cual: una columna salía en UTC (hora corrida respecto a Ecuador)
+   y otra como texto ISO sin formato — cada fecha se veía "diferente". Esta
+   función homologa: fecha pura → solo día (sin forzar zona horaria, para no
+   correrla un día), fecha con hora → día+hora en horario de Ecuador. */
+function fmtCampoExport(v){
+  if(v==null || v==="") return "";
+  const s=String(v);
+  if(/^\d{4}-\d{2}-\d{2}$/.test(s)) return fmtDate(s);
+  const d=new Date(s);
+  if(isNaN(d)) return s;
+  return d.toLocaleString("es-EC",{timeZone:TZ_EC,day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});
+}
+/* Aplica fmtCampoExport a toda columna cuyo nombre contenga "Fecha", para
+   Compras/Sistemas/Mantenimiento (ILD ya tiene su propio ildToRow). */
+function formatFechasExport(rows){
+  return (rows||[]).map(r=>{ const o={...r};
+    Object.keys(o).forEach(k=>{ if(/Fecha/.test(k)) o[k]=fmtCampoExport(o[k]); });
+    return o; });
+}
 const yr = () => hoyPartesEC().y;
 let _seq = Date.now()%100000;
 /* Identificador único, en texto.
@@ -3528,7 +3550,7 @@ function ListaFiltrada({items,tipo,isSis,chief,equipo,onAction,vacio,unidad,toas
     <div className="row" style={{margin:"8px 0 12px",gap:8,flexWrap:"wrap"}}>
       <button className={"btn "+(soloHoy?"ghost":"primary")} onClick={()=>setSoloHoy(false)}>Todas fechas</button>
       <button className={"btn "+(soloHoy?"primary":"ghost")} onClick={()=>setSoloHoy(true)}>📅 Vencen hoy ({venceHoy})</button>
-      <button className="btn ocean" onClick={()=>{ if(!exportXLSX(v,tipo,nombreExport||`${tipo}_PlayaParaiso`)) toast("No hay datos para exportar"); else toast("Exportando…"); }}>⬇️ Exportar</button>
+      <button className="btn ocean" onClick={()=>{ if(!exportXLSX(formatFechasExport(v),tipo,nombreExport||`${tipo}_PlayaParaiso`)) toast("No hay datos para exportar"); else toast("Exportando…"); }}>⬇️ Exportar</button>
     </div>
     <div className="kcount">{v.length} {unidad||"ticket(s)"}{["nuevas","proceso","v15"].includes(fil)?" · de la más antigua a la más reciente":""}</div>
     <Listado items={v} empty={vacio||"No hay registros en este filtro"}
@@ -3674,7 +3696,7 @@ function TicketModal({tipo,isSis,modal,user,equipo,onClose,apply,toast,setFoto})
             <b style={{whiteSpace:"nowrap"}}>{fmtDate(a.fecha)}</b>
             <span style={{textAlign:"right",maxWidth:"70%"}}>{a.texto}<br/><span style={{fontSize:11,color:"var(--muted)"}}>— {a.autor}</span></span></div>
           {(a.fotos||[]).length>0 && <div className="fgrid" style={{marginTop:6}}>
-            {a.fotos.map((x,k)=><div key={k} className="fthumb"><img src={x.url||x} onClick={()=>setFoto(x.url||x)}/><span className="fnum">{k+1}</span></div>)}</div>}
+            {a.fotos.map((x,k)=><SpImg key={k} foto={x} idx={k+1} onClick={setFoto}/>)}</div>}
         </div>)}</div></>}
       {!isSis && !veInterno(user,item) && (item.ComentarioSoporte||"").trim() && <><h3 style={{margin:"12px 0 6px"}}>Resultado de la tarea</h3>
         <div className="card" style={{margin:0}}>{item.ComentarioSoporte}</div></>}
@@ -4036,7 +4058,7 @@ function Admin({user,toast}){
   useEffect(()=>{(async()=>{ const o={}; for(const t of ["ILD","Compras","Sistemas","Mantenimiento"]) o[t]=(await Store.read(t)).length; setCounts(o); })();},[reloadKey]);
   async function exportar(t){ const data=await Store.read(t);
     if(!data.length){toast("Sin datos en "+t);return;}
-    const rows = t==="ILD" ? data.map(ildToRow) : data;
+    const rows = t==="ILD" ? data.map(ildToRow) : formatFechasExport(data);
     exportXLSX(rows,t,`${t}_PlayaParaiso_${yr()}`); toast("Exportando "+t+"…"); }
   function toggleMode(){ const nm=MODE==="graph"?"local":"graph";
     if(!confirm(nm==="graph"?"Cambiar a modo SharePoint (en vivo)? Se recargará la app.":"Cambiar a modo local (demo)? Se recargará la app.")) return;
