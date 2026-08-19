@@ -881,7 +881,19 @@ const Local = {
   write:(t,arr)=>localStorage.setItem("pp_"+t,JSON.stringify(arr))
 };
 const GBASE="https://graph.microsoft.com/v1.0";
-async function gfetch(path,method="GET",body=null,raw=false,headers=null){
+/* Token de Graph: se renueva solo. Antes se pedía una sola vez al abrir la app y,
+   si la tablet quedaba encendida varias horas, el token vencía a media jornada.
+   La app seguía marcando "En línea" (eso solo mira la red del wifi) pero cada
+   envío fallaba con 401 y quedaba en la cola local sin que nadie se enterara
+   por qué. Ahora gfetch detecta el 401, renueva el token solo y reintenta. */
+let SESSION_EXPIRED=false;
+async function refreshToken(){
+  try{ await msInitApp(); const accs=msalApp.getAllAccounts(); if(!accs.length){ SESSION_EXPIRED=true; return false; }
+    const r=await msalApp.acquireTokenSilent({scopes:MS_SCOPES,account:accs[0]});
+    graphToken=r.accessToken; SESSION_EXPIRED=false; return true;
+  }catch(e){ SESSION_EXPIRED=true; return false; }
+}
+async function gfetch(path,method="GET",body=null,raw=false,headers=null,_retry){
   const h={Authorization:`Bearer ${graphToken}`};
   if(headers) Object.assign(h,headers);
   if(body && !(body instanceof ArrayBuffer)) h["Content-Type"]="application/json";
@@ -890,8 +902,10 @@ async function gfetch(path,method="GET",body=null,raw=false,headers=null){
   let r; try{ r=await fetch(GBASE+path,{method,headers:h,body:body?(body instanceof ArrayBuffer?body:JSON.stringify(body)):null,signal:ctrl.signal}); }
   catch(e){ clearTimeout(to); throw new Error("conexión: "+(e.name==="AbortError"?"tiempo de espera agotado":e.message)); }
   clearTimeout(to);
-  if(r.status===204) return null;
+  if(r.status===204){ SESSION_EXPIRED=false; return null; }
+  if(r.status===401 && !_retry){ const ok=await refreshToken(); if(ok) return gfetch(path,method,body,raw,headers,true); }
   if(!r.ok){ let extra=""; try{ const j=await r.json(); extra=j.error&&j.error.message?(" — "+j.error.message):""; }catch{} throw new Error(method+" "+path.split("?")[0]+": "+r.status+extra); }
+  SESSION_EXPIRED=false;
   return raw?r.arrayBuffer():r.json();
 }
 const GraphStore = {
@@ -4070,19 +4084,32 @@ function Admin({user,toast}){
 function EstadoRed({user}){
   const [online,setOnline]=useState(navigator.onLine);
   const [pend,setPend]=useState(0);
+  const [expirada,setExpirada]=useState(false);
+  const [reconectando,setReconectando]=useState(false);
   useEffect(()=>{
     const on=()=>setOnline(true), off=()=>setOnline(false);
     window.addEventListener("online",on); window.addEventListener("offline",off);
-    const contar=async()=>{ try{ const r=await Cola.resumen(user&&user.nombre); setPend(r.porEnviar); }catch(e){} };
-    contar(); const t=setInterval(contar,30000);
+    const chequear=async()=>{
+      try{ const r=await Cola.resumen(user&&user.nombre); setPend(r.porEnviar); }catch(e){}
+      if(MODE==="graph") setExpirada(!!SESSION_EXPIRED);
+    };
+    chequear(); const t=setInterval(chequear,30000);
     return ()=>{ clearInterval(t); window.removeEventListener("online",on); window.removeEventListener("offline",off); };
   },[user]);
-  return <span title={online?"Con conexión":"Sin conexión: lo que envíes queda guardado"}
+  async function reconectar(){ setReconectando(true); const ok=await refreshToken(); setExpirada(!ok); setReconectando(false); if(!ok) msSignIn(); }
+  /* Antes "En línea" solo miraba el wifi del dispositivo (navigator.onLine), así que
+     se quedaba en verde aunque la sesión de Microsoft hubiera vencido y nada se
+     estuviera guardando. Ahora distingue: sin wifi, con wifi pero sesión vencida,
+     y todo bien. */
+  const estado = !online ? {t:"Sin conexión",c:"#FFA11F",titulo:"Sin conexión: lo que envíes queda guardado en la tablet"}
+    : expirada ? {t:"Sesión vencida",c:"#ff6b6b",titulo:"Tu sesión de Microsoft venció. Toca para reconectar."}
+    : {t:"En línea",c:"#3ddc97",titulo:"Con conexión"};
+  return <span title={estado.titulo} onClick={expirada?reconectar:undefined}
     style={{display:"inline-flex",alignItems:"center",gap:6,background:online?"rgba(255,255,255,.16)":"rgba(0,0,0,.28)",
-      borderRadius:999,padding:"4px 10px",fontSize:11.5,fontWeight:700,color:"#fff",whiteSpace:"nowrap",
+      borderRadius:999,padding:"4px 10px",fontSize:11.5,fontWeight:700,color:"#fff",whiteSpace:"nowrap",cursor:expirada?"pointer":"default",
       border:"1px solid "+(online?"rgba(255,255,255,.28)":"#FFA11F")}}>
-    <span style={{width:8,height:8,borderRadius:"50%",background:online?"#3ddc97":"#FFA11F",flexShrink:0}}></span>
-    {online?"En línea":"Sin conexión"}
+    <span style={{width:8,height:8,borderRadius:"50%",background:estado.c,flexShrink:0}}></span>
+    {reconectando?"Reconectando…":estado.t}
     {pend>0 && <span style={{opacity:.9}}>· {pend} por enviar</span>}
   </span>;
 }
@@ -4109,7 +4136,11 @@ function AvisoPendientes({user,toast,onIr}){
     /* Al entrar: primero se limpia lo que ya no aplica, después se cuenta.
        Así el equipo no se encuentra con conflictos que ya están resueltos. */
     (async()=>{ await Cola.autoLimpiar(user.nombre); await contar(); })();
-    const t=setInterval(contar,60000);
+    /* Antes el reintento automático solo se disparaba con el evento "online" del
+       navegador, que en un wifi estable de hotel casi nunca vuelve a saltar. Por
+       eso lo que fallaba por sesión vencida se quedaba en la tablet todo el día.
+       Ahora también se reintenta solo cada 60s si hay señal. */
+    const t=setInterval(()=>{ contar(); if(navigator.onLine) auto(); },60000);
     const on=()=>{ setOnline(true); auto(); }, off=()=>setOnline(false);
     window.addEventListener("online",on); window.addEventListener("offline",off);
     return ()=>{ clearInterval(t); window.removeEventListener("online",on); window.removeEventListener("offline",off); };
@@ -4193,17 +4224,33 @@ function App(){
         bump(); } }
     setChecking(false);
   })(); },[]);
+  /* Renueva el token de Microsoft solo, cada 20 min, mientras la tablet quede
+     encendida todo el turno. Antes solo se pedía al abrir la app; a media
+     jornada vencía y cada envío fallaba en silencio (ver refreshToken en gfetch). */
+  useEffect(()=>{ if(MODE!=="graph") return;
+    const t=setInterval(async()=>{ const ok=await refreshToken(); if(ok) setConnected(true); }, 20*60*1000);
+    return ()=>clearInterval(t);
+  },[]);
   const toast=m=>{ setToastMsg(m); const dur=/no se pudo|error|❌|403|falló|no encontr|presupuesto/i.test(m)?8000:2600; setTimeout(()=>setToastMsg(""),dur); };
-  async function reloadCounts(u){ const who=u||user; if(!who) return;
-    const c=await Store.read("Compras"), s=await Store.read("Sistemas"), m=await Store.read("Mantenimiento"), il=await Store.read("ILD");
-    const pendChief=(arr,mod,abiertos)=> gestionaModulo(who,mod) ? arr.filter(r=>abiertos.includes(r.Estado)).length
-      : arr.filter(r=>r.Solicitante===who.nombre&&!cerrados.includes(r.Estado)).length;
-    setCounts({
-      compras:pendChief(c,"compras",["Solicitado","En Gerencia","En compra","Listo para entregar"]),
-      sistemas:pendChief(s,"sistemas",["Nuevo","Sin fecha asignada","En proceso"]),
-      mantenimiento:pendChief(m,"mantenimiento",["Nuevo","Sin fecha asignada","En proceso"]),
-      ild:(esGD(who)||who.rol==='aprobador')?il.filter(r=>!esDuplicado(r)&&r.estado==='Pendiente'&&(esGD(who)||(who.areas||[]).includes(r.area))).length:0
-    });
+  async function reloadCounts(u, _retry){ const who=u||user; if(!who) return;
+    try{
+      const c=await Store.read("Compras"), s=await Store.read("Sistemas"), m=await Store.read("Mantenimiento"), il=await Store.read("ILD");
+      const pendChief=(arr,mod,abiertos)=> gestionaModulo(who,mod) ? arr.filter(r=>abiertos.includes(r.Estado)).length
+        : arr.filter(r=>r.Solicitante===who.nombre&&!cerrados.includes(r.Estado)).length;
+      setCounts({
+        compras:pendChief(c,"compras",["Solicitado","En Gerencia","En compra","Listo para entregar"]),
+        sistemas:pendChief(s,"sistemas",["Nuevo","Sin fecha asignada","En proceso"]),
+        mantenimiento:pendChief(m,"mantenimiento",["Nuevo","Sin fecha asignada","En proceso"]),
+        ild:(esGD(who)||who.rol==='aprobador')?il.filter(r=>!esDuplicado(r)&&r.estado==='Pendiente'&&(esGD(who)||(who.areas||[]).includes(r.area))).length:0
+      });
+      setGerr("");
+    }catch(e){
+      /* Antes esto quedaba en silencio y el Dashboard/Resumen se veían "vacíos"
+         aunque el badge dijera "En línea". Si es el token vencido, se renueva
+         solo y se reintenta una vez; si vuelve a fallar, sí se avisa. */
+      if(!_retry){ const ok=await refreshToken(); if(ok) return reloadCounts(who, true); }
+      setGerr("No se pudo actualizar la información (Compras/Sistemas/Mantenimiento/ILD). Toca 'Reconectar Microsoft' arriba. Detalle: "+(e.message||e));
+    }
   }
   useEffect(()=>{ if(user){ reloadCounts(); loadNotifs(); } },[user,view,cfgVer]);
   useEffect(()=>{ if(!user || !DEEPLINK || window.__deepDone) return; window.__deepDone=true;
