@@ -1288,6 +1288,18 @@ function diasEsperados(area,year,month,hastaHoy){
   let n=0; for(let d=1; d<=limit; d++) if(aplicaDia(area,isoYMD(year,month,d))) n++;
   return n;
 }
+/* Igual que diasEsperados, pero para un mes puntual (mes 0–11) o para el año
+   completo (mes=null): suma los días esperados de cada mes ya transcurrido,
+   parándose en hoy si el año es el actual. La usa el Resumen Gerencial para
+   que su "% Cumplimiento" se calcule sobre días esperados, igual que el
+   Dashboard, y no solo sobre lo que ya se llegó a subir. */
+function diasEsperadosPeriodo(area,year,mes){
+  const hoy=hoyPartesEC();
+  if(mes!=null) return diasEsperados(area,year,mes, year===hoy.y && mes===hoy.m);
+  const maxM = (year===hoy.y) ? hoy.m : 11;
+  let n=0; for(let m=0; m<=maxM; m++) n+=diasEsperados(area,year,m, year===hoy.y && m===hoy.m);
+  return n;
+}
 async function cfgRead(){ let c; try{ c=await Store.read("ILD_Config"); }catch{ c=null; }
   if(!c || Array.isArray(c)) return null; return c; }
 function applyIldConfig(cfg){ if(!cfg) return;
@@ -3079,17 +3091,32 @@ function ResumenGerencialILD(){
     try{ const d=mes==null?await Store.readAnio("ILD",anio):await Store.readMes("ILD",anio,mes); if(v)setRegs(d); }
     catch(e){ if(v)setRegs([]); } finally{ if(v)setCargando(false); } })(); return ()=>{v=false;}; },[anio,mes]);
   const grupoDe=r=>(AC[r.area]&&AC[r.area].g)||"(otros)";
+  /* Los duplicados no cuentan para métricas en ninguna otra pantalla de la app
+     (bandeja, Dashboard) — antes acá sí se contaban, y eso era parte de por qué
+     los totales de esta pantalla no cuadraban con el Dashboard. */
+  const regsValidos = sinDuplicados(regs);
   const byG={};
-  regs.forEach(r=>{ const g0=grupoDe(r); const g=(byG[g0]=byG[g0]||{label:g0,total:0,aprob:0,obs:0,pend:0});
+  regsValidos.forEach(r=>{ const g0=grupoDe(r); const g=(byG[g0]=byG[g0]||{label:g0,total:0,aprob:0,obs:0,pend:0});
     g.total++; if(r.estado==="Aprobado")g.aprob++; else if(r.estado==="Con observaciones")g.obs++; else g.pend++; });
-  const grupos=Object.values(byG).map(g=>({...g,
-    revisados:g.aprob+g.obs, cumpl:g.total?Math.round((g.aprob+g.obs)/g.total*100):0,
-    calidad:g.total?Math.round(g.aprob/g.total*100):0, pObs:g.total?Math.round(g.obs/g.total*100):0 }));
-  const tot=regs.length, tAprob=grupos.reduce((s,g)=>s+g.aprob,0), tObs=grupos.reduce((s,g)=>s+g.obs,0), tPend=grupos.reduce((s,g)=>s+g.pend,0);
-  const cumplGlobal=tot?Math.round((tAprob+tObs)/tot*100):0;
+  /* Días esperados por grupo: se suman TODAS las áreas de ese grupo (según la
+     configuración de checklist), no solo las que llegaron a tener un ILD este
+     período — así un área que no reportó nada sí resta en el cumplimiento, en
+     vez de simplemente no aparecer. Es la misma idea que usa el Dashboard,
+     llevada a nivel de grupo en vez de área/turno. */
+  const areasPorGrupo={};
+  Object.keys(AC).forEach(a=>{ const g=(AC[a]&&AC[a].g)||"(otros)"; (areasPorGrupo[g]=areasPorGrupo[g]||[]).push(a); });
+  const grupos=Object.values(byG).map(g=>{
+    const dias=(areasPorGrupo[g.label]||[]).reduce((s,a)=>s+diasEsperadosPeriodo(a,anio,mes),0);
+    return {...g, dias,
+      revisados:g.aprob+g.obs, cumpl:dias?Math.min(100,Math.round((g.aprob+g.obs)/dias*100)):0,
+      calidad:g.total?Math.round(g.aprob/g.total*100):0, pObs:g.total?Math.round(g.obs/g.total*100):0 };
+  });
+  const tot=regsValidos.length, tAprob=grupos.reduce((s,g)=>s+g.aprob,0), tObs=grupos.reduce((s,g)=>s+g.obs,0), tPend=grupos.reduce((s,g)=>s+g.pend,0);
+  const tDias=grupos.reduce((s,g)=>s+g.dias,0);
+  const cumplGlobal=tDias?Math.min(100,Math.round((tAprob+tObs)/tDias*100)):0;
   const calidadGlobal=tot?Math.round(tAprob/tot*100):0;
   const pObsGlobal=tot?Math.round(tObs/tot*100):0;
-  const diasActivos=new Set(regs.map(r=>ymdEC(r.fecha))).size;
+  const diasActivos=new Set(regsValidos.map(r=>ymdEC(r.fecha))).size;
   const cumplBar=[...grupos].sort((a,b)=>b.cumpl-a.cumpl||b.total-a.total).map(g=>({label:g.label,value:g.cumpl}));
   const obsBar=[...grupos].filter(g=>g.obs>0).sort((a,b)=>b.obs-a.obs).slice(0,10).map(g=>({label:g.label,value:g.obs}));
   const pendBar=[...grupos].filter(g=>g.pend>0).sort((a,b)=>b.pend-a.pend).slice(0,10).map(g=>({label:g.label,value:g.pend}));
@@ -3115,6 +3142,7 @@ function ResumenGerencialILD(){
         <KpiBox label="Pendientes por revisar" value={tPend} color={tPend?cssVar("--coral"):cssVar("--green")}/>
         <KpiBox label="Días con inspección" value={diasActivos} color={cssVar("--ocean")}/>
       </div>
+      <div className="hint" style={{margin:"-4px 0 12px"}}>% Cumplimiento = (Aprobados + Con obs.) ÷ días esperados del período, igual que en el Dashboard — así ambas pantallas coinciden. No cuenta los ILD marcados como duplicados.</div>
       <div className="card" style={{background:"#f4f9f9",borderLeft:"4px solid var(--ocean)"}}>
         <h3 style={{marginTop:0}}>🧭 Lectura gerencial</h3>
         <div style={{fontSize:13.5,lineHeight:1.6}}>
