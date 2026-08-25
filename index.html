@@ -3090,13 +3090,25 @@ function ResumenGerencialILD(){
   useEffect(()=>{ let v=true; (async()=>{ setCargando(true);
     try{ const d=mes==null?await Store.readAnio("ILD",anio):await Store.readMes("ILD",anio,mes); if(v)setRegs(d); }
     catch(e){ if(v)setRegs([]); } finally{ if(v)setCargando(false); } })(); return ()=>{v=false;}; },[anio,mes]);
-  const grupoDe=r=>(AC[r.area]&&AC[r.area].g)||"(otros)";
+  const grupoDe=r=>AC[r.area]&&AC[r.area].g;
   /* Los duplicados no cuentan para métricas en ninguna otra pantalla de la app
      (bandeja, Dashboard) — antes acá sí se contaban, y eso era parte de por qué
      los totales de esta pantalla no cuadraban con el Dashboard. */
   const regsValidos = sinDuplicados(regs);
+  /* El Dashboard arma sus filas recorriendo las áreas de la configuración
+     actual (AC): un ILD cuya "área" ya no existe ahí (se renombró o se borró
+     del Checklist) simplemente no aparece en ninguna fila suya, ni en su
+     numerador ni en su denominador. Acá pasaba lo contrario: cualquier área
+     desconocida caía en un grupo "(otros)" que SÍ sumaba al numerador
+     (Aprobados+Obs) pero no tenía días esperados propios (no existe en AC),
+     así que inflaba el % de cumplimiento en vez de bajarlo. Para que ambas
+     pantallas cuadren de verdad, este resumen tiene que excluir esos registros
+     exactamente igual que el Dashboard — y avisarlo, en vez de perderlos en
+     silencio dentro de "(otros)". */
+  const regsSinArea = regsValidos.filter(r=>!grupoDe(r));
+  const regsConfigurados = regsValidos.filter(r=>grupoDe(r));
   const byG={};
-  regsValidos.forEach(r=>{ const g0=grupoDe(r); const g=(byG[g0]=byG[g0]||{label:g0,total:0,aprob:0,obs:0,pend:0});
+  regsConfigurados.forEach(r=>{ const g0=grupoDe(r); const g=(byG[g0]=byG[g0]||{label:g0,total:0,aprob:0,obs:0,pend:0});
     g.total++; if(r.estado==="Aprobado")g.aprob++; else if(r.estado==="Con observaciones")g.obs++; else g.pend++; });
   /* Días esperados por grupo: se suman TODAS las áreas de ese grupo (según la
      configuración de checklist), no solo las que llegaron a tener un ILD este
@@ -3104,19 +3116,20 @@ function ResumenGerencialILD(){
      vez de simplemente no aparecer. Es la misma idea que usa el Dashboard,
      llevada a nivel de grupo en vez de área/turno. */
   const areasPorGrupo={};
-  Object.keys(AC).forEach(a=>{ const g=(AC[a]&&AC[a].g)||"(otros)"; (areasPorGrupo[g]=areasPorGrupo[g]||[]).push(a); });
+  Object.keys(AC).forEach(a=>{ const g=AC[a]&&AC[a].g; if(g) (areasPorGrupo[g]=areasPorGrupo[g]||[]).push(a); });
   const grupos=Object.values(byG).map(g=>{
     const dias=(areasPorGrupo[g.label]||[]).reduce((s,a)=>s+diasEsperadosPeriodo(a,anio,mes),0);
     return {...g, dias,
       revisados:g.aprob+g.obs, cumpl:dias?Math.min(100,Math.round((g.aprob+g.obs)/dias*100)):0,
       calidad:g.total?Math.round(g.aprob/g.total*100):0, pObs:g.total?Math.round(g.obs/g.total*100):0 };
   });
-  const tot=regsValidos.length, tAprob=grupos.reduce((s,g)=>s+g.aprob,0), tObs=grupos.reduce((s,g)=>s+g.obs,0), tPend=grupos.reduce((s,g)=>s+g.pend,0);
+  const tot=regsConfigurados.length, tAprob=grupos.reduce((s,g)=>s+g.aprob,0), tObs=grupos.reduce((s,g)=>s+g.obs,0), tPend=grupos.reduce((s,g)=>s+g.pend,0);
   const tDias=grupos.reduce((s,g)=>s+g.dias,0);
   const cumplGlobal=tDias?Math.min(100,Math.round((tAprob+tObs)/tDias*100)):0;
   const calidadGlobal=tot?Math.round(tAprob/tot*100):0;
   const pObsGlobal=tot?Math.round(tObs/tot*100):0;
-  const diasActivos=new Set(regsValidos.map(r=>ymdEC(r.fecha))).size;
+  const diasActivos=new Set(regsConfigurados.map(r=>ymdEC(r.fecha))).size;
+  const areasSinConfig=[...new Set(regsSinArea.map(r=>r.area||"(sin área)"))];
   const cumplBar=[...grupos].sort((a,b)=>b.cumpl-a.cumpl||b.total-a.total).map(g=>({label:g.label,value:g.cumpl}));
   const obsBar=[...grupos].filter(g=>g.obs>0).sort((a,b)=>b.obs-a.obs).slice(0,10).map(g=>({label:g.label,value:g.obs}));
   const pendBar=[...grupos].filter(g=>g.pend>0).sort((a,b)=>b.pend-a.pend).slice(0,10).map(g=>({label:g.label,value:g.pend}));
@@ -3133,7 +3146,7 @@ function ResumenGerencialILD(){
     <div className="seg" style={{flexWrap:"wrap"}}>{anios.map(a=><button key={a} className={anio===a?"on":""} onClick={()=>setAnio(a)}>{a}</button>)}</div>
     <div className="seg" style={{flexWrap:"wrap"}}><button className={mes==null?"on":""} onClick={()=>setMes(null)}>Año</button>
       {MESES.map((m,i)=><button key={m} className={mes===i?"on":""} onClick={()=>setMes(i)}>{m}</button>)}</div>
-    {cargando ? <div className="hint" style={{padding:"20px 0"}}>Cargando…</div> : tot===0 ? <div className="empty"><div className="e">📊</div>Sin ILD registrados en {per}.</div> : <>
+    {cargando ? <div className="hint" style={{padding:"20px 0"}}>Cargando…</div> : (tot===0 && !regsSinArea.length) ? <div className="empty"><div className="e">📊</div>Sin ILD registrados en {per}.</div> : <>
       <div className="kpis">
         <KpiBox label="ILD registrados" value={tot} color={cssVar("--ocean")}/>
         <KpiBox label="% Cumplimiento" value={cumplGlobal+"%"} color={colCumpl}/>
@@ -3143,6 +3156,12 @@ function ResumenGerencialILD(){
         <KpiBox label="Días con inspección" value={diasActivos} color={cssVar("--ocean")}/>
       </div>
       <div className="hint" style={{margin:"-4px 0 12px"}}>% Cumplimiento = (Aprobados + Con obs.) ÷ días esperados del período, igual que en el Dashboard — así ambas pantallas coinciden. No cuenta los ILD marcados como duplicados.</div>
+      {regsSinArea.length>0 && <div className="card" style={{marginBottom:14,background:"#FDF0F0",borderLeft:"4px solid var(--coral)"}}>
+        <b style={{color:"#8f2020"}}>⚠️ {regsSinArea.length} ILD con un área que ya no existe en la configuración actual</b>
+        <div style={{fontSize:13,marginTop:4}}>No se cuentan en este resumen (igual que ya no cuentan en el Dashboard), para que ambos números
+          cuadren. Área(s) involucrada(s): <b>{areasSinConfig.join(", ")}</b>. Probablemente el nombre del área cambió en
+          "Configurar → Checklist" después de que estos ILD se subieran — conviene revisarlo con Desarrollador/Configuración.</div>
+      </div>}
       <div className="card" style={{background:"#f4f9f9",borderLeft:"4px solid var(--ocean)"}}>
         <h3 style={{marginTop:0}}>🧭 Lectura gerencial</h3>
         <div style={{fontSize:13.5,lineHeight:1.6}}>
