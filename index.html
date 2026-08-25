@@ -2287,19 +2287,34 @@ function ILDPanel({user,regs,enCola,reload,toast,setFoto}){
 
 function ILDMios({user,regs,setFoto}){
   const [det,setDet]=useState(null);
-  const todosMios=regs.filter(r=>r.usuario===user.nombre).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
-  const mios=todosMios;
-  const validos=sinDuplicados(todosMios);
-  const nDup=todosMios.length-validos.length;
+  const esColaborador = user.rol==='colaborador';
+  const hace30 = desdeDias(30);
+  const todosMiosCompleto=regs.filter(r=>r.usuario===user.nombre).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+  const validos=sinDuplicados(todosMiosCompleto);
+  const nDup=todosMiosCompleto.length-validos.length;
   const ap=validos.filter(r=>r.estado==='Aprobado').length, ob=validos.filter(r=>r.estado==='Con observaciones').length, pe=validos.filter(r=>r.estado==='Pendiente').length;
+  /* Para colaboradores (personal operativo, no jefatura): la lista solo muestra
+     lo que todavía necesita su atención — Pendientes de aprobar (sin límite de
+     antigüedad) y Con observaciones de los últimos 30 días. Un Aprobado, o una
+     observación más vieja, ya no aporta nada que revisar y solo suma peso a la
+     pantalla — pero el registro sigue completo en SharePoint y las jefaturas
+     siguen viendo todo. Los KPIs de arriba sí reflejan el total real (dentro de
+     lo que la app trae, ver la vigencia de 45 días), para que no se sienta que
+     "desaparecieron" sus ILD aprobados. */
+  const mios = esColaborador
+    ? todosMiosCompleto.filter(r=>r.estado==='Pendiente' || (r.estado==='Con observaciones' && ymdEC(r.fecha)>=hace30))
+    : todosMiosCompleto;
+  const ocultosPorFiltro = esColaborador ? (todosMiosCompleto.length - mios.length) : 0;
   return <div>
     <div className="kpis">
       {[["Total",validos.length,"--blue"],["Aprobados",ap,"--green"],["Con obs.",ob,"--purple"],["Pendientes",pe,"--amber"]].map(([l,v,c])=>
         <div className="kpi" key={l} style={{borderTop:"3px solid "+cssVar(c)}}><div className="kn" style={{color:cssVar(c)}}>{v}</div><div className="kl">{l}</div></div>)}
     </div>
+    {esColaborador && <div className="hint" style={{marginBottom:10}}>Aquí solo se listan los ILD que aún necesitan tu atención: pendientes de aprobar,
+      y con observaciones de los últimos 30 días.{ocultosPorFiltro>0?` ${ocultosPorFiltro} ya aprobados u observaciones más antiguas no se muestran, pero siguen guardados.`:""}</div>}
     {nDup>0 && <div className="hint" style={{marginBottom:10}}>
       {nDup} de tus envíos quedaron marcados como duplicados y no se cuentan. Se conservan con sus fotos; aparecen abajo señalados.</div>}
-    {!mios.length && <div className="empty"><div className="e"><Icon name="clipboard" size={44}/></div>Aún no has subido ILD</div>}
+    {!mios.length && <div className="empty"><div className="e"><Icon name="clipboard" size={44}/></div>{esColaborador?"No tienes ILD pendientes ni con observaciones recientes":"Aún no has subido ILD"}</div>}
     {mios.map(r=><div key={r.id} className="item" onClick={()=>setDet(r)} style={{cursor:"pointer"}}>
       <div className="top"><div>
         <div className="code">{r.Codigo||("ILD-"+r.id)}</div>
@@ -3591,7 +3606,13 @@ function Tickets({tipo,user,toast,setFoto}){
      Productividad. Queda solo en Sistemas. */
   const verEquipo=isSis && (user.rol==='aprobador'||esGD(user)||esDev(user)) && equipo.length>0;
   const delEquipo=rows.filter(r=>equipo.includes(r.Solicitante));
-  const asignadas=rows.filter(r=>!isSis && enEquipoMTO(r,user.nombre) && !["Cerrado","Rechazado"].includes(r.Estado));
+  /* "Mis tareas" (técnicos): solo tareas asignadas a ellos que sigan ACTIVAS —
+     Asignada, Sin fecha asignada o En proceso (bucketEstado==="proceso"). Ni las
+     "Nuevo" (aún no tomadas por nadie) ni las Concluidas/Cerradas/Rechazadas
+     les aparecen: lo concluido queda para la jefatura en Gestión/Tablero. Si una
+     tarea se reactiva, "reactivar" la vuelve a poner en "En proceso" — cae otra
+     vez en este mismo filtro sin necesitar lógica aparte. */
+  const asignadas=rows.filter(r=>!isSis && enEquipoMTO(r,user.nombre) && bucketEstado(r.Estado)==="proceso");
   const verTareas=!isSis && ildAreasDe(user).includes('Mantenimiento') && user.rol==='colaborador';
   const [soloHoy,setSoloHoy]=useState(false); const [gHoy,setGHoy]=useState(false); const [gFiltro,setGFiltro]=useState("todas");
   const hoyStr=hoyEC();
