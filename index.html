@@ -2083,18 +2083,23 @@ function ILDForm({user,toast,onSaved,setFoto,onDraft}){
   function resetCampos(){ setChecks({});setSel({});setTxt({});setFotos([]);setObs("");setZona(""); }
   useEffect(()=>{ resetCampos(); setTurno(""); },[area]);
   const req=fotosReq(area);
+  /* Ítems "Sí/No (foto obligatoria si es Sí)": cada uno respondido "Sí" suma 1 foto
+     obligatoria al total, además de las fotos fijas del área (req). Si se responde
+     "No", ese ítem no exige foto. */
+  const extraFotoObs = items.reduce((n,it,i)=> n + (itemTipo(it)==='sino_foto' && checks['yn-'+i]==='si' ? 1 : 0), 0);
+  const reqTotal = req + extraFotoObs;
   // progreso
   let total=0,done=0;
   items.forEach((it,i)=>{ const t=itemTipo(it);
     if(t==='foto'){total++; if(checks[i])done++;}
-    else if(t==='sino'){total++; if(checks['yn-'+i])done++;}
+    else if(t==='sino'||t==='sino_foto'){total++; if(checks['yn-'+i])done++;}
     else if(t==='apertura_cierre'||t==='comida'){total++; if(sel[i])done++;} });
   const pct=total?Math.round(done/total*100):0;
   async function onFiles(e){
     const files=Array.from(e.target.files); e.target.value="";
     const srcs=await Promise.all(files.map(f=>new Promise(r=>{const rd=new FileReader();rd.onload=ev=>r(ev.target.result);rd.readAsDataURL(f);})));
     const comp=await Promise.all(srcs.map(s=>comprimirImg(s)));
-    setFotos(prev=>[...prev,...comp].slice(0,Math.max(req,1)+4));
+    setFotos(prev=>[...prev,...comp].slice(0,Math.max(reqTotal,1)+4));
   }
   const [online,setOnline]=useState(navigator.onLine);
   useEffect(()=>{ const on=()=>setOnline(true),off=()=>setOnline(false);
@@ -2137,7 +2142,14 @@ function ILDForm({user,toast,onSaved,setFoto,onDraft}){
     const selFaltan=items.map((it,i)=>({it,i})).filter(o=>(itemTipo(o.it)==='apertura_cierre'||itemTipo(o.it)==='comida')&&!sel[o.i]);
     if(selFaltan.length){toast("Elige una opción en: "+itemText(selFaltan[0].it));return;}
     if(done<total && !confirm(`${total-done} ítems sin responder. ¿Enviar igual?`)) return;
-    if(fotos.length<req && !confirm(`Solo ${fotos.length}/${req} fotos. ¿Continuar?`)) return;
+    /* Las fotos que exige un "Sí" en un ítem Sí/No-con-foto son obligatorias de
+       verdad (no se puede omitir con un simple "continuar igual"), a diferencia
+       de las fotos fijas del área que sí admiten seguir sin ellas. */
+    if(extraFotoObs>0 && fotos.length<reqTotal){
+      toast(`Marcaste "Sí" en una observación que requiere foto: adjunta ${reqTotal-fotos.length} foto(s) más antes de enviar.`);
+      return;
+    }
+    if(fotos.length<reqTotal && !confirm(`Solo ${fotos.length}/${reqTotal} fotos. ¿Continuar?`)) return;
     if(busy) return; setBusy(true);
     try{
       await encolarYEnviar({ id:gid(), area, turno:turno||AC[area]?.t||"", selecciones:{...sel}, usuario:user.nombre,
@@ -2187,11 +2199,13 @@ function ILDForm({user,toast,onSaved,setFoto,onDraft}){
         <h3>Checklist — {done}/{total}</h3>
         <div className="pbar"><i style={{width:pct+"%",background:pct===100?"var(--green)":"var(--ocean)"}}/></div>
         {items.map((it,i)=>{ const tx=itemText(it),tp=itemTipo(it);
-          if(tp==='sino') return <div key={i} className="qcard"><div className="qt">{i+1}. {tx}</div>
+          if(tp==='sino'||tp==='sino_foto') return <div key={i} className="qcard"><div className="qt">{i+1}. {tx}</div>
             <div className="opts">
               <button className={"opt si"+(checks['yn-'+i]==='si'?" on":"")} onClick={()=>setChecks(c=>({...c,['yn-'+i]:'si'}))}>✅ Sí</button>
               <button className={"opt no"+(checks['yn-'+i]==='no'?" on":"")} onClick={()=>setChecks(c=>({...c,['yn-'+i]:'no'}))}>❌ No</button>
-            </div></div>;
+            </div>
+            {tp==='sino_foto' && checks['yn-'+i]==='si' && <div className="hint" style={{marginTop:6,color:"var(--red)"}}>📷 Foto obligatoria: adjúntala en la sección de Fotos, más abajo.</div>}
+            </div>;
           if(tp==='apertura_cierre'||tp==='comida'){ const ops=tp==='apertura_cierre'?['Apertura','Cierre']:['Desayuno','Almuerzo','Cena'];
             return <div key={i} className="qcard"><div className="qt">{i+1}. {tx}</div>
               <div className="opts">{ops.map(op=><button key={op} className={"opt"+(sel[i]===op?" on":"")} onClick={()=>setSel(s=>({...s,[i]:op}))}>{op}</button>)}</div></div>; }
@@ -2201,11 +2215,12 @@ function ILDForm({user,toast,onSaved,setFoto,onDraft}){
             <div className="cbox">{checks[i]?"✓":""}</div><span className="ctext">{i+1}. {tx}</span></div>;
         })}
       </div>
-      {req>0 && <div className="card"><h3>Fotos — {fotos.length}/{req}</h3>
-        <div className="hint" style={{marginBottom:8}}>Puedes tomar la foto con la cámara o elegirla desde la galería del dispositivo.</div>
+      {reqTotal>0 && <div className="card"><h3>Fotos — {fotos.length}/{reqTotal}</h3>
+        <div className="hint" style={{marginBottom:8}}>Puedes tomar la foto con la cámara o elegirla desde la galería del dispositivo.
+          {extraFotoObs>0 && " Incluye la(s) foto(s) de las observaciones que marcaste \"Sí\"."}</div>
         <input id="ild-file" type="file" accept="image/*" multiple style={{display:"none"}} onChange={onFiles}/>
         <button className="btn ghost block" onClick={()=>document.getElementById("ild-file").click()}>
-          {fotos.length>=req?"📷 Completo ✓":`📷 Cámara o galería (${req-fotos.length} restantes)`}</button>
+          {fotos.length>=reqTotal?"📷 Completo ✓":`📷 Cámara o galería (${reqTotal-fotos.length} restantes)`}</button>
         <div className="fgrid">{fotos.map((s,i)=><div key={i} className="fthumb">
           <img src={s} onClick={()=>setFoto(s)}/>
           <button className="fdel" onClick={()=>setFotos(f=>f.filter((_,j)=>j!==i))}><Icon name="x" size={15}/></button>
@@ -2344,7 +2359,7 @@ function actaILD(r){
   const f=d=>d?new Date(d).toLocaleString('es-EC',{timeZone:TZ_EC}):'—';
   const items=itemsDe(r);
   const filas=items.map((it,i)=>{ const tx=itemText(it),tp=itemTipo(it); let val="—";
-    if(tp==='sino'){ const v=(r.checks&&r.checks['yn-'+i])||""; val=v==='si'?'Sí':v==='no'?'No':'—'; }
+    if(tp==='sino'||tp==='sino_foto'){ const v=(r.checks&&r.checks['yn-'+i])||""; val=v==='si'?'Sí':v==='no'?'No':'—'; }
     else if(tp==='texto'){ val=(r.textos&&r.textos[i])||'—'; }
     else if(tp==='apertura_cierre'||tp==='comida'){ val=(r.selecciones&&r.selecciones[i])||'—'; }
     else { val=(r.checks&&r.checks[i])?'✓':'○'; }
@@ -2437,7 +2452,7 @@ function ILDDetail({user,r,onClose,reload,toast,setFoto}){
     <h3 style={{margin:"14px 0 6px"}}>Checklist</h3>
     {items.map((it,i)=>{ const tx=itemText(it),tp=itemTipo(it);
       let val;
-      if(tp==='sino'){ const v=(r.checks&&r.checks['yn-'+i])||""; val=v==='si'?<b style={{color:"var(--green)"}}>✅ Sí</b>:v==='no'?<b style={{color:"var(--red)"}}>❌ No</b>:<span style={{color:"#bbb"}}>—</span>; }
+      if(tp==='sino'||tp==='sino_foto'){ const v=(r.checks&&r.checks['yn-'+i])||""; val=v==='si'?<b style={{color:"var(--green)"}}>✅ Sí</b>:v==='no'?<b style={{color:"var(--red)"}}>❌ No</b>:<span style={{color:"#bbb"}}>—</span>; }
       else if(tp==='texto'){ const v=(r.textos&&r.textos[i])||""; val=<span style={{color:v?"#333":"#bbb",fontStyle:"italic"}}>{v||"—"}</span>; }
       else if(tp==='apertura_cierre'||tp==='comida'){ const v=(r.selecciones&&r.selecciones[i])||""; val=v?<b style={{color:"var(--ocean)"}}>{v}</b>:<span style={{color:"#bbb"}}>—</span>; }
       else { val=<span style={{color:r.checks&&r.checks[i]?"var(--green)":"#ccc"}}>{r.checks&&r.checks[i]?"✓":"○"}</span>; }
@@ -2672,7 +2687,7 @@ function ChecklistEditor({user,toast,onSave}){
   const [area,setArea]=useState(areas[0]||"");
   const [items,setItems]=useState(()=> (CL[area]||[]).map(norm));
   useEffect(()=>{ setItems((CL[area]||[]).map(norm)); },[area]);
-  const TIPOS=[["foto","Foto"],["sino","Sí/No"],["texto","Texto"],["apertura_cierre","Apertura/Cierre"],["comida","Desayuno/Almuerzo/Cena"]];
+  const TIPOS=[["foto","Foto"],["sino","Sí/No"],["sino_foto","Sí/No (foto obligatoria si es Sí)"],["texto","Texto"],["apertura_cierre","Apertura/Cierre"],["comida","Desayuno/Almuerzo/Cena"]];
   const upd=(i,k,v)=>setItems(arr=>arr.map((it,j)=>j===i?{...it,[k]:v}:it));
   const del=i=>setItems(arr=>arr.filter((_,j)=>j!==i));
   const mover=(i,d)=>setItems(arr=>{ const j=i+d; if(j<0||j>=arr.length)return arr; const c=[...arr]; [c[i],c[j]]=[c[j],c[i]]; return c; });
@@ -2712,6 +2727,7 @@ function ChecklistEditor({user,toast,onSave}){
     onSave(); if(area===a){ const rest=Object.keys(AC); setArea(rest[0]||""); } force(x=>x+1); toast("ILD eliminado: "+a); }
   if(!areas.length) return <div className="empty"><div className="e"><Icon name="lock" size={44}/></div>No tienes áreas asignadas para personalizar.</div>;
   const nFotos=items.filter(it=>it.tipo==='foto').length;
+  const nFotoSiNo=items.filter(it=>it.tipo==='sino_foto').length;
   const grupos=[...new Set(Object.values(AC).map(v=>v&&v.g).filter(Boolean))].sort();
   const nombres=[...new Set(USERS.map(u=>u.nombre))].sort();
   function setGrupo(a,g){ if(AC[a]){ AC[a].g=g; onSave(); force(x=>x+1); } }
@@ -2753,7 +2769,7 @@ function ChecklistEditor({user,toast,onSave}){
         <select className="inp" value={modo} onChange={e=>cambiarModo(e.target.value)}>
           <option value="normal">Checklist normal</option>
           <option value="lista">Lista (elegir una opción + 3 a 5 fotos)</option></select></Field>
-      <div className="hint">{items.length} {modo==='lista'?"opciones de la lista":"ítems"} · {modo==='lista'?"el usuario elige una opción":`Fotos requeridas = ${nFotos}`}.</div></div>
+      <div className="hint">{items.length} {modo==='lista'?"opciones de la lista":"ítems"} · {modo==='lista'?"el usuario elige una opción":`Fotos siempre requeridas = ${nFotos}`}{modo!=='lista' && nFotoSiNo>0 && ` · +${nFotoSiNo} foto(s) solo si se responde "Sí" en el/los ítem(s) Sí/No-con-foto`}.</div></div>
     {items.map((it,i)=><div key={i} className="card" style={{padding:12}}>
       <div className="row" style={{gap:8,alignItems:"flex-start"}}>
         <div style={{flex:"0 0 20px",color:"var(--muted)",fontWeight:700,paddingTop:11}}>{i+1}</div>
