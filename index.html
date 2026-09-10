@@ -14,6 +14,8 @@
 <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js" onerror="window.__noMsal=true"></script>
 <script>if(typeof msal==="undefined"){var _m=document.createElement("script");_m.src="https://alcdn.msftauth.net/browser/2.38.0/js/msal-browser.min.js";document.head.appendChild(_m);}</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" onerror="window.__noXlsx=true"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" onerror="window.__noQR=true"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js" onerror="window.__noJsQR=true"></script>
 <style>
 :root{
   --ocean:#0d6e75; --ocean-d:#0a565c; --ocean-l:#e6f2f3;
@@ -694,7 +696,8 @@ const APP = {
     site: "https://playaparaiso.sharepoint.com/sites/Prueba7",
     siteHost: "playaparaiso.sharepoint.com",
     sitePath: "/sites/Prueba7",
-    lists: { ILD:"PP_ILD", Compras:"PP_Compras", Sistemas:"PP_Sistemas", Mantenimiento:"PP_Mantenimiento", Notif:"PP_Notif" },
+    lists: { ILD:"PP_ILD", Compras:"PP_Compras", Sistemas:"PP_Sistemas", Mantenimiento:"PP_Mantenimiento", Notif:"PP_Notif",
+      HKHabitaciones:"PP_HK_Habitaciones", HKLimpiezas:"PP_HK_Limpiezas" },
     base: "ILDS",
     driveId: "b!O2-zgnw6nkyHGSME4wNWNvzktKvfz2RCve_Yy1z3ygbC7N4D__mdSLQmbhqhPa0o",
     files: { ILD:"NEXO_ILD.json", Compras:"NEXO_Compras.json",
@@ -714,6 +717,14 @@ const esDev = u => u && u.rol==='desarrollador';
 const ildAreasDe = u => esGD(u) ? Object.keys(AC) : (u.areas||[]);
 const puedeAprobarArea = (u,area) => esGD(u) || (u.rol==='aprobador' && (u.areas||[]).includes(area));
 const gestionaModulo = (u,m) => esDev(u) || (u.gestiona||[]).includes(m);
+/* Housekeeping es un módulo aparte del resto (ILD/Compras/Sistemas/Mantenimiento):
+   su propio conjunto de perfiles vive en u.hk.perfil, sin tocar u.rol ni u.areas
+   que rigen todo lo demás. Gerencia/Desarrollador ya tienen acceso total (esGD)
+   y además ven Housekeeping como "administrador" del módulo. */
+const esHKJefatura = u => !!u && (esGD(u) || (u.hk && u.hk.perfil==='jefatura_hk'));
+const esHKCamarero = u => !!u && !!(u.hk && u.hk.perfil==='camarero_hab');
+const esHKAreasPublicas = u => !!u && !!(u.hk && u.hk.perfil==='areas_publicas');
+const tieneHK = u => esHKJefatura(u) || esHKCamarero(u) || esHKAreasPublicas(u);
 let ACCESOS = null;     // {rol:{cap:bool}} configurable por el desarrollador
 let AMODO = {};         // {area:'normal'|'lista'} modo del ILD por área
 /* {area:true|false} · Qué ILD de servicio se consolidan en las filas
@@ -728,6 +739,7 @@ function defaultPuede(u,cap){
     if(cap==='compras') return u.rol!=='colaborador';
     if(cap==='sistemas'||cap==='mantenimiento') return true;
     if(cap==='ild') return ildAreasDe(u).length>0 || esGD(u);
+    if(cap==='housekeeping') return tieneHK(u);
     if(cap==='kanban') return esGD(u) || ["compras","sistemas","mantenimiento"].some(m=>(u.gestiona||[]).includes(m));
     return true;
   }
@@ -966,7 +978,7 @@ const GraphStore = {
   }
 };
 // ===== Backend de LISTAS de SharePoint (un elemento por solicitud) =====
-const LIST_TABLES=["ILD","Compras","Sistemas","Mantenimiento","Notif"];
+const LIST_TABLES=["ILD","Compras","Sistemas","Mantenimiento","Notif","HKHabitaciones","HKLimpiezas"];
 let SP_SITE=null; const SP_LIST={}; const SP_MAP={}; const SP_COLS={}; const SP_DCOL={}; let SP_LISTNAMES=[];
 const PREFER_NX={Prefer:"HonorNonIndexedQueriesWarningMayFailRandomly"};
 /* Día calendario de Ecuador del registro. Es la clave con la que se indexa
@@ -1575,6 +1587,110 @@ const ICONS={
 function Icon({name,size=22,style,cls}){ const p=ICONS[name]; if(!p) return null;
   return <svg className={cls} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style} dangerouslySetInnerHTML={{__html:p}}/>; }
 
+/* ===== HOUSEKEEPING: QR (generar y escanear) ===== */
+/* Cada habitación tiene un código QR permanente con este contenido — nunca el
+   número de habitación "pelado", para no confundirlo con cualquier otro QR
+   que alguien pudiera imprimir por su cuenta. */
+const hkQRValor = roomId => "PPHK:HAB:" + roomId;
+function hkParseQR(texto){
+  const t = String(texto||"").trim();
+  const m = t.match(/^PPHK:HAB:(.+)$/);
+  return m ? m[1] : null;
+}
+function QRImg({value,size=170}){
+  const ref = useRef();
+  useEffect(()=>{
+    if(!ref.current) return;
+    ref.current.innerHTML = "";
+    if(window.__noQR || typeof QRCode==="undefined"){
+      ref.current.innerHTML = '<div style="font-size:11px;color:#a83232;padding:8px">QR no disponible (sin red)</div>';
+      return;
+    }
+    try{ new QRCode(ref.current, {text:value, width:size, height:size, correctLevel:QRCode.CorrectLevel.M}); }
+    catch(e){ ref.current.innerHTML = '<div style="font-size:11px;color:#a83232;padding:8px">No se pudo generar el QR</div>'; }
+  },[value,size]);
+  return <div ref={ref} style={{display:"inline-block",background:"#fff",padding:8,borderRadius:8}}/>;
+}
+/* Abre una pestaña aparte solo para imprimir: así no se toca el CSS ni el
+   estado de la app, y sirve igual para una sola habitación o para las 47. */
+function hkImprimirQRs(rooms){
+  const w = window.open("", "_blank");
+  if(!w){ alert("El navegador bloqueó la ventana de impresión. Habilita las ventanas emergentes para este sitio."); return; }
+  /* Se arma como concatenación (no como una sola plantilla con <script> literal
+     adentro) para no cortar por accidente el <script type="text/babel"> de esta
+     misma app si algún bundler/minificador llegara a inspeccionar el texto. */
+  const SCR_OPEN = "<" + "script";
+  const SCR_CLOSE = "<" + "/script>";
+  const cards = rooms.map(r=>`<div class="card"><div id="qr-${r.id}"></div><div class="num">Hab. ${String(r.numero||"").replace(/</g,"")}</div>${r.tipo?`<div class="sub">${String(r.tipo).replace(/</g,"")}</div>`:""}</div>`).join("");
+  const script = rooms.map(r=>`new QRCode(document.getElementById(${JSON.stringify("qr-"+r.id)}),{text:${JSON.stringify(hkQRValor(r.id))},width:170,height:170});`).join("\n");
+  const head = `<!doctype html><html><head><meta charset="utf-8"><title>QR Habitaciones — Playa Paraíso</title>
+${SCR_OPEN} src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js">${SCR_CLOSE}
+<style>
+  body{font-family:Arial,Helvetica,sans-serif;margin:16px;background:#fff}
+  .card{display:inline-block;width:210px;text-align:center;margin:8px;padding:14px;border:1px solid #ccc;border-radius:10px;page-break-inside:avoid;vertical-align:top}
+  .num{font-size:20px;font-weight:800;margin-top:8px}
+  .sub{font-size:12px;color:#666;margin-top:2px}
+</style></head><body>`;
+  const foot = `
+${SCR_OPEN}>
+  window.onload = function(){
+    try{ ${script} }catch(e){}
+    setTimeout(function(){ window.print(); }, 700);
+  };
+${SCR_CLOSE}
+</body></html>`;
+  const html = head + cards + foot;
+  w.document.write(html); w.document.close();
+}
+/* Lector de QR con la cámara del dispositivo (jsQR + getUserMedia). No usa
+   ninguna librería nativa del navegador para no depender de permisos aparte
+   de la cámara, que ya se pide de forma explícita. */
+function QRScanner({onDetect,onClose}){
+  const videoRef=useRef(), canvasRef=useRef(), streamRef=useRef(null), rafRef=useRef(null), doneRef=useRef(false);
+  const [err,setErr]=useState("");
+  useEffect(()=>{
+    let cancelled=false;
+    function detener(){
+      if(rafRef.current) cancelAnimationFrame(rafRef.current);
+      if(streamRef.current) streamRef.current.getTracks().forEach(t=>t.stop());
+    }
+    (async()=>{
+      if(window.__noJsQR || typeof jsQR==="undefined"){ setErr("No se pudo cargar el lector de QR (sin red)."); return; }
+      if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ setErr("Este dispositivo/navegador no permite usar la cámara aquí."); return; }
+      try{
+        const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
+        if(cancelled){ stream.getTracks().forEach(t=>t.stop()); return; }
+        streamRef.current = stream;
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+        const tick=()=>{
+          if(doneRef.current || cancelled) return;
+          const v=videoRef.current, c=canvasRef.current;
+          if(v && v.readyState===v.HAVE_ENOUGH_DATA && v.videoWidth){
+            c.width=v.videoWidth; c.height=v.videoHeight;
+            const ctx=c.getContext("2d"); ctx.drawImage(v,0,0,c.width,c.height);
+            let img; try{ img=ctx.getImageData(0,0,c.width,c.height); }catch(e){ img=null; }
+            const code = img ? jsQR(img.data,c.width,c.height) : null;
+            if(code && code.data){ doneRef.current=true; detener(); onDetect(code.data); return; }
+          }
+          rafRef.current = requestAnimationFrame(tick);
+        };
+        rafRef.current = requestAnimationFrame(tick);
+      }catch(e){ setErr("No se pudo acceder a la cámara: "+(e.message||e)); }
+    })();
+    return ()=>{ cancelled=true; detener(); };
+  },[]);
+  return <Modal title="Escanear QR de habitación" onClose={onClose}>
+    {err
+      ? <div className="lerr" style={{whiteSpace:"normal"}}>{err}</div>
+      : <div>
+          <video ref={videoRef} playsInline muted style={{width:"100%",borderRadius:12,background:"#000",maxHeight:360,objectFit:"cover"}}/>
+          <canvas ref={canvasRef} style={{display:"none"}}/>
+          <div className="hint" style={{marginTop:8}}>Apunta la cámara al código QR pegado en la puerta de la habitación.</div>
+        </div>}
+  </Modal>;
+}
+
 function Login({onLogin}){
   const [step,setStep]=useState("choice"); // choice | pin | libre
   const pinUsers=USERS.filter(u=>u.pin);
@@ -1636,6 +1752,7 @@ function Home({user,go,counts}){
   if(puede(user,'sistemas')) tiles.push({id:"sistemas",t:"Sistemas",d:"Soporte de TI",ico:"monitor",col:"--blue"});
   if(puede(user,'mantenimiento')) tiles.push({id:"mantenimiento",t:"Mantenimiento",d:"Reportar una avería",ico:"wrench",col:"--amber"});
   if(puede(user,'kanban')) tiles.push({id:"kanban",t:"Tablero Kanban",d:"Avance de los procesos",ico:"kanban",col:"--ocean-d"});
+  if(puede(user,'housekeeping')) tiles.push({id:"housekeeping",t:"Housekeeping",d:"QR, limpieza y tiempos",ico:"clipboard",col:"--green"});
   if(esDev(user)) tiles.push({id:"admin",t:"Configuración",d:"Usuarios y conexión",ico:"gear",col:"--muted"});
   return <div>
     <h1 className="h1">Hola, {user.nombre.split(" ")[0]} 👋</h1>
@@ -3079,8 +3196,8 @@ function UsuariosEditor({toast,onSave}){
   const colabs=USERS.filter(u=>u.rol==='colaborador');
   const jefes=USERS.filter(u=>u.rol!=='colaborador');
   function saveUser(u){
-    if(u._new){ USERS.push({id:"c"+Date.now(),nombre:u.nombre,pin:u.pin||"",rol:u.rol||"colaborador",areas:u.areas||[]}); }
-    else { const t=USERS.find(x=>x.id===u.id); if(t){ t.nombre=u.nombre; t.pin=u.pin; t.areas=u.areas; if(u.rol) t.rol=u.rol; } }
+    if(u._new){ USERS.push({id:"c"+Date.now(),nombre:u.nombre,pin:u.pin||"",rol:u.rol||"colaborador",areas:u.areas||[],hk:u.hk||{perfil:""}}); }
+    else { const t=USERS.find(x=>x.id===u.id); if(t){ t.nombre=u.nombre; t.pin=u.pin; t.areas=u.areas; if(u.rol) t.rol=u.rol; t.hk=u.hk||{perfil:""}; } }
     applyGestiona(); onSave(); setEdit(null); re(); toast("Usuario guardado");
   }
   function delUser(id){ if(!confirm("¿Eliminar este colaborador?"))return; const i=USERS.findIndex(x=>x.id===id);
@@ -3109,6 +3226,7 @@ function UserModal({u,onClose,onSave}){
   const [nombre,setNombre]=useState(u.nombre||""); const [pin,setPin]=useState(u.pin||"");
   const [rol,setRol]=useState(u.rol||"colaborador");
   const [areas,setAreas]=useState(u.areas||[]);
+  const [hkPerfil,setHkPerfil]=useState((u.hk&&u.hk.perfil)||"");
   const esColab=rol==="colaborador";
   const toggle=a=>setAreas(s=>s.includes(a)?s.filter(x=>x!==a):[...s,a]);
   return <Modal title={u._new?(rol==="colaborador"?"Nuevo colaborador":"Nuevo aprobador / jefatura"):"Editar usuario"} onClose={onClose}>
@@ -3122,8 +3240,15 @@ function UserModal({u,onClose,onSave}){
       <div style={{maxHeight:280,overflow:"auto",border:"1px solid var(--line)",borderRadius:12,padding:"4px 10px"}}>
         {Object.keys(AC).map(a=><label key={a} style={{display:"flex",gap:9,alignItems:"center",padding:"7px 0",fontSize:13.5,borderBottom:"1px solid #f3efe6"}}>
           <input type="checkbox" checked={areas.includes(a)} onChange={()=>toggle(a)}/> {a}</label>)}</div></Field>
+    <Field label="Perfil de Housekeeping" hint="Módulo aparte: define qué ve esta persona dentro de Housekeeping (habitaciones/áreas públicas), independiente del rol de arriba.">
+      <select className="inp" value={hkPerfil} onChange={e=>setHkPerfil(e.target.value)}>
+        <option value="">— Sin acceso a Housekeeping —</option>
+        <option value="camarero_hab">Camarero/a de habitaciones</option>
+        <option value="areas_publicas">Personal de áreas públicas</option>
+        <option value="jefatura_hk">Jefatura de Housekeeping</option>
+      </select></Field>
     <div className="row end"><button className="btn ghost" onClick={onClose}>Cancelar</button>
-      <button className="btn primary" onClick={()=>{ if(!nombre.trim())return; if(rol!=="colaborador"&&pin.length!==4){alert("Las jefaturas/gerencia necesitan un PIN de 4 dígitos.");return;} onSave({...u,nombre:nombre.trim(),pin,rol,areas}); }}>Guardar</button></div>
+      <button className="btn primary" onClick={()=>{ if(!nombre.trim())return; if(rol!=="colaborador"&&pin.length!==4){alert("Las jefaturas/gerencia necesitan un PIN de 4 dígitos.");return;} onSave({...u,nombre:nombre.trim(),pin,rol,areas,hk:{perfil:hkPerfil}}); }}>Guardar</button></div>
   </Modal>;
 }
 
@@ -4478,6 +4603,318 @@ function AvisoPendientes({user,toast,onIr}){
   </div>;
 }
 
+/* ===== HOUSEKEEPING — Fase 1: Habitaciones (QR + flujo de limpieza + tiempos) =====
+   Módulo aparte (ver esHKJefatura/esHKCamarero/tieneHK): reutiliza el mismo
+   patrón de cola/Store/ID atómico que ILD/Compras/Sistemas para que quede
+   igual de robusto ante doble clic y falta de señal. No inventa habitaciones:
+   el catálogo se llena a mano o con el generador de rango, con datos reales. */
+const HK_EST_DISPONIBLE = "Disponible";
+const HK_EST_LIMPIEZA = "Limpieza en proceso";
+
+async function hkCargarHabitaciones(){ try{ return await Store.read("HKHabitaciones"); }catch(e){ return []; } }
+async function hkCargarLimpiezas(){ try{ return await Store.read("HKLimpiezas"); }catch(e){ return []; } }
+
+function HKRoomModal({room,onClose,onSaved,toast,rooms}){
+  const esNuevo = !room;
+  const [numero,setNumero]=useState(room?room.numero:"");
+  const [tipo,setTipo]=useState(room?room.tipo||"":"");
+  const [piso,setPiso]=useState(room?room.piso||"":"");
+  const [sector,setSector]=useState(room?room.sector||"":"");
+  const [busy,unaVez]=useEnvioUnico();
+  async function guardar(){
+    const num = String(numero||"").trim();
+    if(!num){ toast("Escribe el número de habitación"); return; }
+    const dup = rooms.some(r=>String(r.numero)===num && (!room || r.id!==room.id));
+    if(dup){ toast("Ya existe una habitación con ese número"); return; }
+    await unaVez(async()=>{
+      try{
+        const nueva = esNuevo
+          ? { id:gid(), numero:num, tipo:tipo.trim(), piso:piso.trim(), sector:sector.trim(),
+              activo:true, estado:HK_EST_DISPONIBLE, creadoEn:nowISO(), ultimaLimpieza:null }
+          : { ...room, numero:num, tipo:tipo.trim(), piso:piso.trim(), sector:sector.trim() };
+        const arr = await Store.read("HKHabitaciones");
+        const resto = arr.filter(r=>r.id!==nueva.id);
+        await Store.write("HKHabitaciones", [nueva, ...resto]);
+        toast(esNuevo?"Habitación creada":"Habitación actualizada");
+        onSaved(); onClose();
+      }catch(e){ toast("No se pudo guardar: "+(e.message||e)); }
+    });
+  }
+  return <Modal title={esNuevo?"Nueva habitación":"Editar habitación · "+room.numero} onClose={onClose}>
+    <Field label="Número de habitación" req><input className="inp" value={numero} onChange={e=>setNumero(e.target.value)} placeholder="Ej. 101"/></Field>
+    <Field label="Tipo (opcional)"><input className="inp" value={tipo} onChange={e=>setTipo(e.target.value)} placeholder="Ej. Standard, Suite…"/></Field>
+    <Field label="Piso (opcional)"><input className="inp" value={piso} onChange={e=>setPiso(e.target.value)} placeholder="Ej. 2"/></Field>
+    <Field label="Sector (opcional)"><input className="inp" value={sector} onChange={e=>setSector(e.target.value)} placeholder="Ej. Torre A"/></Field>
+    <button className="btn primary block" disabled={busy} onClick={guardar}>{busy?"Guardando…":"Guardar"}</button>
+  </Modal>;
+}
+
+function HKBulkModal({onClose,onSaved,toast,rooms}){
+  const [desde,setDesde]=useState(""); const [hasta,setHasta]=useState("");
+  const [prefijo,setPrefijo]=useState(""); const [tipo,setTipo]=useState(""); const [piso,setPiso]=useState(""); const [sector,setSector]=useState("");
+  const [busy,unaVez]=useEnvioUnico();
+  async function generar(){
+    const d = parseInt(desde,10), h = parseInt(hasta,10);
+    if(!Number.isFinite(d) || !Number.isFinite(h) || h<d){ toast("Rango inválido"); return; }
+    if((h-d+1)>300){ toast("Rango demasiado grande (máximo 300 a la vez)"); return; }
+    await unaVez(async()=>{
+      try{
+        const existentes = new Set(rooms.map(r=>String(r.numero)));
+        const nuevas=[];
+        for(let n=d;n<=h;n++){
+          const num = prefijo? (prefijo+n) : String(n);
+          if(existentes.has(num)) continue;
+          nuevas.push({ id:gid()+"_"+n, numero:num, tipo:tipo.trim(), piso:piso.trim(), sector:sector.trim(),
+            activo:true, estado:HK_EST_DISPONIBLE, creadoEn:nowISO(), ultimaLimpieza:null });
+        }
+        if(!nuevas.length){ toast("No hay habitaciones nuevas que crear en ese rango"); return; }
+        const arr = await Store.read("HKHabitaciones");
+        await Store.write("HKHabitaciones", [...nuevas, ...arr]);
+        toast(`Se crearon ${nuevas.length} habitaciones`);
+        onSaved(); onClose();
+      }catch(e){ toast("No se pudo generar: "+(e.message||e)); }
+    });
+  }
+  return <Modal title="Generar habitaciones por rango" onClose={onClose}>
+    <div className="hint" style={{marginBottom:10}}>Crea varias habitaciones seguidas, por ejemplo de la 101 a la 130. No se duplican números que ya existan.</div>
+    <div className="row" style={{gap:10}}>
+      <Field label="Desde (número)" req><input className="inp" type="number" value={desde} onChange={e=>setDesde(e.target.value)} placeholder="101"/></Field>
+      <Field label="Hasta (número)" req><input className="inp" type="number" value={hasta} onChange={e=>setHasta(e.target.value)} placeholder="130"/></Field>
+    </div>
+    <Field label="Prefijo (opcional)" hint="Ej. si pones 'A-', quedará A-101, A-102…"><input className="inp" value={prefijo} onChange={e=>setPrefijo(e.target.value)}/></Field>
+    <Field label="Tipo para todas (opcional)"><input className="inp" value={tipo} onChange={e=>setTipo(e.target.value)}/></Field>
+    <div className="row" style={{gap:10}}>
+      <Field label="Piso (opcional)"><input className="inp" value={piso} onChange={e=>setPiso(e.target.value)}/></Field>
+      <Field label="Sector (opcional)"><input className="inp" value={sector} onChange={e=>setSector(e.target.value)}/></Field>
+    </div>
+    <button className="btn primary block" disabled={busy} onClick={generar}>{busy?"Generando…":"Generar habitaciones"}</button>
+  </Modal>;
+}
+
+function HKCatalogo({user,toast}){
+  const [rooms,setRooms]=useState([]); const [editar,setEditar]=useState(null); const [nuevo,setNuevo]=useState(false); const [bulk,setBulk]=useState(false);
+  const [verQR,setVerQR]=useState(null);
+  const load=()=>cargarConReintento(hkCargarHabitaciones, setRooms, toast, "las habitaciones");
+  useEffect(()=>{load();},[]);
+  const ordenadas=[...rooms].sort((a,b)=>String(a.numero).localeCompare(String(b.numero),undefined,{numeric:true}));
+  async function toggleActivo(r){
+    try{
+      const arr = await Store.read("HKHabitaciones");
+      const nueva = {...r, activo:!r.activo};
+      await Store.write("HKHabitaciones", arr.map(x=>x.id===r.id?nueva:x));
+      load();
+    }catch(e){ toast("No se pudo actualizar: "+(e.message||e)); }
+  }
+  return <div>
+    <div className="row" style={{justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
+      <span style={{color:"var(--muted)",fontSize:13}}>{ordenadas.length} habitación(es) en el catálogo</span>
+      <div className="row" style={{gap:8}}>
+        <button className="btn ghost" style={{padding:"8px 12px"}} disabled={!ordenadas.length} onClick={()=>hkImprimirQRs(ordenadas)}><Icon name="download" size={15} style={{marginRight:6}}/>Imprimir todos los QR</button>
+        <button className="btn ghost" style={{padding:"8px 12px"}} onClick={()=>setBulk(true)}><Icon name="plus" size={15} style={{marginRight:6}}/>Generar por rango</button>
+        <button className="btn primary" style={{padding:"8px 12px"}} onClick={()=>setNuevo(true)}><Icon name="plus" size={15} style={{marginRight:6}}/>Nueva habitación</button>
+      </div>
+    </div>
+    {!ordenadas.length && <div className="empty"><div className="e">🛏️</div>Aún no hay habitaciones registradas. Agrega la primera o usa "Generar por rango".</div>}
+    {ordenadas.map(r=><div key={r.id} className="item">
+      <div className="top"><div>
+        <div className="code">Hab. {r.numero}{!r.activo && <span style={{color:"var(--red)",fontWeight:700}}> · inactiva</span>}</div>
+        <div className="ttl">{r.tipo||"(tipo no definido)"}</div>
+        <div className="meta">{[r.piso&&("Piso "+r.piso),r.sector].filter(Boolean).join(" · ")||"Sin piso/sector"}</div>
+        {r.ultimaLimpieza && <div className="meta">Última limpieza: {fmtDT(r.ultimaLimpieza.fecha)} · {r.ultimaLimpieza.colaborador} · {r.ultimaLimpieza.tiempoMin!=null?r.ultimaLimpieza.tiempoMin+" min":""}</div>}
+      </div><Pill estado={r.estado===HK_EST_LIMPIEZA?"En limpieza":"Disponible"}/></div>
+      <div className="acts">
+        <button className="btn ghost" onClick={()=>setVerQR(r)}>Ver QR</button>
+        <button className="btn ghost" onClick={()=>hkImprimirQRs([r])}>Imprimir QR</button>
+        <button className="btn ghost" onClick={()=>setEditar(r)}><Icon name="edit" size={14} style={{marginRight:5}}/>Editar</button>
+        <button className={"btn "+(r.activo?"red":"green")} onClick={()=>toggleActivo(r)}>{r.activo?"Desactivar":"Reactivar"}</button>
+      </div>
+    </div>)}
+    {nuevo && <HKRoomModal rooms={rooms} onClose={()=>setNuevo(false)} onSaved={load} toast={toast}/>}
+    {editar && <HKRoomModal room={editar} rooms={rooms} onClose={()=>setEditar(null)} onSaved={load} toast={toast}/>}
+    {bulk && <HKBulkModal rooms={rooms} onClose={()=>setBulk(false)} onSaved={load} toast={toast}/>}
+    {verQR && <Modal title={"QR · Habitación "+verQR.numero} onClose={()=>setVerQR(null)}>
+      <div style={{textAlign:"center"}}>
+        <QRImg value={hkQRValor(verQR.id)} size={200}/>
+        <div className="hint" style={{marginTop:10}}>Pega este código en la puerta de la habitación. Es permanente: no cambia aunque se edite el tipo/piso/sector.</div>
+        <button className="btn primary block" style={{marginTop:10}} onClick={()=>hkImprimirQRs([verQR])}>Imprimir</button>
+      </div>
+    </Modal>}
+  </div>;
+}
+
+/* Checklist de cierre de limpieza: mismos ítems que ya existían para el área
+   "Habitaciones" en ILD (CL['Habitaciones']), para no duplicar catálogo ni
+   confundir a jefatura con dos listas distintas. */
+function HKFinalizar({registro,room,user,toast,setFoto,onDone}){
+  const items = CL['Habitaciones']||[];
+  const [checks,setChecks]=useState({}); const [fotos,setFotos]=useState([]); const [obs,setObs]=useState("");
+  const [busy,unaVez]=useEnvioUnico();
+  const reqTotal = fotosReq('Habitaciones');
+  const done = items.filter((it,i)=>checks[i]).length;
+  async function finalizar(){
+    if(done<items.length && !confirm(`${items.length-done} ítem(s) sin marcar. ¿Finalizar igual?`)) return;
+    if(fotos.length<reqTotal && !confirm(`Solo ${fotos.length}/${reqTotal} fotos. ¿Continuar?`)) return;
+    await unaVez(async()=>{
+      try{
+        const horaFin = nowISO();
+        const tiempoMin = Math.max(0, Math.round((new Date(horaFin) - new Date(registro.horaInicio))/60000));
+        await Cola.cambio({ tabla:"HKLimpiezas", recId:registro.id, recCodigo:registro.Codigo, campoEstado:"estado",
+          patch:{ estado:"Finalizado", horaFin, tiempoMin, checks:{...checks}, obs },
+          fotos:[...fotos], fotoField:"fotos", fotoDir:"HK_{ID}", fotoPrefix:"HK{ID}",
+          patchId:"fin-"+registro.id }, user.nombre);
+        await Cola.cambio({ tabla:"HKHabitaciones", recId:room.id, campoEstado:"estado",
+          patch:{ estado:HK_EST_DISPONIBLE, ultimaLimpieza:{ fecha:horaFin, colaborador:user.nombre, tiempoMin, codigo:registro.Codigo } },
+          patchId:"habok-"+registro.id }, user.nombre);
+        const r = await Cola.enviar(user.nombre);
+        if(r.sinRed) toast("Guardado sin señal. Se envía solo cuando vuelva el internet.");
+        else toast(`Limpieza finalizada · ${tiempoMin} min`);
+        onDone();
+      }catch(e){ toast("No se pudo finalizar: "+(e.message||e)); }
+    });
+  }
+  return <Modal title={"Finalizar limpieza · Hab. "+room.numero} onClose={onDone}>
+    <div className="hint" style={{marginBottom:10}}>Inicio: {fmtDT(registro.horaInicio)}. La hora de finalización se registra automáticamente al enviar.</div>
+    <div className="card" style={{padding:0,border:"none"}}>
+      <h3>Checklist — {done}/{items.length}</h3>
+      {items.map((it,i)=>{ const tx = itemText(it);
+        return <div key={i} className={"crow"+(checks[i]?" on":"")} onClick={()=>setChecks(c=>({...c,[i]:!c[i]}))}>
+          <div className="cbox">{checks[i]?"✓":""}</div><span className="ctext">{i+1}. {tx}</span></div>; })}
+    </div>
+    <PhotoField fotos={fotos} setFotos={setFotos} setFoto={setFoto} label={`Fotos — ${fotos.length}/${reqTotal}`} hint="Evidencia de la limpieza realizada."/>
+    <Field label="Observaciones (opcional)"><textarea className="inp" value={obs} onChange={e=>setObs(e.target.value)} placeholder="Novedades de la habitación…"/></Field>
+    <button className="btn primary block" disabled={busy} onClick={finalizar}>{busy?"Enviando…":"Finalizar limpieza y enviar ILD"}</button>
+  </Modal>;
+}
+
+function HKCamarero({user,toast,setFoto}){
+  const [rooms,setRooms]=useState([]); const [limpiezas,setLimpiezas]=useState([]); const [scan,setScan]=useState(false);
+  const [pendiente,setPendiente]=useState(null); // {room, otraActiva}
+  const [autorizadoPor,setAutorizadoPor]=useState(""); const [motivo,setMotivo]=useState("");
+  const [finalizarReg,setFinalizarReg]=useState(null);
+  const [busy,unaVez]=useEnvioUnico();
+  const load=async()=>{
+    try{ setRooms(await hkCargarHabitaciones()); setLimpiezas(await hkCargarLimpiezas()); }catch(e){}
+  };
+  useEffect(()=>{load();},[]);
+  const misActivas = limpiezas.filter(l=>l.colaborador===user.nombre && l.estado==="En proceso");
+  function onDetect(texto){
+    setScan(false);
+    const roomId = hkParseQR(texto);
+    if(!roomId){ toast("Ese código no corresponde a una habitación de Playa Paraíso"); return; }
+    const room = rooms.find(r=>String(r.id)===String(roomId));
+    if(!room){ toast("Habitación no encontrada en el catálogo"); return; }
+    if(!room.activo){ toast("Esta habitación está desactivada"); return; }
+    const miPropia = misActivas.find(l=>l.habitacionId===room.id);
+    if(miPropia){ setFinalizarReg(miPropia); return; }
+    if(room.estado===HK_EST_LIMPIEZA){
+      const otro = limpiezas.find(l=>l.habitacionId===room.id && l.estado==="En proceso");
+      toast(`Esta habitación ya está en limpieza${otro?" por "+otro.colaborador:""}.`);
+      return;
+    }
+    const otraActiva = misActivas[0]||null;
+    setAutorizadoPor(""); setMotivo("");
+    setPendiente({room, otraActiva});
+  }
+  async function iniciar(){
+    const {room, otraActiva} = pendiente;
+    if(otraActiva && (!autorizadoPor.trim() || !motivo.trim())){
+      toast("Para tener dos habitaciones a la vez, indica quién lo autorizó y el motivo.");
+      return;
+    }
+    await unaVez(async()=>{
+      try{
+        const rec = { id:gid(), habitacionId:room.id, habitacionNumero:room.numero, colaborador:user.nombre,
+          fecha:hoyEC(), horaInicio:nowISO(), horaFin:"", tiempoMin:null, estado:"En proceso",
+          checks:{}, obs:"", fotos:[], cambiosAplicados:[],
+          excepcion: otraActiva ? { autorizadoPor:autorizadoPor.trim(), motivo:motivo.trim(), otraHabitacion:otraActiva.habitacionNumero } : null };
+        await Cola.add({ tabla:"HKLimpiezas", prefijo:"HK", rec, fotos:[], fotoField:"fotos",
+          fotoDir:"HK_{ID}", fotoPrefix:"HK{ID}", notif:null,
+          resumen:{ titulo:"Limpieza Hab. "+room.numero, sub:user.nombre } }, user.nombre);
+        await Cola.cambio({ tabla:"HKHabitaciones", recId:room.id, campoEstado:"estado",
+          patch:{ estado:HK_EST_LIMPIEZA }, patchId:"inicio-"+rec.id }, user.nombre);
+        const r = await Cola.enviar(user.nombre);
+        if(r.sinRed) toast("Guardado sin señal. Hora de inicio: "+fmtDT(rec.horaInicio));
+        else toast("Limpieza iniciada · Hab. "+room.numero);
+        setPendiente(null); await load();
+      }catch(e){ toast("No se pudo iniciar: "+(e.message||e)); }
+    });
+  }
+  return <div>
+    <div className="card">
+      <h3>Escanear habitación</h3>
+      <div className="hint" style={{marginBottom:10}}>Escanea el QR de la puerta para iniciar o finalizar la limpieza.</div>
+      <button className="btn primary block" onClick={()=>setScan(true)}><Icon name="camera" size={16} style={{marginRight:6}}/>Escanear QR</button>
+    </div>
+    {misActivas.length>0 && <div className="card">
+      <h3>En limpieza ahora</h3>
+      {misActivas.map(l=><div key={l.id} className="item" onClick={()=>setFinalizarReg(l)} style={{cursor:"pointer"}}>
+        <div className="top"><div>
+          <div className="code">Hab. {l.habitacionNumero}</div>
+          <div className="meta">Inicio: {fmtDT(l.horaInicio)}</div>
+          {l.excepcion && <div className="meta" style={{color:"#7a5a12"}}>Excepción autorizada por {l.excepcion.autorizadoPor}</div>}
+        </div><Pill estado="En proceso"/></div>
+        <div className="hint">Toca para finalizar</div>
+      </div>)}
+    </div>}
+    {scan && <QRScanner onDetect={onDetect} onClose={()=>setScan(false)}/>}
+    {pendiente && <Modal title={"Iniciar limpieza · Hab. "+pendiente.room.numero} onClose={()=>setPendiente(null)}>
+      <div className="hint" style={{marginBottom:10}}>Hora de inicio (se registra automáticamente): {fmtDT(nowISO())}</div>
+      {pendiente.otraActiva && <div style={{background:"#FFF4E0",border:"1px solid #F3D9A6",borderRadius:9,padding:"9px 11px",marginBottom:10,fontSize:12.5,color:"#7a5a12"}}>
+        Ya tienes la Hab. {pendiente.otraActiva.habitacionNumero} en limpieza. Para tener dos a la vez necesitas autorización de jefatura.
+        <Field label="Autorizado por" req><input className="inp" value={autorizadoPor} onChange={e=>setAutorizadoPor(e.target.value)} placeholder="Nombre de quien autoriza"/></Field>
+        <Field label="Motivo" req><input className="inp" value={motivo} onChange={e=>setMotivo(e.target.value)} placeholder="Ej. urgencia de check-in"/></Field>
+      </div>}
+      <button className="btn primary block" disabled={busy} onClick={iniciar}>{busy?"Iniciando…":"Iniciar limpieza"}</button>
+    </Modal>}
+    {finalizarReg && <HKFinalizar registro={finalizarReg} room={rooms.find(r=>r.id===finalizarReg.habitacionId)||{numero:finalizarReg.habitacionNumero,id:finalizarReg.habitacionId}}
+      user={user} toast={toast} setFoto={setFoto} onDone={()=>{setFinalizarReg(null);load();}}/>}
+  </div>;
+}
+
+function HKMonitor({toast}){
+  const [rooms,setRooms]=useState([]); const [limpiezas,setLimpiezas]=useState([]);
+  const load=()=>cargarConReintento(async()=>({rooms:await hkCargarHabitaciones(), limpiezas:await hkCargarLimpiezas()}),
+    d=>{setRooms(d.rooms);setLimpiezas(d.limpiezas);}, toast, "Housekeeping");
+  useEffect(()=>{ load(); const t=setInterval(load,60000); return ()=>clearInterval(t); },[]);
+  const enProceso = limpiezas.filter(l=>l.estado==="En proceso");
+  return <div>
+    <div className="row" style={{justifyContent:"space-between",marginBottom:10}}>
+      <span style={{color:"var(--muted)",fontSize:13}}>{enProceso.length} habitación(es) en limpieza ahora mismo</span>
+    </div>
+    {!enProceso.length && <div className="empty"><div className="e">🧹</div>No hay ninguna limpieza en proceso en este momento.</div>}
+    {enProceso.map(l=>{ const mins = Math.round((Date.now()-new Date(l.horaInicio))/60000);
+      return <div key={l.id} className="item">
+        <div className="top"><div>
+          <div className="code">Hab. {l.habitacionNumero}</div>
+          <div className="ttl">{l.colaborador}</div>
+          <div className="meta">Inicio: {fmtDT(l.horaInicio)} · lleva {mins} min</div>
+          {l.excepcion && <div className="meta" style={{color:"#7a5a12"}}>Excepción autorizada por {l.excepcion.autorizadoPor}: {l.excepcion.motivo}</div>}
+        </div><Pill estado="En proceso"/></div>
+      </div>; })}
+  </div>;
+}
+
+function Housekeeping({user,toast,setFoto}){
+  const puedeCatalogo = esHKJefatura(user);
+  const puedeEscanear = esHKCamarero(user) || esHKJefatura(user);
+  const tabsPosibles=[];
+  if(puedeEscanear) tabsPosibles.push(["escanear","Escanear / Limpiar"]);
+  if(puedeCatalogo) tabsPosibles.push(["monitor","En proceso"]);
+  if(puedeCatalogo) tabsPosibles.push(["catalogo","Catálogo de habitaciones"]);
+  const [tab,setTab]=useState(tabsPosibles[0]?.[0]||"escanear");
+  return <div>
+    <h1 className="h1">Housekeeping · Habitaciones</h1>
+    <p className="sub">QR, flujo de limpieza y tiempos por habitación.</p>
+    {tabsPosibles.length>1 && <div className="seg">
+      {tabsPosibles.map(([id,lbl])=><button key={id} className={tab===id?"on":""} onClick={()=>setTab(id)}>{lbl}</button>)}
+    </div>}
+    {tab==="escanear" && puedeEscanear && <HKCamarero user={user} toast={toast} setFoto={setFoto}/>}
+    {tab==="monitor" && puedeCatalogo && <HKMonitor toast={toast}/>}
+    {tab==="catalogo" && puedeCatalogo && <HKCatalogo user={user} toast={toast}/>}
+    {!tabsPosibles.length && <div className="empty"><div className="e">🔒</div>Tu usuario no tiene un perfil de Housekeeping asignado. Pide a un administrador que te lo asigne en Usuarios.</div>}
+  </div>;
+}
+
 function BottomNav({user,view,go,counts}){
   const items=[{id:"home",t:"Inicio",icon:"home"}];
   if(puede(user,'ild')) items.push({id:"ild",t:"ILD",icon:"clipboard"});
@@ -4485,6 +4922,7 @@ function BottomNav({user,view,go,counts}){
   if(puede(user,'sistemas')) items.push({id:"sistemas",t:"Sistemas",icon:"monitor"});
   if(puede(user,'mantenimiento')) items.push({id:"mantenimiento",t:"Manten.",icon:"wrench"});
   if(puede(user,'kanban')) items.push({id:"kanban",t:"Kanban",icon:"kanban"});
+  if(puede(user,'housekeeping')) items.push({id:"housekeeping",t:"Housekeep.",icon:"clipboard"});
   if(esDev(user)) items.push({id:"admin",t:"Config",icon:"gear"});
   if(items.length<2) return null;
   return <nav className="bnav">{items.map(it=>{ const on=view===it.id;
@@ -4572,7 +5010,7 @@ function App(){
   </div></div>;
   if(!user) return <Login onLogin={onLogin}/>;
   const rolLbl={desarrollador:"Desarrollador",gerencia:"Gerencia",aprobador:"Aprobador",colaborador:"Colaborador"}[user.rol]||user.rol;
-  const titles={ild:"ILD",compras:"Compras",sistemas:"Sistemas",mantenimiento:"Mantenimiento",kanban:"Kanban",admin:"Configuración"};
+  const titles={ild:"ILD",compras:"Compras",sistemas:"Sistemas",mantenimiento:"Mantenimiento",kanban:"Kanban",housekeeping:"Housekeeping",admin:"Configuración"};
   return <div className="app">
     <div className="topbar"><div className="brand"><span className="logobox" onClick={()=>setView("home")} style={{cursor:"pointer"}}><img src={LOGO} alt="Playa Paraíso"/></span></div><div className="sp"></div>
       <EstadoRed user={user}/>
@@ -4591,6 +5029,7 @@ function App(){
       {view==="sistemas" && <Tickets tipo="Sistemas" user={user} toast={toast} setFoto={setFoto}/>}
       {view==="mantenimiento" && <Tickets tipo="Mantenimiento" user={user} toast={toast} setFoto={setFoto}/>}
       {view==="kanban" && <Kanban user={user} toast={toast} setFoto={setFoto}/>}
+      {view==="housekeeping" && <Housekeeping user={user} toast={toast} setFoto={setFoto}/>}
       {view==="admin" && <Admin user={user} toast={toast}/>}
     </div>
     <BottomNav user={user} view={view} go={setView} counts={counts}/>
