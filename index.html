@@ -705,7 +705,7 @@ const APP = {
     siteHost: "playaparaiso.sharepoint.com",
     sitePath: "/sites/Prueba7",
     lists: { ILD:"PP_ILD", Compras:"PP_Compras", Sistemas:"PP_Sistemas", Mantenimiento:"PP_Mantenimiento", Notif:"PP_Notif",
-      HKHabitaciones:"PP_HK_Habitaciones", HKLimpiezas:"PP_HK_Limpiezas", HKAuditorias:"PP_HK_Auditorias" },
+      HKHabitaciones:"PP_HK_Habitaciones", HKLimpiezas:"PP_HK_Limpiezas", HKAuditorias:"PP_HK_Auditorias", HKHorarios:"PP_HK_Horarios" },
     base: "ILDS",
     driveId: "b!O2-zgnw6nkyHGSME4wNWNvzktKvfz2RCve_Yy1z3ygbC7N4D__mdSLQmbhqhPa0o",
     files: { ILD:"NEXO_ILD.json", Compras:"NEXO_Compras.json",
@@ -986,7 +986,7 @@ const GraphStore = {
   }
 };
 // ===== Backend de LISTAS de SharePoint (un elemento por solicitud) =====
-const LIST_TABLES=["ILD","Compras","Sistemas","Mantenimiento","Notif","HKHabitaciones","HKLimpiezas","HKAuditorias"];
+const LIST_TABLES=["ILD","Compras","Sistemas","Mantenimiento","Notif","HKHabitaciones","HKLimpiezas","HKAuditorias","HKHorarios"];
 let SP_SITE=null; const SP_LIST={}; const SP_MAP={}; const SP_COLS={}; const SP_DCOL={}; let SP_LISTNAMES=[];
 const PREFER_NX={Prefer:"HonorNonIndexedQueriesWarningMayFailRandomly"};
 /* Día calendario de Ecuador del registro. Es la clave con la que se indexa
@@ -5053,15 +5053,24 @@ function HKAuditoriaDetalle({aud,user,toast,setFoto,onClose,onSaved}){
 }
 function HKAuditorias({user,toast,setFoto}){
   const [auds,setAuds]=useState([]); const [detalle,setDetalle]=useState(null);
+  const [horarios,setHorarios]=useState([]);
   const [modo,setModo]=useState(()=>{ try{return localStorage.getItem("pp_hk_audit_denom")||"calendario";}catch(e){return "calendario";} });
   const load=()=>cargarConReintento(async()=>Store.read("HKAuditorias"), setAuds, toast, "las auditorías");
-  useEffect(()=>{ (async()=>{ await hkAsignarAuditoriasDelDia(hoyEC()); load(); })(); },[]);
+  useEffect(()=>{ (async()=>{ await hkAsignarAuditoriasDelDia(hoyEC()); load(); try{ setHorarios(await hkCargarHorarios()); }catch(e){} })(); },[]);
   function cambiarModo(m){ setModo(m); try{localStorage.setItem("pp_hk_audit_denom",m);}catch(e){} }
   const hoy = new Date();
   const auditoriasVencidas = a => a.estado!=="Auditada" && a.fecha < hoyEC();
   const ordenadas = [...auds].sort((a,b)=> (b.fecha||"").localeCompare(a.fecha||"") || (b.asignadoEn||"").localeCompare(a.asignadoEn||""));
   const delMes = auds.filter(a=>{ const d=new Date(a.fecha); return d.getFullYear()===hoy.getFullYear() && d.getMonth()===hoy.getMonth(); });
-  const requeridas = HK_AUD_MIN_DIA * (modo==="programados" ? null : hkDiasDelMes(hoy.getFullYear(),hoy.getMonth(),modo));
+  /* "programados" ya no está pendiente: sale de datos reales de Horarios (ver
+     hkDiasProgramadosJefatura). null = nadie tiene el perfil "Jefatura HK"
+     asignado todavía; 0 = sí hay perfil pero aún no se programó ningún día
+     de este mes; ambos casos se explican en vez de mostrar un % engañoso. */
+  const diasProgramados = modo==="programados" ? hkDiasProgramadosJefatura(hoy.getFullYear(),hoy.getMonth(),horarios) : null;
+  const sinDatosProgramados = modo==="programados" && (diasProgramados==null || diasProgramados===0);
+  const requeridas = modo==="programados"
+    ? (diasProgramados||0)*HK_AUD_MIN_DIA
+    : HK_AUD_MIN_DIA*hkDiasDelMes(hoy.getFullYear(),hoy.getMonth(),modo);
   const realizadas = delMes.filter(a=>a.estado==="Auditada").length;
   const pct = requeridas ? Math.round(realizadas/requeridas*100) : null;
   return <div>
@@ -5071,13 +5080,15 @@ function HKAuditorias({user,toast,setFoto}){
         <select className="inp" value={modo} onChange={e=>cambiarModo(e.target.value)}>
           <option value="calendario">Días calendario</option>
           <option value="laborables">Días laborables (excl. domingo)</option>
-          <option value="programados">Días programados de jefatura [PENDIENTE: aún no hay módulo de horarios]</option>
+          <option value="programados">Días programados de jefatura (según Horarios)</option>
         </select>
       </Field>
-      {modo==="programados"
-        ? <div className="hint">[PENDIENTE: esto requiere el módulo de Horarios, todavía no construido. Usa "calendario" o "laborables" mientras tanto.]</div>
+      {sinDatosProgramados
+        ? <div className="hint">{diasProgramados==null
+            ? '[PENDIENTE: ningún usuario tiene el perfil "Jefatura HK" asignado (Config › Usuarios). Usa "calendario" o "laborables" mientras tanto.]'
+            : `Aún no se ha programado ningún día de jefatura este mes en Housekeeping › Horarios. Usa "calendario" o "laborables" mientras se programa, o ve a Horarios y asigna los días.`}</div>
         : <div className="row" style={{gap:24,marginTop:6}}>
-            <div><div style={{fontSize:22,fontWeight:800}}>{realizadas}/{requeridas}</div><div className="hint">Auditadas / requeridas (3 × días del mes)</div></div>
+            <div><div style={{fontSize:22,fontWeight:800}}>{realizadas}/{requeridas}</div><div className="hint">Auditadas / requeridas (3 × días{modo==="programados"?" programados":" del mes"})</div></div>
             <div><div style={{fontSize:22,fontWeight:800,color:pct>=100?"var(--green)":pct>=60?"var(--amber)":"var(--red)"}}>{pct}%</div><div className="hint">Cumplimiento del mes</div></div>
           </div>}
     </div>
@@ -5098,6 +5109,182 @@ function HKAuditorias({user,toast,setFoto}){
   </div>;
 }
 
+/* ===== HOUSEKEEPING — Horarios y productividad (jefatura) =====
+   Dos cosas en un mismo módulo porque comparten la misma fuente de datos
+   (PP_HK_Horarios): 1) un calendario semanal para programar quién trabaja
+   qué día (camareras/os, áreas públicas y jefatura), y 2) un reporte de
+   productividad que cruza esos días programados con las limpiezas
+   realmente finalizadas. También es lo que le faltaba a Auditorías para
+   poder calcular "días programados de jefatura" con datos reales en vez
+   de dejarlo marcado [PENDIENTE]. */
+const HK_JORNADA_TIPOS = ["Trabajo","Libre","Vacaciones","Incapacidad"];
+const HK_JORNADA_COLOR = { Trabajo:"var(--green)", Libre:"var(--gray)", Vacaciones:"var(--blue)", Incapacidad:"var(--red)" };
+const HK_JORNADA_LETRA = { Trabajo:"T", Libre:"L", Vacaciones:"V", Incapacidad:"I" };
+const HK_PERFIL_LABEL = { jefatura_hk:"Jefatura", camarero_hab:"Camarero/a", areas_publicas:"Áreas públicas" };
+const HK_DOW_CORTO = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"];
+
+async function hkCargarHorarios(){ try{ return await Store.read("HKHorarios"); }catch(e){ return []; } }
+/* Roster de personas de Housekeeping (cualquier perfil), para Horarios/Productividad. */
+function hkRoster(){ return USERS.filter(u=>tieneHK(u)).sort((a,b)=>a.nombre.localeCompare(b.nombre)); }
+/* Lunes→domingo de la semana que contiene "fechaYMD" (YYYY-MM-DD), como 7 fechas YYYY-MM-DD. */
+function hkSemanaDe(fechaYMD){
+  const d = new Date(fechaYMD+"T00:00:00");
+  const dow = d.getDay(); // 0=domingo
+  const lunes = new Date(d); lunes.setDate(d.getDate() - ((dow+6)%7));
+  return Array.from({length:7},(_,i)=>{ const x=new Date(lunes); x.setDate(lunes.getDate()+i); return x.toLocaleDateString("en-CA"); });
+}
+function hkSumarSemanas(fechaYMD, delta){ const d=new Date(fechaYMD+"T00:00:00"); d.setDate(d.getDate()+delta*7); return d.toLocaleDateString("en-CA"); }
+/* Cuenta, dentro del mes (anio,mesIdx), cuántos días DISTINTOS tienen al menos
+   una persona con perfil "jefatura_hk" programada con tipo "Trabajo".
+   Devuelve null si nadie tiene ese perfil asignado (para no mostrar un 0
+   engañoso: es "no configurado", no "cero días programados"). */
+function hkDiasProgramadosJefatura(anio, mesIdx, horarios){
+  const jefas = new Set(USERS.filter(u=>u.hk && u.hk.perfil==='jefatura_hk').map(u=>u.nombre));
+  if(!jefas.size) return null;
+  const dias = new Set();
+  (horarios||[]).forEach(h=>{
+    if(h.tipo!=="Trabajo" || !jefas.has(h.colaborador)) return;
+    const d = new Date(h.fecha+"T00:00:00");
+    if(d.getFullYear()===anio && d.getMonth()===mesIdx) dias.add(h.fecha);
+  });
+  return dias.size;
+}
+
+function HKTurnoModal({colaborador,fecha,existente,onClose,onSaved,toast}){
+  const [tipo,setTipo]=useState(existente?existente.tipo:"Trabajo");
+  const [horaInicio,setHoraInicio]=useState(existente&&existente.horaInicio?existente.horaInicio:"08:00");
+  const [horaFin,setHoraFin]=useState(existente&&existente.horaFin?existente.horaFin:"16:00");
+  const [busy,unaVez]=useEnvioUnico();
+  async function guardar(){
+    await unaVez(async()=>{
+      try{
+        const arr = await Store.read("HKHorarios");
+        const resto = arr.filter(h=>!(h.colaborador===colaborador && h.fecha===fecha));
+        const nuevo = { id: existente?existente.id:gid(), colaborador, fecha, tipo,
+          horaInicio: tipo==="Trabajo"?horaInicio:"", horaFin: tipo==="Trabajo"?horaFin:"",
+          creadoEn: existente?existente.creadoEn:nowISO(), actualizadoEn: nowISO() };
+        await Store.write("HKHorarios", [nuevo, ...resto]);
+        toast("Horario guardado"); onSaved(); onClose();
+      }catch(e){ toast("No se pudo guardar: "+(e.message||e)); }
+    });
+  }
+  async function quitar(){
+    await unaVez(async()=>{
+      try{
+        const arr = await Store.read("HKHorarios");
+        await Store.write("HKHorarios", arr.filter(h=>!(h.colaborador===colaborador && h.fecha===fecha)));
+        toast("Se quitó la asignación"); onSaved(); onClose();
+      }catch(e){ toast("No se pudo quitar: "+(e.message||e)); }
+    });
+  }
+  return <Modal title={colaborador+" · "+fecha} onClose={onClose}>
+    <Field label="Tipo de jornada">
+      <div className="opts">
+        {HK_JORNADA_TIPOS.map(t=><button key={t} className={"opt"+(tipo===t?" on":"")} onClick={()=>setTipo(t)}>{t}</button>)}
+      </div>
+    </Field>
+    {tipo==="Trabajo" && <div className="row" style={{gap:10}}>
+      <Field label="Hora inicio"><input className="inp" type="time" value={horaInicio} onChange={e=>setHoraInicio(e.target.value)}/></Field>
+      <Field label="Hora fin"><input className="inp" type="time" value={horaFin} onChange={e=>setHoraFin(e.target.value)}/></Field>
+    </div>}
+    <button className="btn primary block" disabled={busy} onClick={guardar}>{busy?"Guardando…":"Guardar"}</button>
+    {existente && <button className="btn ghost block" style={{marginTop:8}} disabled={busy} onClick={quitar}>Quitar asignación</button>}
+  </Modal>;
+}
+
+const hkFechaCorta = ymd => ymd ? `${ymd.slice(8,10)}/${ymd.slice(5,7)}/${ymd.slice(0,4)}` : "";
+function HKHorarioSemana({toast}){
+  const [horarios,setHorarios]=useState([]);
+  const [inicioSemana,setInicioSemana]=useState(()=>hkSemanaDe(hoyEC())[0]);
+  const [celda,setCelda]=useState(null); // {colaborador,fecha,existente}
+  const load=()=>cargarConReintento(hkCargarHorarios, setHorarios, toast, "los horarios");
+  useEffect(()=>{load();},[]);
+  const dias = hkSemanaDe(inicioSemana);
+  const roster = hkRoster();
+  function buscar(colaborador,fecha){ return horarios.find(h=>h.colaborador===colaborador && h.fecha===fecha) || null; }
+  return <div>
+    <div className="row" style={{justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
+      <div className="row" style={{gap:8}}>
+        <button className="btn ghost" style={{padding:"8px 12px"}} onClick={()=>setInicioSemana(hkSumarSemanas(inicioSemana,-1))}><Icon name="chevronLeft" size={16}/></button>
+        <span style={{fontWeight:800}}>{hkFechaCorta(dias[0])} — {hkFechaCorta(dias[6])}</span>
+        <button className="btn ghost" style={{padding:"8px 12px",fontWeight:800}} onClick={()=>setInicioSemana(hkSumarSemanas(inicioSemana,1))}>›</button>
+      </div>
+      <button className="btn ghost" style={{padding:"8px 12px"}} onClick={()=>setInicioSemana(hkSemanaDe(hoyEC())[0])}>Esta semana</button>
+    </div>
+    {!roster.length && <div className="empty"><div className="e">👥</div>Aún no hay nadie con un perfil de Housekeeping asignado. Asígnalo en Config › Usuarios.</div>}
+    {roster.length>0 && <div className="dscroll"><table className="dtable">
+      <thead><tr><th>Colaborador/a</th>{dias.map(f=><th key={f}>{HK_DOW_CORTO[new Date(f+"T00:00:00").getDay()]}<br/>{f.slice(8,10)}/{f.slice(5,7)}</th>)}</tr></thead>
+      <tbody>{roster.map(u=><tr key={u.id}>
+        <td><div>{u.nombre}</div><div className="dsub">{HK_PERFIL_LABEL[u.hk&&u.hk.perfil]||""}</div></td>
+        {dias.map(f=>{ const h=buscar(u.nombre,f);
+          return <td key={f} style={{cursor:"pointer"}} onClick={()=>setCelda({colaborador:u.nombre,fecha:f,existente:h})}>
+            {h
+              ? <span style={{display:"inline-block",minWidth:26,padding:"4px 7px",borderRadius:7,fontWeight:800,fontSize:12,color:"#fff",background:HK_JORNADA_COLOR[h.tipo]}}>
+                  {HK_JORNADA_LETRA[h.tipo]}</span>
+              : <span style={{color:"#ccc"}}>–</span>}
+            {h && h.tipo==="Trabajo" && h.horaInicio && <div className="dsub" style={{marginTop:2}}>{h.horaInicio}-{h.horaFin}</div>}
+          </td>; })}
+      </tr>)}</tbody>
+    </table></div>}
+    <div className="hint" style={{marginTop:10}}>Toca una celda para asignar Trabajo (con hora), Libre, Vacaciones o Incapacidad. T = Trabajo, L = Libre, V = Vacaciones, I = Incapacidad.</div>
+    {celda && <HKTurnoModal colaborador={celda.colaborador} fecha={celda.fecha} existente={celda.existente} toast={toast}
+      onClose={()=>setCelda(null)} onSaved={load}/>}
+  </div>;
+}
+
+function HKProductividad({toast}){
+  const [horarios,setHorarios]=useState([]); const [limpiezas,setLimpiezas]=useState([]); const [auds,setAuds]=useState([]);
+  const [mes,setMes]=useState(()=>{ const d=new Date(); return {anio:d.getFullYear(), mesIdx:d.getMonth()}; });
+  const load=()=>cargarConReintento(async()=>({
+      horarios: await hkCargarHorarios(), limpiezas: await hkCargarLimpiezas(), auds: await Store.read("HKAuditorias")
+    }), d=>{setHorarios(d.horarios);setLimpiezas(d.limpiezas);setAuds(d.auds);}, toast, "la productividad");
+  useEffect(()=>{load();},[]);
+  const {anio,mesIdx} = mes;
+  const meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+  const enElMes = f => { const d=new Date(f+"T00:00:00"); return d.getFullYear()===anio && d.getMonth()===mesIdx; };
+  const roster = hkRoster().filter(u=>esHKCamarero(u)||esHKAreasPublicas(u)); // productividad de quienes limpian, no de jefatura
+  const filas = roster.map(u=>{
+    const diasProgramados = horarios.filter(h=>h.colaborador===u.nombre && h.tipo==="Trabajo" && enElMes(h.fecha)).length;
+    const finalizadas = limpiezas.filter(l=>l.colaborador===u.nombre && l.estado==="Finalizado" && enElMes(l.fecha));
+    const tiempos = finalizadas.map(l=>l.tiempoMin).filter(n=>Number.isFinite(n));
+    const tiempoProm = tiempos.length ? Math.round(tiempos.reduce((a,b)=>a+b,0)/tiempos.length) : null;
+    const promDia = diasProgramados ? (finalizadas.length/diasProgramados) : null;
+    const audsDe = auds.filter(a=>a.colaborador===u.nombre && a.estado==="Auditada" && enElMes(a.fechaAuditoria||a.fecha));
+    const cumple = audsDe.filter(a=>a.resultado==="Cumple").length;
+    const parcial = audsDe.filter(a=>a.resultado==="Cumple parcialmente").length;
+    const noCumple = audsDe.filter(a=>a.resultado==="No cumple").length;
+    return { u, diasProgramados, finalizadas:finalizadas.length, tiempoProm, promDia, cumple, parcial, noCumple, auditadas:audsDe.length };
+  });
+  const totFinalizadas = filas.reduce((a,f)=>a+f.finalizadas,0);
+  function cambiarMes(delta){
+    setMes(m=>{ let mesIdx=m.mesIdx+delta, anio=m.anio; if(mesIdx<0){mesIdx=11;anio--;} if(mesIdx>11){mesIdx=0;anio++;} return {anio,mesIdx}; });
+  }
+  return <div>
+    <div className="row" style={{justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
+      <div className="row" style={{gap:8}}>
+        <button className="btn ghost" style={{padding:"8px 12px"}} onClick={()=>cambiarMes(-1)}><Icon name="chevronLeft" size={16}/></button>
+        <span style={{fontWeight:800,textTransform:"capitalize"}}>{meses[mesIdx]} {anio}</span>
+        <button className="btn ghost" style={{padding:"8px 12px",fontWeight:800}} onClick={()=>cambiarMes(1)}>›</button>
+      </div>
+      <span style={{color:"var(--muted)",fontSize:13}}>{totFinalizadas} limpieza(s) finalizada(s) en el mes</span>
+    </div>
+    {!roster.length && <div className="empty"><div className="e">👥</div>Aún no hay camareros/as ni áreas públicas asignados en Usuarios.</div>}
+    {roster.length>0 && <div className="dscroll"><table className="dtable">
+      <thead><tr><th>Colaborador/a</th><th>Días prog.</th><th>Limpiezas</th><th>Prom./día</th><th>Tiempo prom.</th><th>Auditadas</th><th>Cumple / Parcial / No cumple</th></tr></thead>
+      <tbody>{filas.map(f=><tr key={f.u.id}>
+        <td><div>{f.u.nombre}</div><div className="dsub">{HK_PERFIL_LABEL[f.u.hk&&f.u.hk.perfil]||""}</div></td>
+        <td>{f.diasProgramados}</td>
+        <td>{f.finalizadas}</td>
+        <td>{f.promDia==null?"—":f.promDia.toFixed(1)}</td>
+        <td>{f.tiempoProm==null?"—":f.tiempoProm+" min"}</td>
+        <td>{f.auditadas}</td>
+        <td>{f.auditadas ? `${f.cumple} / ${f.parcial} / ${f.noCumple}` : "—"}</td>
+      </tr>)}</tbody>
+    </table></div>}
+    <div className="hint" style={{marginTop:10}}>"Días prog." y "Prom./día" salen de lo programado en Housekeeping › Horarios para el mes elegido. Si no se ha programado a alguien todavía, esas columnas quedan en "—" en vez de mostrar un promedio inventado.</div>
+  </div>;
+}
+
 function Housekeeping({user,toast,setFoto}){
   const puedeCatalogo = esHKJefatura(user);
   const puedeEscanear = esHKCamarero(user) || esHKJefatura(user);
@@ -5105,6 +5292,8 @@ function Housekeeping({user,toast,setFoto}){
   if(puedeEscanear) tabsPosibles.push(["escanear","Escanear / Limpiar"]);
   if(puedeCatalogo) tabsPosibles.push(["monitor","En proceso"]);
   if(puedeCatalogo) tabsPosibles.push(["auditorias","Auditorías"]);
+  if(puedeCatalogo) tabsPosibles.push(["horarios","Horarios"]);
+  if(puedeCatalogo) tabsPosibles.push(["productividad","Productividad"]);
   if(puedeCatalogo) tabsPosibles.push(["catalogo","Catálogo de habitaciones"]);
   const [tab,setTab]=useState(tabsPosibles[0]?.[0]||"escanear");
   return <div>
@@ -5116,6 +5305,8 @@ function Housekeeping({user,toast,setFoto}){
     {tab==="escanear" && puedeEscanear && <HKCamarero user={user} toast={toast} setFoto={setFoto}/>}
     {tab==="monitor" && puedeCatalogo && <HKMonitor toast={toast}/>}
     {tab==="auditorias" && puedeCatalogo && <HKAuditorias user={user} toast={toast} setFoto={setFoto}/>}
+    {tab==="horarios" && puedeCatalogo && <HKHorarioSemana toast={toast}/>}
+    {tab==="productividad" && puedeCatalogo && <HKProductividad toast={toast}/>}
     {tab==="catalogo" && puedeCatalogo && <HKCatalogo user={user} toast={toast}/>}
     {!tabsPosibles.length && <div className="empty"><div className="e">🔒</div>Tu usuario no tiene un perfil de Housekeeping asignado. Pide a un administrador que te lo asigne en Usuarios.</div>}
   </div>;
