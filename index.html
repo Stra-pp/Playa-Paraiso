@@ -1094,18 +1094,24 @@ const ListStore={
   /* Escribe UN solo registro (alta o cambio puntual) sin tocar el resto de la
      lista: es la contraparte de readOne y la que usa colaAplicarCambio para que
      aprobar un ILD sea 1 lectura + 1 escritura, no la lista completa. */
+  /* Devuelve el spId (el ID que SharePoint asigna al ítem, único y atómico
+     dentro de la lista) para que quien llame pueda apoyarse en él — por
+     ejemplo, para construir un Código que nunca se repita aunque dos
+     dispositivos escriban casi al mismo tiempo (ver colaEnviarUno). */
   async writeOne(t,rec){ const site=await spSite(); const lid=await spEnsureList(t); const c=SP_COLS[t]||{d:"Data"};
     if(!SP_MAP[t]) SP_MAP[t]=new Map(); const map=SP_MAP[t];
     const j=JSON.stringify(rec); const m=map.get(rec.id);
     const full={Title:String(rec.Codigo||rec.id||"").slice(0,255)}; full[c.d||"Data"]=j;
     if(c.f) full[c.f]=recFecha(rec); if(c.e) full[c.e]=recEstado(rec);
     const basico={Title:full.Title}; basico[c.d||"Data"]=j;
+    let spId;
     if(!m){ let cr; try{ cr=await gfetch(`/sites/${site}/lists/${lid}/items`,"POST",{fields:full}); }
         catch(e){ cr=await gfetch(`/sites/${site}/lists/${lid}/items`,"POST",{fields:basico}); }
-      map.set(rec.id,{spId:cr.id,hash:j}); }
+      map.set(rec.id,{spId:cr.id,hash:j}); spId=cr.id; }
     else if(m.hash!==j){ try{ await gfetch(`/sites/${site}/lists/${lid}/items/${m.spId}/fields`,"PATCH",full); }
-        catch(e){ await gfetch(`/sites/${site}/lists/${lid}/items/${m.spId}/fields`,"PATCH",basico); } m.hash=j; }
-    spCachePut(t,rec); },
+        catch(e){ await gfetch(`/sites/${site}/lists/${lid}/items/${m.spId}/fields`,"PATCH",basico); } m.hash=j; spId=m.spId; }
+    else spId=m.spId;
+    spCachePut(t,rec); return spId; },
   async remove(t,id){ const site=await spSite(); const lid=await spEnsureList(t); const dcol=SP_DCOL[t]||"Data";
     const items=await spPages(t,""); let n=0;
     for(const it of items){ let r; try{ r=JSON.parse(it.fields[dcol]); }catch{ continue; }
@@ -1758,6 +1764,27 @@ function nextCodeUnico(prefix, arr){
   return pre + String(n).padStart(4,"0");
 }
 
+/* Candado de un solo uso por formulario, para los botones "Enviar/Crear".
+   Por qué no basta con useState: dos clics o toques casi simultáneos (el caso
+   real reportado: "de afán, doy clic varias veces") pueden procesarse ANTES de
+   que React repinte el botón como deshabilitado. El segundo clic ejecuta el
+   mismo handler de la última pintura, que todavía tiene "busy=false" en su
+   clausura (closure) — por eso el chequeo "if(busy) return" fallaba. Un ref
+   no depende de un repintado: se lee y se escribe al instante, así que el
+   segundo clic sí ve que el primero ya puso el candado, sin importar si React
+   ya volvió a renderizar. Se usa junto con el "busy" de estado solo para que
+   el botón muestre "Enviando…"; el candado real es el ref. */
+function useEnvioUnico(){
+  const [busy,setBusy]=useState(false);
+  const lock=useRef(false);
+  async function unaVez(fn){
+    if(lock.current) return;
+    lock.current=true; setBusy(true);
+    try{ await fn(); } finally { lock.current=false; setBusy(false); }
+  }
+  return [busy,unaVez];
+}
+
 /* Sube las fotos y falla si alguna no llegó, para poder reintentar. */
 async function subirFotosEstricto(fotos, dir, prefijo){
   const r = await subirFotos(fotos, dir, prefijo);
@@ -1909,8 +1936,40 @@ async function colaEnviarUno(d){
   const ya = arr.find(x=>x.id===idReg);
   if(ya) return { dup:true, codigo: ya.Codigo };
 
-  const Codigo = nextCodeUnico(pl.prefijo, arr);
   const campoFotos = pl.fotoField || "Fotos";
+  const esLista = LIST_TABLES.includes(tabla);
+
+  /* Datos base del registro, antes de tener Código todavía. */
+  let baseRec;
+  if(pl.viejo){
+    const c = pl.crudo;
+    baseRec = { id:idReg, area:c.area, turno:c.turno||"", selecciones:c.sel||{}, usuario:c.usuario,
+      fecha:c.fecha||nowISO(), checks:c.checks||{}, textos:c.txt||{}, obs:c.obs||"",
+      estado:"Pendiente", notaJef:"", aprobador:"", fechaAprobacion:"", notaGerencia:"",
+      totalItems:c.totalItems||1, completados:c.completados||0,
+      clItems:c.clItems||(CL[c.area]||[]), aprobadorEsperado:APR[c.area]||"—" };
+    if(c.zona) baseRec.zona = c.zona;
+  } else {
+    baseRec = { ...pl.rec };
+  }
+
+  /* Código: la causa real de los códigos duplicados era calcularlo en el
+     celular como "el mayor que veo + 1". Si dos tablets envían casi al mismo
+     tiempo, ambas pueden ver el mismo máximo y calcular el mismo código.
+     La corrección: para las listas de SharePoint (ILD, Compras, Sistemas,
+     Mantenimiento) primero se crea el ítem con un código provisional, y el
+     Código definitivo se arma con el ID que SharePoint le asigna a ESE ítem —
+     un contador que lleva el propio servidor de forma atómica y que nunca
+     repite, así lleguen dos envíos en el mismo segundo. Solo se usa el
+     cálculo anterior (nextCodeUnico) como respaldo para alguna tabla que en
+     el futuro no viva en una lista de SharePoint. */
+  let Codigo;
+  if(esLista){
+    const spId = await ListStore.writeOne(tabla, { ...baseRec, Codigo:"" });
+    Codigo = pl.prefijo + "-" + yr() + "-" + String(spId).padStart(4,"0");
+  } else {
+    Codigo = nextCodeUnico(pl.prefijo, arr);
+  }
 
   /* Carpeta y prefijo de las fotos: {COD} y {ID} se reemplazan al enviar. */
   const sust = t => String(t||"").replace(/\{COD\}/g, Codigo).replace(/\{ID\}/g, idReg);
@@ -1923,21 +1982,13 @@ async function colaEnviarUno(d){
     if(cotizData && cotizData.error) throw new Error("No se pudo subir la cotización");
   }
 
-  let nuevo;
-  if(pl.viejo){
-    /* Reconstruye un ILD del formato anterior. */
-    const c = pl.crudo;
-    nuevo = { id:idReg, Codigo, area:c.area, turno:c.turno||"", selecciones:c.sel||{}, usuario:c.usuario,
-      fecha:c.fecha||nowISO(), checks:c.checks||{}, textos:c.txt||{}, fotos:fotosData, obs:c.obs||"",
-      estado:"Pendiente", notaJef:"", aprobador:"", fechaAprobacion:"", notaGerencia:"",
-      totalItems:c.totalItems||1, completados:c.completados||0,
-      clItems:c.clItems||(CL[c.area]||[]), aprobadorEsperado:APR[c.area]||"—" };
-    if(c.zona) nuevo.zona = c.zona;
-  } else {
-    nuevo = { ...pl.rec, Codigo, [campoFotos]: fotosData };
-    if(pl.cotizField && cotizData) nuevo[pl.cotizField] = cotizData;
-  }
+  const nuevo = pl.viejo
+    ? { ...baseRec, Codigo, fotos: fotosData }
+    : { ...baseRec, Codigo, [campoFotos]: fotosData };
+  if(pl.cotizField && cotizData) nuevo[pl.cotizField] = cotizData;
 
+  /* Para las listas, esto termina de grabar (PATCH) el mismo ítem creado
+     arriba, ya con Código, fotos y el resto de los campos definitivos. */
   await Store.write(tabla, [nuevo, ...arr]);
   try{ colaNotificar(pl.notif, nuevo); }catch(e){}
   return { codigo: Codigo };
@@ -2075,7 +2126,7 @@ function ILDForm({user,toast,onSaved,setFoto,onDraft}){
   const areas=ildAreasDe(user);
   const [area,setArea]=useState(""); const [turno,setTurno]=useState("");
   const [checks,setChecks]=useState({}); const [sel,setSel]=useState({}); const [txt,setTxt]=useState({});
-  const [fotos,setFotos]=useState([]); const [obs,setObs]=useState(""); const [busy,setBusy]=useState(false);
+  const [fotos,setFotos]=useState([]); const [obs,setObs]=useState(""); const [busy,unaVez]=useEnvioUnico();
   const [zona,setZona]=useState("");
   const modo=area?areaModo(area):'normal';
   const needsTurno=area && AC[area]?.turno && modo!=='lista';
@@ -2129,13 +2180,13 @@ function ILDForm({user,toast,onSaved,setFoto,onDraft}){
       if(!zona){toast("Elige una zona de la lista");return;}
       if(fotos.length<3){toast("Adjunta al menos 3 fotos");return;}
       if(fotos.length>5){toast("Máximo 5 fotos");return;}
-      if(busy) return; setBusy(true);
-      try{
-        await encolarYEnviar({ id:gid(), area, turno:"", zona, selecciones:{}, usuario:user.nombre, fecha:nowISO(),
-          checks:{}, textos:{}, obs, estado:"Pendiente", notaJef:"", aprobador:"", fechaAprobacion:"",
-          notaGerencia:"", totalItems:1, completados:1, clItems:(CL[area]||[]), aprobadorEsperado:APR[area]||"—" });
-      }catch(e){ toast("No se pudo guardar en la tablet: "+(e.message||"")); }
-      finally{ setBusy(false); }
+      await unaVez(async()=>{
+        try{
+          await encolarYEnviar({ id:gid(), area, turno:"", zona, selecciones:{}, usuario:user.nombre, fecha:nowISO(),
+            checks:{}, textos:{}, obs, estado:"Pendiente", notaJef:"", aprobador:"", fechaAprobacion:"",
+            notaGerencia:"", totalItems:1, completados:1, clItems:(CL[area]||[]), aprobadorEsperado:APR[area]||"—" });
+        }catch(e){ toast("No se pudo guardar en la tablet: "+(e.message||"")); }
+      });
       return;
     }
     if(needsTurno && !turno){toast("Selecciona el turno");return;}
@@ -2150,14 +2201,14 @@ function ILDForm({user,toast,onSaved,setFoto,onDraft}){
       return;
     }
     if(fotos.length<reqTotal && !confirm(`Solo ${fotos.length}/${reqTotal} fotos. ¿Continuar?`)) return;
-    if(busy) return; setBusy(true);
-    try{
-      await encolarYEnviar({ id:gid(), area, turno:turno||AC[area]?.t||"", selecciones:{...sel}, usuario:user.nombre,
-        fecha:nowISO(), checks:{...checks}, textos:{...txt}, obs, estado:"Pendiente",
-        notaJef:"", aprobador:"", fechaAprobacion:"", notaGerencia:"", totalItems:items.length,
-        completados:done, clItems:(CL[area]||[]), aprobadorEsperado:APR[area]||"—" });
-    }catch(e){ toast("No se pudo guardar en la tablet: "+(e.message||"")); }
-    finally{ setBusy(false); }
+    await unaVez(async()=>{
+      try{
+        await encolarYEnviar({ id:gid(), area, turno:turno||AC[area]?.t||"", selecciones:{...sel}, usuario:user.nombre,
+          fecha:nowISO(), checks:{...checks}, textos:{...txt}, obs, estado:"Pendiente",
+          notaJef:"", aprobador:"", fechaAprobacion:"", notaGerencia:"", totalItems:items.length,
+          completados:done, clItems:(CL[area]||[]), aprobadorEsperado:APR[area]||"—" });
+      }catch(e){ toast("No se pudo guardar en la tablet: "+(e.message||"")); }
+    });
   }
   return <div>
     {!online && <div style={{background:"#FFF4E0",border:"1px solid #F3D9A6",borderLeft:"4px solid #FFA11F",borderRadius:10,padding:"9px 12px",marginBottom:10,fontSize:13,color:"#7a5a12"}}>
@@ -3342,7 +3393,7 @@ function Compras({user,toast,setFoto}){
   const load=async()=>cargarConReintento(()=>Store.read("Compras"), setRows, toast, "Compras"); useEffect(()=>{load();},[]);
   const vacio={Area:DEPTS[0],TiempoCompra:TIEMPO_COMPRA[1],TipoCompra:TIPO_COMPRA[0],FechaNecesidad:"",
     Presupuesto:"",Justificacion:"",Cantidad:"",Unidad:UNIDADES[0],Modelo:"",Descripcion:"",Proveedores:""};
-  const [f,setF]=useState(vacio); const [fotos,setFotos]=useState([]); const [busy,setBusy]=useState(false); const [cotiz,setCotiz]=useState(null);
+  const [f,setF]=useState(vacio); const [fotos,setFotos]=useState([]); const [busy,unaVez]=useEnvioUnico(); const [cotiz,setCotiz]=useState(null);
   const ch=(k,v)=>setF(s=>({...s,[k]:v}));
   async function crear(){
     for(const [k,lbl] of [["Area","Área"],["TiempoCompra","Tiempo de compra"],["TipoCompra","Tipo de compra"],
@@ -3350,8 +3401,7 @@ function Compras({user,toast,setFoto}){
       ["Cantidad","Cantidad"],["Unidad","Unidad"],["Modelo","Modelo"],["Descripcion","Descripción"],["Proveedores","Posibles proveedores"]])
       if(!String(f[k]).trim()){ toast("Falta: "+lbl); return; }
     if(!fotos.length){ toast("Falta la foto del producto"); return; }
-    if(busy) return; setBusy(true);
-    try{
+    await unaVez(async()=>{
       const rec={id:gid(),FechaSolicitud:nowISO(),Solicitante:user.nombre,...f,
         Estado:"Solicitado",FechaTentativa:"",Aprobador:"",FechaAprob:"",Comentario:"",
         EnviadoGG:"No",AprobadorGG:"",FechaGG:"",ComentarioGG:"",ActaEntrega:"",ComentarioActa:"",
@@ -3365,7 +3415,7 @@ function Compras({user,toast,setFoto}){
         : rr.sinRed ? "Sin señal: la solicitud quedó guardada y se enviará sola cuando vuelva el internet."
         : "Guardada en el equipo. No se pudo enviar ahora. Se reintentará.");
       setF(vacio); setFotos([]); setCotiz(null); load(); setTab("mias");
-    } finally { setBusy(false); }
+    });
   }
   async function apply(ref,patch,nota,extras){
     const rid=(ref&&typeof ref==="object")?ref.id:ref;
@@ -3562,7 +3612,7 @@ function Tickets({tipo,user,toast,setFoto}){
   const hoy=hoyEC();
   const vacioSis={Departamento:DEPTS_SIS[0],Urgencia:URGENCIA_SIS[1],Titulo:"",Descripcion:""};
   const vacioMto={Departamento:DEPTS[0],FechaSolicitud:hoy,TipoSolicitud:"Normal",Descripcion:""};
-  const [f,setF]=useState(isSis?vacioSis:vacioMto); const [fotos,setFotos]=useState([]); const [busy,setBusy]=useState(false); const aprobadores=USERS.filter(u=>u.rol==='aprobador').map(u=>u.nombre).sort(); const [solicOtro,setSolicOtro]=useState(""); const [areaOtro,setAreaOtro]=useState(DEPTS[0]);
+  const [f,setF]=useState(isSis?vacioSis:vacioMto); const [fotos,setFotos]=useState([]); const [busy,unaVez]=useEnvioUnico(); const aprobadores=USERS.filter(u=>u.rol==='aprobador').map(u=>u.nombre).sort(); const [solicOtro,setSolicOtro]=useState(""); const [areaOtro,setAreaOtro]=useState(DEPTS[0]);
   const ch=(k,v)=>setF(s=>({...s,[k]:v}));
   async function crear(){
     if(isSis){ if(!f.Titulo.trim()){toast("Falta el título de la tarea");return;} if(!f.Descripcion.trim()){toast("Falta la descripción");return;} }
@@ -3573,8 +3623,7 @@ function Tickets({tipo,user,toast,setFoto}){
          no de una novedad observada. */
       const esProgFoto = chief && solicOtro==="__prog";
       if(!esProgFoto && !fotos.length){toast("Adjunta la foto de la novedad: es obligatoria");return;} }
-    if(busy) return; setBusy(true);
-    try{
+    await unaVez(async()=>{
       const esProg=chief&&solicOtro==="__prog";
       const solicitanteFinal=esProg?"Tarea programada":((chief&&solicOtro)?solicOtro:user.nombre);
       const base={id:gid(),FechaCreacion:nowISO(),Solicitante:solicitanteFinal,...f,
@@ -3591,7 +3640,7 @@ function Tickets({tipo,user,toast,setFoto}){
         : rr.sinRed ? "Sin señal: el ticket quedó guardado y se enviará solo cuando vuelva el internet."
         : "Guardado en el equipo. No se pudo enviar ahora. Se reintentará.");
       setF(isSis?vacioSis:vacioMto); setFotos([]); setSolicOtro(""); load(); setTab("mios");
-    } finally { setBusy(false); }
+    });
   }
   /* Todo cambio pasa por la cola: con señal se aplica en el momento, sin señal
      queda guardado y se aplica solo. El historial lo escribe la cola. */
