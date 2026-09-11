@@ -5514,6 +5514,18 @@ function hkDiasDelMes(anio,mesIdx,modo){
   }
   return total; // "calendario"
 }
+/* Calificación de la auditoría: se reutiliza el MISMO checklist de "Habitaciones"
+   que ya usan la ILD y la limpieza por QR (CL['Habitaciones']) — no uno nuevo ni
+   tan extenso como el documento "Inspección de habitaciones" que se usaba antes.
+   Por cada ítem, la jefatura marca si se cumplió o no; el % de cumplidos es la
+   calificación final. */
+function hkCalifAuditoria(checklist, totalItems){
+  if(!totalItems) return null;
+  const marcados = Object.keys(checklist||{}).filter(k=>checklist[k]==='si'||checklist[k]==='no');
+  if(!marcados.length) return null;
+  const cumplen = marcados.filter(k=>checklist[k]==='si').length;
+  return { marcados: marcados.length, total: totalItems, cumplen, pct: Math.round(cumplen/totalItems*100) };
+}
 function HKAuditoriaDetalle({aud,user,toast,setFoto,onClose,onSaved}){
   const soloLectura = aud.estado==="Auditada";
   const [resultado,setResultado]=useState(aud.resultado||"");
@@ -5523,7 +5535,15 @@ function HKAuditoriaDetalle({aud,user,toast,setFoto,onClose,onSaved}){
   const [correcciones,setCorrecciones]=useState(aud.correcciones||"");
   const [accionCorrectiva,setAccionCorrectiva]=useState(aud.accionCorrectiva||"");
   const [fotos,setFotos]=useState(aud.fotos||[]);
+  const [checklist,setChecklist]=useState(aud.checklistAuditoria||{});
+  const [limpieza,setLimpieza]=useState(null);
   const [busy,unaVez]=useEnvioUnico();
+  useEffect(()=>{ let vivo=true; (async()=>{ try{ const arr=await Store.read("HKLimpiezas");
+    const l=arr.find(x=>x.id===aud.limpiezaId)||null; if(vivo) setLimpieza(l); }catch(e){} })();
+    return ()=>{vivo=false;}; },[aud.limpiezaId]);
+  const itemsAud = CL['Habitaciones']||[];
+  const calif = hkCalifAuditoria(checklist, itemsAud.length);
+  function marcar(i,val){ if(soloLectura) return; setChecklist(c=>({...c,[i]: c[i]===val?"":val})); }
   async function comenzar(){
     try{ await Cola.cambio({ tabla:"HKAuditorias", recId:aud.id, campoEstado:"estado",
       patch:{ estado:"En revisión", auditor:user.nombre }, patchId:"inicio-aud-"+aud.id }, user.nombre);
@@ -5532,11 +5552,14 @@ function HKAuditoriaDetalle({aud,user,toast,setFoto,onClose,onSaved}){
   }
   async function guardar(){
     if(!resultado){ toast("Elige Cumple / Cumple parcialmente / No cumple"); return; }
+    const sinMarcar = itemsAud.length - Object.keys(checklist).filter(k=>checklist[k]==='si'||checklist[k]==='no').length;
+    if(sinMarcar>0 && !confirm(`${sinMarcar} ítem(s) del checklist sin marcar cumple/no cumple. ¿Guardar igual?`)) return;
     await unaVez(async()=>{
       try{
         await Cola.cambio({ tabla:"HKAuditorias", recId:aud.id, campoEstado:"estado",
           patch:{ estado:"Auditada", auditor:user.nombre, resultado, observaciones, hallazgos, incidencias,
-            correcciones, accionCorrectiva, fechaAuditoria:nowISO(), horaCierreAuditoria:nowISO() },
+            correcciones, accionCorrectiva, checklistAuditoria:{...checklist}, calificacion:calif?calif.pct:null,
+            fechaAuditoria:nowISO(), horaCierreAuditoria:nowISO() },
           fotos:[...fotos], fotoField:"fotos", fotoDir:"HKAUD_{ID}", fotoPrefix:"HKAUD{ID}",
           patchId:"cierre-aud-"+aud.id }, user.nombre);
         const r=await Cola.enviar(user.nombre);
@@ -5549,8 +5572,27 @@ function HKAuditoriaDetalle({aud,user,toast,setFoto,onClose,onSaved}){
     <div className="hint" style={{marginBottom:10}}>
       Limpieza {aud.limpiezaCodigo||""} · Camarero/a: {aud.colaborador} · Asignada: {fmtDT(aud.asignadoEn)}
     </div>
+    {limpieza && <div className="card" style={{background:"#faf8f3"}}>
+      <h3 style={{marginTop:0}}>Checklist registrado por {limpieza.colaborador} al limpiar</h3>
+      {itemsAud.map((it,i)=>{ const tx=itemText(it); const ok=!!(limpieza.checks||{})[i];
+        return <div key={i} className="row" style={{gap:8,padding:"3px 0",fontSize:13}}>
+          <span style={{color:ok?"var(--green)":"var(--red)",fontWeight:800}}>{ok?"✓":"✗"}</span><span>{i+1}. {tx}</span></div>; })}
+      {limpieza.obs && <div className="hint" style={{marginTop:6}}>Nota del camarero/a: {limpieza.obs}</div>}
+      {(limpieza.fotos||[]).length>0 && <div className="fgrid" style={{marginTop:8}}>{limpieza.fotos.map((f,i)=><SpImg key={i} foto={f} idx={i+1} onClick={setFoto}/>)}</div>}
+    </div>}
     {aud.estado==="Pendiente" && <button className="btn primary block" style={{marginBottom:12}} onClick={comenzar}>Comenzar revisión</button>}
     {aud.estado!=="Pendiente" && <>
+      <div className="card">
+        <h3 style={{marginTop:0}}>Verificación de la jefatura {calif && <span style={{float:"right",color:calif.pct>=90?"var(--green)":calif.pct>=70?"var(--amber)":"var(--red)"}}>{calif.pct}%</span>}</h3>
+        <div className="hint" style={{marginBottom:8}}>Marca si cada punto se cumplió al momento de auditar. El % de cumplidos es la calificación final de esta auditoría.</div>
+        {itemsAud.map((it,i)=>{ const tx=itemText(it); const v=checklist[i]||"";
+          return <div key={i} className="row" style={{gap:8,alignItems:"center",padding:"5px 0",borderBottom:"1px solid var(--line)"}}>
+            <span style={{flex:1,fontSize:13}}>{i+1}. {tx}</span>
+            <button disabled={soloLectura} className={"btn "+(v==="si"?"green":"ghost")} style={{padding:"5px 10px",fontSize:12}} onClick={()=>marcar(i,"si")}>✓ Cumple</button>
+            <button disabled={soloLectura} className={"btn "+(v==="no"?"red":"ghost")} style={{padding:"5px 10px",fontSize:12}} onClick={()=>marcar(i,"no")}>✗ No cumple</button>
+          </div>; })}
+        {calif && <div className="hint" style={{marginTop:8}}>{calif.cumplen}/{calif.total} cumplidos{calif.marcados<calif.total?` (${calif.total-calif.marcados} sin marcar)`:""}</div>}
+      </div>
       <Field label="Resultado" req>
         <div className="opts">
           {HK_AUD_RESULTADOS.map(r=><button key={r} disabled={soloLectura} className={"opt"+(resultado===r?" on":"")} onClick={()=>setResultado(r)}>{r}</button>)}
@@ -5565,7 +5607,7 @@ function HKAuditoriaDetalle({aud,user,toast,setFoto,onClose,onSaved}){
         ? (fotos.length>0 && <div className="fgrid">{fotos.map((s,i)=><div key={i} className="fthumb"><img src={s} onClick={()=>setFoto(s)}/></div>)}</div>)
         : <PhotoField fotos={fotos} setFotos={setFotos} setFoto={setFoto} label={`Fotos (${fotos.length})`} hint="Evidencia de la auditoría (opcional)."/>}
       {soloLectura
-        ? <div className="hint" style={{marginTop:8}}>Auditada por {aud.auditor} · {fmtDT(aud.horaCierreAuditoria)}</div>
+        ? <div className="hint" style={{marginTop:8}}>Auditada por {aud.auditor} · {fmtDT(aud.horaCierreAuditoria)}{aud.calificacion!=null?` · Calificación: ${aud.calificacion}%`:""}</div>
         : <button className="btn primary block" disabled={busy} onClick={guardar}>{busy?"Guardando…":"Guardar auditoría"}</button>}
     </>}
   </Modal>;
@@ -5580,6 +5622,13 @@ function HKAuditorias({user,toast,setFoto}){
   const hoy = new Date();
   const auditoriasVencidas = a => a.estado!=="Auditada" && a.fecha < hoyEC();
   const ordenadas = [...auds].sort((a,b)=> (b.fecha||"").localeCompare(a.fecha||"") || (b.asignadoEn||"").localeCompare(a.asignadoEn||""));
+  /* Las pendientes (de hoy o de días anteriores) nunca se ocultan por el
+     paso del día: se agrupan aparte y arriba de todo para que sigan
+     visibles hasta que la jefatura las audite, sin importar cuánto tiempo
+     lleven pendientes. */
+  const pendientesVencidas = ordenadas.filter(a=>auditoriasVencidas(a));
+  const pendientesHoy = ordenadas.filter(a=>a.estado!=="Auditada" && a.fecha===hoyEC());
+  const historial = ordenadas.filter(a=>a.estado==="Auditada");
   const delMes = auds.filter(a=>{ const d=new Date(a.fecha); return d.getFullYear()===hoy.getFullYear() && d.getMonth()===hoy.getMonth(); });
   /* "programados" ya no está pendiente: sale de datos reales de Horarios (ver
      hkDiasProgramadosJefatura). null = nadie tiene el perfil "Jefatura HK"
@@ -5615,16 +5664,29 @@ function HKAuditorias({user,toast,setFoto}){
       <span style={{color:"var(--muted)",fontSize:13}}>{ordenadas.length} auditoría(s) — mínimo {HK_AUD_MIN_DIA}/día, seleccionadas automáticamente</span>
     </div>
     {!ordenadas.length && <div className="empty"><div className="e">🔍</div>Aún no hay auditorías. Se asignan solas cuando haya limpiezas terminadas en el día.</div>}
-    {ordenadas.map(a=>{ const vencida=auditoriasVencidas(a);
-      const tiempoRevision = a.estado==="Auditada" ? Math.round((new Date(a.horaCierreAuditoria)-new Date(a.horaEnvioILD))/60000)+" min" : "No aplica";
-      return <div key={a.id} className="item" style={{cursor:"pointer"}} onClick={()=>setDetalle(a)}>
-        <div className="top"><div>
-          <div className="code">Hab. {a.habitacionNumero} · {a.fecha}</div>
-          <div className="ttl">{a.colaborador}</div>
-          <div className="meta">Tiempo de revisión: {tiempoRevision}{a.resultado?" · "+a.resultado:""}</div>
-        </div><Pill estado={vencida?"Vencida":a.estado} overdue={vencida}/></div>
-      </div>; })}
+    {!!pendientesVencidas.length && <>
+      <div className="hint" style={{color:"var(--red)",fontWeight:700,marginTop:4}}>⚠ {pendientesVencidas.length} auditoría(s) pendiente(s) de días anteriores — no desaparecen, se mantienen aquí hasta que se realicen.</div>
+      {pendientesVencidas.map(a=><HKAuditoriaItem key={a.id} a={a} vencida={true} onClick={()=>setDetalle(a)}/>)}
+    </>}
+    {!!pendientesHoy.length && <>
+      <div className="hint" style={{fontWeight:700,marginTop:pendientesVencidas.length?14:4}}>Pendientes de hoy ({pendientesHoy.length})</div>
+      {pendientesHoy.map(a=><HKAuditoriaItem key={a.id} a={a} vencida={false} onClick={()=>setDetalle(a)}/>)}
+    </>}
+    {!!historial.length && <>
+      <div className="hint" style={{fontWeight:700,marginTop:(pendientesVencidas.length||pendientesHoy.length)?14:4}}>Historial (auditadas)</div>
+      {historial.map(a=><HKAuditoriaItem key={a.id} a={a} vencida={false} onClick={()=>setDetalle(a)}/>)}
+    </>}
     {detalle && <HKAuditoriaDetalle aud={detalle} user={user} toast={toast} setFoto={setFoto} onClose={()=>setDetalle(null)} onSaved={()=>{setDetalle(null);load();}}/>}
+  </div>;
+}
+function HKAuditoriaItem({a,vencida,onClick}){
+  const tiempoRevision = a.estado==="Auditada" ? Math.round((new Date(a.horaCierreAuditoria)-new Date(a.horaEnvioILD))/60000)+" min" : "No aplica";
+  return <div className="item" style={{cursor:"pointer",...(vencida?{borderLeft:"3px solid var(--red)"}:{})}} onClick={onClick}>
+    <div className="top"><div>
+      <div className="code">Hab. {a.habitacionNumero} · {a.fecha}</div>
+      <div className="ttl">{a.colaborador}</div>
+      <div className="meta">Tiempo de revisión: {tiempoRevision}{a.resultado?" · "+a.resultado:""}{a.calificacion!=null?" · Calificación: "+a.calificacion+"%":""}</div>
+    </div><Pill estado={vencida?"Vencida":a.estado} overdue={vencida}/></div>
   </div>;
 }
 
