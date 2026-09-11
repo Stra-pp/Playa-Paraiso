@@ -1517,16 +1517,44 @@ function ildToRow(r){ return {
   Cumplimiento:r.totalItems?Math.round((r.completados/r.totalItems)*100)+"%":"",
   Fotos:(r.fotos||[]).length, Aprobador:r.aprobador||"", FechaAprobacion:r.fechaAprobacion?new Date(r.fechaAprobacion).toLocaleString("es-EC",{timeZone:TZ_EC}):"",
   Observaciones:r.obs||"", NotaJefatura:r.notaJef||"", NotaGerencia:r.notaGerencia||"" }; }
+/* Un valor "objeto" puede ser en realidad una foto (o un adjunto con foto
+   embebida, como en modo local/demo: {nombre,data:"data:image/jpeg;base64,\u2026"}).
+   Convertirlo con JSON.stringify meter\u00eda esas fotos completas dentro de una sola
+   celda: pasa el l\u00edmite de 32.767 caracteres de Excel y rompe la exportaci\u00f3n
+   entera sin avisar. Por eso, en vez de serializar cualquier objeto tal cual,
+   se resume: cu\u00e1ntos elementos trae, o se avisa que hab\u00eda una foto embebida. */
+function resumenCampoExport(v){
+  if(Array.isArray(v)){
+    if(!v.length) return "";
+    if(v.some(x=>x && typeof x==="object" && (x.data||x.url||x.path||x.error)))
+      return `(${v.length} foto(s) adjunta(s), no incluidas en la exportaci\u00f3n)`;
+    const s=JSON.stringify(v); return s.length>500?`(${v.length} elemento(s))`:s;
+  }
+  if(v && typeof v==="object"){ const s=JSON.stringify(v); return s.length>500?"(dato adjunto, no incluido en la exportaci\u00f3n)":s; }
+  return v;
+}
 function exportXLSX(rows,sheet,filename){
   if(!rows||!rows.length) return false;
-  const clean=rows.map(r=>{ const o={...r}; delete o.Fotos; delete o.fotos; delete o.checks; delete o.textos; delete o.selecciones;
-    Object.keys(o).forEach(k=>{ if(o[k]&&typeof o[k]==="object") o[k]=JSON.stringify(o[k]); }); return o; });
-  if(window.XLSX && !window.__noXlsx){
-    const ws=XLSX.utils.json_to_sheet(clean); const wb=XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb,ws,(sheet||"Datos").slice(0,31)); XLSX.writeFile(wb,filename+".xlsx"); return true; }
-  const head=[...new Set(clean.flatMap(o=>Object.keys(o)))];
-  const csv=[head.join(",")].concat(clean.map(r=>head.map(h=>`"${String(r[h]??"").replace(/"/g,'""')}"`).join(","))).join("\n");
-  const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob(["\ufeff"+csv],{type:"text/csv"})); a.download=filename+".csv"; a.click(); return true;
+  const clean=rows.map(r=>{ const o={...r};
+    delete o.Fotos; delete o.fotos; delete o.FotosCierre; delete o.checks; delete o.textos; delete o.selecciones;
+    Object.keys(o).forEach(k=>{ if(o[k]&&typeof o[k]==="object") o[k]=resumenCampoExport(o[k]); }); return o; });
+  try{
+    if(window.XLSX && !window.__noXlsx){
+      const ws=XLSX.utils.json_to_sheet(clean); const wb=XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb,ws,(sheet||"Datos").slice(0,31)); XLSX.writeFile(wb,filename+".xlsx"); return true; }
+    const head=[...new Set(clean.flatMap(o=>Object.keys(o)))];
+    const csv=[head.join(",")].concat(clean.map(r=>head.map(h=>`"${String(r[h]??"").replace(/"/g,'""')}"`).join(","))).join("\n");
+    const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob(["\ufeff"+csv],{type:"text/csv"})); a.download=filename+".csv"; a.click(); return true;
+  }catch(e){
+    /* Si aun as\u00ed falla (p.ej. una celda gigante que ninguna de las dos rutas
+       pudo manejar), se intenta una vez m\u00e1s solo con texto plano en vez de
+       dejar el clic sin ning\u00fan efecto visible. */
+    try{
+      const head=[...new Set(clean.flatMap(o=>Object.keys(o)))];
+      const csv=[head.join(",")].concat(clean.map(r=>head.map(h=>{ let v=String(r[h]??""); if(v.length>2000) v="(dato muy extenso, omitido)"; return `"${v.replace(/"/g,'""')}"`; }).join(","))).join("\n");
+      const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob(["\ufeff"+csv],{type:"text/csv"})); a.download=filename+".csv"; a.click(); return true;
+    }catch(e2){ console.error("exportXLSX fall\u00f3",e,e2); return false; }
+  }
 }
 
 /* ===== UI BASE ===== */
@@ -4153,7 +4181,7 @@ function ListaFiltrada({items,tipo,isSis,chief,equipo,onAction,vacio,unidad,toas
     <div className="row" style={{margin:"8px 0 12px",gap:8,flexWrap:"wrap"}}>
       <button className={"btn "+(soloHoy?"ghost":"primary")} onClick={()=>setSoloHoy(false)}>Todas fechas</button>
       <button className={"btn "+(soloHoy?"primary":"ghost")} onClick={()=>setSoloHoy(true)}>📅 Vencen hoy ({venceHoy})</button>
-      <button className="btn ocean" onClick={()=>{ if(!exportXLSX(formatFechasExport(v),tipo,nombreExport||`${tipo}_PlayaParaiso`)) toast("No hay datos para exportar"); else toast("Exportando…"); }}>⬇️ Exportar</button>
+      <button className="btn ocean" onClick={()=>{ if(!v.length) toast("No hay datos para exportar"); else if(!exportXLSX(formatFechasExport(v),tipo,nombreExport||`${tipo}_PlayaParaiso`)) toast("No se pudo exportar: intenta de nuevo"); else toast("Exportando…"); }}>⬇️ Exportar</button>
     </div>
     <div className="kcount">{v.length} {unidad||"ticket(s)"}{["nuevas","proceso","v15"].includes(fil)?" · de la más antigua a la más reciente":""}</div>
     <Listado items={v} empty={vacio||"No hay registros en este filtro"}
