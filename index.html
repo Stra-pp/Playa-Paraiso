@@ -2350,7 +2350,10 @@ function ILDForm({user,toast,onSaved,setFoto,onDraft}){
     const files=Array.from(e.target.files); e.target.value="";
     const srcs=await Promise.all(files.map(f=>new Promise(r=>{const rd=new FileReader();rd.onload=ev=>r(ev.target.result);rd.readAsDataURL(f);})));
     const comp=await Promise.all(srcs.map(s=>comprimirImg(s)));
-    setFotos(prev=>[...prev,...comp].slice(0,Math.max(reqTotal,1)+4));
+    /* En modo "lista" (Áreas Públicas) no hay máximo de fotos: solo un mínimo
+       de 3. El límite de abajo solo aplica al modo normal, para no dejar
+       crecer sin control un checklist con muchos ítems de foto. */
+    setFotos(prev=>modo==='lista' ? [...prev,...comp] : [...prev,...comp].slice(0,Math.max(reqTotal,1)+4));
   }
   const [online,setOnline]=useState(navigator.onLine);
   useEffect(()=>{ const on=()=>setOnline(true),off=()=>setOnline(false);
@@ -2379,7 +2382,6 @@ function ILDForm({user,toast,onSaved,setFoto,onDraft}){
     if(modo==='lista'){
       if(!zona){toast("Elige una zona de la lista");return;}
       if(fotos.length<3){toast("Adjunta al menos 3 fotos");return;}
-      if(fotos.length>5){toast("Máximo 5 fotos");return;}
       await unaVez(async()=>{
         try{
           await encolarYEnviar({ id:gid(), area, turno:"", zona, selecciones:{}, usuario:user.nombre, fecha:nowISO(),
@@ -2427,16 +2429,16 @@ function ILDForm({user,toast,onSaved,setFoto,onDraft}){
       </div></div>}
     {area && modo==='lista' && <>
       <div className="card"><h3>Zona limpiada</h3>
-        <div className="hint">Elige la zona que acabas de limpiar y adjunta de 3 a 5 fotos. Puedes registrar varias a lo largo del día.</div>
+        <div className="hint">Elige la zona que acabas de limpiar y adjunta mínimo 3 fotos (puedes agregar todas las que necesites). Puedes registrar varias a lo largo del día.</div>
         <div className="opts" style={{flexDirection:"column",alignItems:"stretch",gap:6,marginTop:8}}>
           {items.map((it,i)=>{ const tx=itemText(it);
             return <button key={i} className={"opt"+(zona===tx?" on":"")} style={{textAlign:"left"}} onClick={()=>setZona(tx)}>{zona===tx?<Icon name="radioOn" size={16} style={{marginRight:6,verticalAlign:"-3px"}}/>:<Icon name="radioOff" size={16} style={{marginRight:6,verticalAlign:"-3px"}}/>} {tx}</button>; })}
         </div></div>
-      <div className="card"><h3>Fotos — {fotos.length}/3–5</h3>
-        <div className="hint" style={{marginBottom:8}}>Puedes tomar la foto con la cámara o elegirla desde la galería del dispositivo.</div>
+      <div className="card"><h3>Fotos — {fotos.length} (mínimo 3)</h3>
+        <div className="hint" style={{marginBottom:8}}>Puedes tomar la foto con la cámara o elegirla desde la galería del dispositivo. No hay máximo: agrega todas las que necesites.</div>
         <input id="ild-file-l" type="file" accept="image/*" multiple style={{display:"none"}} onChange={onFiles}/>
         <button className="btn ghost block" onClick={()=>document.getElementById("ild-file-l").click()}>
-          <Icon name="camera" size={17} style={{marginRight:7}}/>{fotos.length>=3?(fotos.length>=5?"Máximo (5) ✓":"Agregar más (hasta 5)"):`Subir (faltan ${3-fotos.length})`}</button>
+          <Icon name="camera" size={17} style={{marginRight:7}}/>{fotos.length>=3?"Agregar más":`Subir (faltan ${3-fotos.length})`}</button>
         <div className="fgrid">{fotos.map((s,i)=><div key={i} className="fthumb">
           <img src={s} onClick={()=>setFoto(s)}/>
           <button className="fdel" onClick={()=>setFotos(f=>f.filter((_,j)=>j!==i))}><Icon name="x" size={15}/></button>
@@ -3196,10 +3198,10 @@ function GestionarILD({user,toast,onSave}){
     </Secc>}
 
     {area && <Secc title="Checklist" defaultOpen>
-      <Field label="Modo del ILD" hint="'Lista' = el usuario elige UNA opción de la lista y sube de 3 a 5 fotos (ideal Áreas Públicas). 'Normal' = checklist completo.">
+      <Field label="Modo del ILD" hint="'Lista' = el usuario elige UNA opción de la lista y sube mínimo 3 fotos, sin máximo (ideal Áreas Públicas). 'Normal' = checklist completo.">
         <select className="inp" value={modo} onChange={e=>cambiarModo(e.target.value)}>
           <option value="normal">Checklist normal</option>
-          <option value="lista">Lista (elegir una opción + 3 a 5 fotos)</option></select></Field>
+          <option value="lista">Lista (elegir una opción + mínimo 3 fotos)</option></select></Field>
       <div className="hint" style={{marginBottom:10}}>{items.length} {modo==='lista'?"opciones de la lista":"ítems"} · {modo==='lista'?"el usuario elige una opción":`Fotos siempre requeridas = ${nFotos}`}{modo!=='lista' && nFotoSiNo>0 && ` · +${nFotoSiNo} foto(s) solo si se responde "Sí" en el/los ítem(s) Sí/No-con-foto`}.</div>
       {items.map((it,i)=><div key={i} className="row" style={{gap:8,alignItems:"flex-start",border:"1px solid var(--line)",borderRadius:12,padding:10,marginBottom:8}}>
         <div style={{flex:"0 0 20px",color:"var(--muted)",fontWeight:700,paddingTop:11}}>{i+1}</div>
@@ -5258,8 +5260,8 @@ function HKMonitor({toast}){
    de ILD para el área "Áreas Públicas" (CL['Áreas Públicas']), así no se
    duplica el dato ni queda desalineado con lo que usa ese módulo. A diferencia
    de Habitaciones, aquí no hay un checklist de tareas por ítem (ese dato no
-   existe todavía para áreas comunes): el cierre pide fotos (3 a 5, igual que
-   el modo "lista" de ILD) y observaciones. */
+   existe todavía para áreas comunes): el cierre pide fotos (mínimo 3, sin
+   máximo, igual que el modo "lista" de ILD) y observaciones. */
 const hkQRValorArea = areaId => "PPHK:AREA:" + areaId;
 function hkParseQRArea(texto){
   const t = String(texto||"").trim();
@@ -5421,7 +5423,7 @@ function HKAreasFinalizar({registro,area,user,toast,setFoto,onDone}){
   }
   return <Modal title={"Finalizar limpieza · "+area.nombre} onClose={onDone}>
     <div className="hint" style={{marginBottom:10}}>Inicio: {fmtDT(registro.horaInicio)}. La hora de finalización se registra automáticamente al enviar.</div>
-    <PhotoField fotos={fotos} setFotos={setFotos} setFoto={setFoto} label={`Fotos (${fotos.length}) — mínimo 3`} hint="Evidencia de la limpieza realizada (3 a 5 fotos)."/>
+    <PhotoField fotos={fotos} setFotos={setFotos} setFoto={setFoto} label={`Fotos (${fotos.length}) — mínimo 3`} hint="Evidencia de la limpieza realizada. Mínimo 3 fotos, sin máximo: agrega todas las que necesites."/>
     <Field label="Observaciones (opcional)"><textarea className="inp" value={obs} onChange={e=>setObs(e.target.value)} placeholder="Novedades del área…"/></Field>
     <button className="btn primary block" disabled={busy} onClick={finalizar}>{busy?"Enviando…":"Finalizar limpieza"}</button>
   </Modal>;
