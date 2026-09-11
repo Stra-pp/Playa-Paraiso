@@ -5476,7 +5476,6 @@ function HKAreasCamarero({user,toast,setFoto}){
    que la auditoría sea una muestra de control de calidad, no una selección
    sesgada por la persona que audita. */
 const HK_AUD_ESTADOS = ["Pendiente","En revisión","Auditada"];
-const HK_AUD_PUNTAJES = [0,1,2,3,4,5,6,7,8,9,10];
 
 /* Baraja un arreglo con Fisher-Yates usando Math.random(): alcanza para que la
    selección no sea manipulable por jefatura (ellos no la disparan a mano, se
@@ -5552,7 +5551,11 @@ function hkCalifAuditoria(checklist, totalItems){
 }
 function HKAuditoriaDetalle({aud,user,toast,setFoto,onClose,onSaved}){
   const soloLectura = aud.estado==="Auditada";
-  const [puntaje,setPuntaje]=useState(aud.puntaje!=null?aud.puntaje:"");
+  /* Estado local para poder pasar de "Pendiente" a mostrar el formulario en el
+     mismo modal, sin cerrarlo: antes "Comenzar revisión" guardaba el cambio y
+     llamaba onSaved(), que cierra el detalle y hay que volver a abrirlo (doble
+     clic). Ahora se actualiza aquí mismo y el formulario aparece de inmediato. */
+  const [estadoLocal,setEstadoLocal]=useState(aud.estado);
   const [observaciones,setObservaciones]=useState(aud.observaciones||"");
   const [fotos,setFotos]=useState(aud.fotos||[]);
   const [checklist,setChecklist]=useState(aud.checklistAuditoria||{});
@@ -5567,18 +5570,19 @@ function HKAuditoriaDetalle({aud,user,toast,setFoto,onClose,onSaved}){
   async function comenzar(){
     try{ await Cola.cambio({ tabla:"HKAuditorias", recId:aud.id, campoEstado:"estado",
       patch:{ estado:"En revisión", auditor:user.nombre }, patchId:"inicio-aud-"+aud.id }, user.nombre);
-      await Cola.enviar(user.nombre); onSaved();
+      await Cola.enviar(user.nombre);
+      setEstadoLocal("En revisión");
     }catch(e){ toast("No se pudo abrir la auditoría: "+(e.message||e)); }
   }
   async function guardar(){
-    if(puntaje===""||puntaje==null){ toast("Elige una calificación de 0 a 10"); return; }
+    if(!calif){ toast("Marca cumple/no cumple en al menos un ítem del checklist"); return; }
     const sinMarcar = itemsAud.length - Object.keys(checklist).filter(k=>checklist[k]==='si'||checklist[k]==='no').length;
     if(sinMarcar>0 && !confirm(`${sinMarcar} ítem(s) del checklist sin marcar cumple/no cumple. ¿Guardar igual?`)) return;
     await unaVez(async()=>{
       try{
         await Cola.cambio({ tabla:"HKAuditorias", recId:aud.id, campoEstado:"estado",
-          patch:{ estado:"Auditada", auditor:user.nombre, puntaje, observaciones,
-            checklistAuditoria:{...checklist}, calificacion:calif?calif.pct:null,
+          patch:{ estado:"Auditada", auditor:user.nombre, observaciones,
+            checklistAuditoria:{...checklist}, calificacion:calif.pct,
             fechaAuditoria:nowISO(), horaCierreAuditoria:nowISO() },
           fotos:[...fotos], fotoField:"fotos", fotoDir:"HKAUD_{ID}", fotoPrefix:"HKAUD{ID}",
           patchId:"cierre-aud-"+aud.id }, user.nombre);
@@ -5600,11 +5604,11 @@ function HKAuditoriaDetalle({aud,user,toast,setFoto,onClose,onSaved}){
       {limpieza.obs && <div className="hint" style={{marginTop:6}}>Nota del camarero/a: {limpieza.obs}</div>}
       {(limpieza.fotos||[]).length>0 && <div className="fgrid" style={{marginTop:8}}>{limpieza.fotos.map((f,i)=><SpImg key={i} foto={f} idx={i+1} onClick={setFoto}/>)}</div>}
     </div>}
-    {aud.estado==="Pendiente" && <button className="btn primary block" style={{marginBottom:12}} onClick={comenzar}>Comenzar revisión</button>}
-    {aud.estado!=="Pendiente" && <>
+    {estadoLocal==="Pendiente" && <button className="btn primary block" style={{marginBottom:12}} onClick={comenzar}>Comenzar revisión</button>}
+    {estadoLocal!=="Pendiente" && <>
       <div className="card">
         <h3 style={{marginTop:0}}>Verificación de la jefatura {calif && <span style={{float:"right",color:calif.pct>=90?"var(--green)":calif.pct>=70?"var(--amber)":"var(--red)"}}>{calif.pct}%</span>}</h3>
-        <div className="hint" style={{marginBottom:8}}>Marca si cada punto se cumplió al momento de auditar. El % de cumplidos es la calificación final de esta auditoría.</div>
+        <div className="hint" style={{marginBottom:8}}>Marca si cada punto se cumplió al momento de auditar. La calificación final (cumplen/total) se calcula sola.</div>
         {itemsAud.map((it,i)=>{ const tx=itemText(it); const v=checklist[i]||"";
           return <div key={i} className="row" style={{gap:8,alignItems:"center",padding:"5px 0",borderBottom:"1px solid var(--line)"}}>
             <span style={{flex:1,fontSize:13}}>{i+1}. {tx}</span>
@@ -5613,17 +5617,12 @@ function HKAuditoriaDetalle({aud,user,toast,setFoto,onClose,onSaved}){
           </div>; })}
         {calif && <div className="hint" style={{marginTop:8}}>{calif.cumplen}/{calif.total} cumplidos{calif.marcados<calif.total?` (${calif.total-calif.marcados} sin marcar)`:""}</div>}
       </div>
-      <Field label="Calificación general" req>
-        <div className="opts">
-          {HK_AUD_PUNTAJES.map(n=><button key={n} disabled={soloLectura} className={"opt"+(puntaje===n?" on":"")} onClick={()=>setPuntaje(n)}>{n}/10</button>)}
-        </div>
-      </Field>
       <Field label="Observaciones"><textarea className="inp" disabled={soloLectura} value={observaciones} onChange={e=>setObservaciones(e.target.value)}/></Field>
       {soloLectura
         ? (fotos.length>0 && <div className="fgrid">{fotos.map((s,i)=><div key={i} className="fthumb"><img src={s} onClick={()=>setFoto(s)}/></div>)}</div>)
         : <PhotoField fotos={fotos} setFotos={setFotos} setFoto={setFoto} label={`Fotos (${fotos.length})`} hint="Evidencia de la auditoría (opcional)."/>}
       {soloLectura
-        ? <div className="hint" style={{marginTop:8}}>Auditada por {aud.auditor} · {fmtDT(aud.horaCierreAuditoria)}{aud.puntaje!=null?` · Calificación: ${aud.puntaje}/10`:""}</div>
+        ? <div className="hint" style={{marginTop:8}}>Auditada por {aud.auditor} · {fmtDT(aud.horaCierreAuditoria)}{aud.calificacion!=null?` · Calificación: ${aud.calificacion}%`:""}</div>
         : <button className="btn primary block" disabled={busy} onClick={guardar}>{busy?"Guardando…":"Guardar auditoría"}</button>}
     </>}
   </Modal>;
@@ -5701,7 +5700,7 @@ function HKAuditoriaItem({a,vencida,onClick}){
     <div className="top"><div>
       <div className="code">Hab. {a.habitacionNumero} · {a.fecha}</div>
       <div className="ttl">{a.colaborador}</div>
-      <div className="meta">Tiempo de revisión: {tiempoRevision}{a.puntaje!=null?" · "+a.puntaje+"/10":""}{a.calificacion!=null?" · Checklist: "+a.calificacion+"%":""}</div>
+      <div className="meta">Tiempo de revisión: {tiempoRevision}{a.calificacion!=null?" · Calificación: "+a.calificacion+"%":""}</div>
     </div><Pill estado={vencida?"Vencida":a.estado} overdue={vencida}/></div>
   </div>;
 }
@@ -5722,7 +5721,11 @@ const HK_DOW_CORTO = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"];
 
 async function hkCargarHorarios(){ try{ return await Store.read("HKHorarios"); }catch(e){ return []; } }
 /* Roster de personas de Housekeeping (cualquier perfil), para Horarios/Productividad. */
-function hkRoster(){ return USERS.filter(u=>tieneHK(u)).sort((a,b)=>a.nombre.localeCompare(b.nombre)); }
+/* Solo personas con un perfil de Housekeeping realmente asignado (u.hk.perfil):
+   Gerencia General y Desarrollador cuentan como "jefatura HK" para efectos de
+   permisos (esHKJefatura incluye esGD), pero no son personal de piso al que
+   se le programen turnos, así que no deben aparecer en Horarios/Productividad. */
+function hkRoster(){ return USERS.filter(u=>u.hk && u.hk.perfil).sort((a,b)=>a.nombre.localeCompare(b.nombre)); }
 /* Lunes→domingo de la semana que contiene "fechaYMD" (YYYY-MM-DD), como 7 fechas YYYY-MM-DD. */
 function hkSemanaDe(fechaYMD){
   const d = new Date(fechaYMD+"T00:00:00");
@@ -5847,9 +5850,9 @@ function HKProductividad({toast}){
     const tiempoProm = tiempos.length ? Math.round(tiempos.reduce((a,b)=>a+b,0)/tiempos.length) : null;
     const promDia = diasProgramados ? (finalizadas.length/diasProgramados) : null;
     const audsDe = auds.filter(a=>a.colaborador===u.nombre && a.estado==="Auditada" && enElMes(a.fechaAuditoria||a.fecha));
-    const puntajes = audsDe.map(a=>a.puntaje).filter(n=>Number.isFinite(n));
-    const puntajeProm = puntajes.length ? Math.round((puntajes.reduce((a,b)=>a+b,0)/puntajes.length)*10)/10 : null;
-    return { u, diasProgramados, finalizadas:finalizadas.length, tiempoProm, promDia, puntajeProm, auditadas:audsDe.length };
+    const califs = audsDe.map(a=>a.calificacion).filter(n=>Number.isFinite(n));
+    const califProm = califs.length ? Math.round(califs.reduce((a,b)=>a+b,0)/califs.length) : null;
+    return { u, diasProgramados, finalizadas:finalizadas.length, tiempoProm, promDia, califProm, auditadas:audsDe.length };
   });
   const totFinalizadas = filas.reduce((a,f)=>a+f.finalizadas,0);
   function cambiarMes(delta){
@@ -5874,7 +5877,7 @@ function HKProductividad({toast}){
         <td>{f.promDia==null?"—":f.promDia.toFixed(1)}</td>
         <td>{f.tiempoProm==null?"—":f.tiempoProm+" min"}</td>
         <td>{f.auditadas}</td>
-        <td>{f.puntajeProm==null?"—":f.puntajeProm+"/10"}</td>
+        <td>{f.califProm==null?"—":f.califProm+"%"}</td>
       </tr>)}</tbody>
     </table></div>}
     <div className="hint" style={{marginTop:10}}>"Días prog." y "Prom./día" salen de lo programado en Housekeeping › Horarios para el mes elegido. Si no se ha programado a alguien todavía, esas columnas quedan en "—" en vez de mostrar un promedio inventado.</div>
