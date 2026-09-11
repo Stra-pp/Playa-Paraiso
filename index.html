@@ -1832,7 +1832,14 @@ function ILD({user,toast,setFoto,bump}){
   const esDevv = esDev(user); const esGer = user.rol==='gerencia';
   const puedeRevisar = esGD(user) || user.rol==='aprobador';
   const showNuevo = !esGer;                                  // Gerencia no ingresa ILD
-  const showChecklist = (user.rol==='aprobador' || esDevv);  // Gerencia no edita checklist
+  /* La configuración completa (calendario, comidas, aprobador, crear/borrar área,
+     usuarios y accesos) se movió a Config › Gestionar ILD y Config › Usuarios y
+     accesos: todo lo que antes vivía repartido en pestañas de este módulo ahora
+     se administra en un solo lugar (ver Admin()). Aquí Desarrollador ya no ve
+     "Gestionar ILD" — solo lo que necesita a diario. Cada jefatura (aprobador)
+     sigue viendo y editando el checklist de su propia área, sin cambios: eso no
+     es "configuración" del sistema, es su lista de trabajo diaria. */
+  const showChecklist = user.rol==='aprobador';
   const [tab,setTab]=useState(esGer?"bandeja":"nuevo");
   const [regs,setRegs]=useState([]);
   const [drafts,setDrafts]=useState([]);
@@ -1875,16 +1882,16 @@ function ILD({user,toast,setFoto,bump}){
   return <div>
     <h1 className="h1">ILD · Inspección diaria</h1>
     <p className="sub">Lista de verificación por área y turno.</p>
-    {(showNuevo||puedeRevisar||showChecklist||esDevv) && <div className="seg">
+    {(showNuevo||puedeRevisar||showChecklist) && <div className="seg">
       {showNuevo && <button className={tab==="nuevo"?"on":""} onClick={()=>setTab("nuevo")}>Nuevo</button>}
       {showNuevo && <button className={tab==="mios"?"on":""} onClick={()=>{setTab("mios");load();}}>Mis ILD</button>}
       {drafts.length>0 && <button className={tab==="drafts"?"on":""} style={{color:"#7a5a12"}} onClick={()=>{setTab("drafts");cargarDrafts();}}>📥 Sin enviar ({drafts.length})</button>}
       {puedeRevisar && <button className={tab==="bandeja"?"on":""} onClick={()=>{setTab("bandeja");load();}}>{esGD(user)?"Todos":"Por aprobar"}</button>}
       {puedeRevisar && <button className={tab==="dash"?"on":""} onClick={()=>{setTab("dash");load();}}>Dashboard</button>}
       {esGD(user) && <button className={tab==="resumen"?"on":""} onClick={()=>setTab("resumen")}><Icon name="trendup" size={15} style={{marginRight:6}}/>Resumen Gerencial</button>}
-      {showChecklist && <button className={tab==="check"?"on":""} onClick={()=>setTab("check")}>{esDevv?"Gestionar ILD":"Checklist"}</button>}
-      {esDevv && <button className={tab==="usuarios"?"on":""} onClick={()=>setTab("usuarios")}>Usuarios y accesos</button>}
+      {showChecklist && <button className={tab==="check"?"on":""} onClick={()=>setTab("check")}>Checklist</button>}
     </div>}
+    {esDevv && <div className="hint" style={{margin:"-6px 0 12px"}}>La configuración de áreas, checklist, calendario, comidas, aprobadores, usuarios y accesos se administra ahora desde <b>Config › Gestionar ILD</b> y <b>Config › Usuarios y accesos</b>.</div>}
     {tab==="nuevo" && showNuevo && <ILDForm user={user} toast={toast} onSaved={()=>{load();setTab("mios");}} onDraft={()=>{cargarDrafts();setTab("drafts");}} setFoto={setFoto}/>}
     {tab==="mios" && showNuevo && <ILDMios user={user} regs={regs} setFoto={setFoto}/>}
     {tab==="drafts" && showNuevo && <DraftsPanel user={user} drafts={drafts} onEnviar={()=>enviarPendientes(false)} onReload={cargarDrafts} setFoto={setFoto} toast={toast}/>}
@@ -1892,7 +1899,6 @@ function ILD({user,toast,setFoto,bump}){
     {tab==="dash" && <ILDDash user={user}/>}
     {tab==="resumen" && <ResumenGerencialILD/>}
     {tab==="check" && showChecklist && <GestionarILD user={user} toast={toast} onSave={guardarCfg}/>}
-    {tab==="usuarios" && esDevv && <UsuariosAccesos toast={toast} onSave={guardarCfg}/>}
   </div>;
 }
 
@@ -4599,7 +4605,7 @@ function NotifConfig({toast}){
       <button className="btn ghost" style={{padding:"9px 12px",flex:"0 0 auto"}} disabled={busy===c[k]} onClick={()=>probar(c[k],nombre||label)}>{busy===c[k]?"…":"✉️ Probar"}</button>
     </div></div>;
   return <div className="card"><h3>Notificaciones (correo / Teams)</h3>
-    <div className="hint">Los avisos se envían por correo con tu cuenta Microsoft (requiere el permiso <b>Mail.Send</b> con consentimiento de administrador). Para publicar en un grupo de Teams, pega el <b>correo del canal</b> (en Teams: canal → ••• → Obtener dirección de correo). El canal de Teams de <b>cada ILD</b> se asigna en <b>ILD → Configurar → Checklist → Administrar ILD</b>.</div>
+    <div className="hint">Los avisos se envían por correo con tu cuenta Microsoft (requiere el permiso <b>Mail.Send</b> con consentimiento de administrador). Para publicar en un grupo de Teams, pega el <b>correo del canal</b> (en Teams: canal → ••• → Obtener dirección de correo). El canal de Teams de <b>cada ILD</b> se asigna en <b>Config → Gestionar ILD → Datos generales</b>.</div>
     <label className="row" style={{gap:8,alignItems:"center",margin:"12px 0"}}>
       <input type="checkbox" checked={!!c.enabled} onChange={e=>set("enabled",e.target.checked)}/> <span style={{fontWeight:600}}>Activar notificaciones</span></label>
     <Field label="Enlace de la app (para el botón de los correos)"><input className="inp" value={c.appUrl} onChange={e=>set("appUrl",e.target.value)}/></Field>
@@ -4709,7 +4715,9 @@ function DeleteRecords({toast}){
       <button className="btn red" style={{padding:"6px 11px",flex:"0 0 auto"}} onClick={()=>del(idOf(r))}>Eliminar</button></div>)}
     </div></div>;
 }
-function Admin({user,toast}){
+function Admin({user,toast,bump}){
+  const [tab,setTab]=useState("general");
+  const guardarCfg=()=>{ cfgSave(); bump&&bump(); };
   const [counts,setCounts]=useState({}); const [reloadKey,setReloadKey]=useState(0); const [diag,setDiag]=useState("");
   useEffect(()=>{(async()=>{ const o={}; for(const t of ["ILD","Compras","Sistemas","Mantenimiento"]) o[t]=(await Store.read(t)).length; setCounts(o); })();},[reloadKey]);
   async function exportar(t){ const data=await Store.read(t);
@@ -4730,7 +4738,19 @@ function Admin({user,toast}){
     }catch(e){ toast("No se pudo cargar el histórico ("+(e.message||"")+")"); }
   }
   return <div>
-    <h1 className="h1">Configuración</h1><p className="sub">Conexión, datos y mantenimiento.</p>
+    <h1 className="h1">Configuración</h1><p className="sub">Todo lo que se configura en la app vive aquí — nada queda repartido dentro de los módulos.</p>
+    <div className="seg" style={{flexWrap:"wrap"}}>
+      <button className={tab==="general"?"on":""} onClick={()=>setTab("general")}>General</button>
+      <button className={tab==="ild"?"on":""} onClick={()=>setTab("ild")}>Gestionar ILD</button>
+      <button className={tab==="usuarios"?"on":""} onClick={()=>setTab("usuarios")}>Usuarios y accesos</button>
+      <button className={tab==="hkhab"?"on":""} onClick={()=>setTab("hkhab")}>Catálogo de habitaciones</button>
+      <button className={tab==="hkareas"?"on":""} onClick={()=>setTab("hkareas")}>Catálogo de áreas</button>
+    </div>
+    {tab==="ild" && <GestionarILD user={user} toast={toast} onSave={guardarCfg}/>}
+    {tab==="usuarios" && <UsuariosAccesos toast={toast} onSave={guardarCfg}/>}
+    {tab==="hkhab" && <HKCatalogo user={user} toast={toast}/>}
+    {tab==="hkareas" && <HKAreasCatalogo toast={toast}/>}
+    {tab==="general" && <>
     <div className="card"><h3>Conexión SharePoint · Prueba7</h3>
       <div className="kv"><b>Modo</b><span>{MODE==="graph"?"En vivo (SharePoint)":"Local (demo)"}</span></div>
       {MODE==="graph" && <div className="kv"><b>Cuenta Microsoft</b><span>{graphUser||"—"}</span></div>}
@@ -4764,8 +4784,7 @@ function Admin({user,toast}){
     <DeleteRecords toast={toast}/>
     <RenombrarPersona toast={toast}/>
     <ReasignarResp toast={toast}/>
-    <div className="card"><h3>Usuarios y aprobadores</h3>
-      <div className="hint">La gestión de colaboradores, áreas asignadas, PINs y aprobadores se hace en <b>ILD → Configurar</b> (rol Desarrollador). Personalización de checklists en <b>ILD → Checklist</b>.</div></div>
+    </>}
   </div>;
 }
 
@@ -5585,7 +5604,7 @@ function HKAuditorias({user,toast,setFoto}){
       </Field>
       {sinDatosProgramados
         ? <div className="hint">{diasProgramados==null
-            ? '[PENDIENTE: ningún usuario tiene el perfil "Jefatura HK" asignado (Config › Usuarios). Usa "calendario" o "laborables" mientras tanto.]'
+            ? '[PENDIENTE: ningún usuario tiene el perfil "Jefatura HK" asignado (Config › Usuarios y accesos). Usa "calendario" o "laborables" mientras tanto.]'
             : `Aún no se ha programado ningún día de jefatura este mes en Housekeeping › Horarios. Usa "calendario" o "laborables" mientras se programa, o ve a Horarios y asigna los días.`}</div>
         : <div className="row" style={{gap:24,marginTop:6}}>
             <div><div style={{fontSize:22,fontWeight:800}}>{realizadas}/{requeridas}</div><div className="hint">Auditadas / requeridas (3 × días{modo==="programados"?" programados":" del mes"})</div></div>
@@ -5711,7 +5730,7 @@ function HKHorarioSemana({toast}){
       </div>
       <button className="btn ghost" style={{padding:"8px 12px"}} onClick={()=>setInicioSemana(hkSemanaDe(hoyEC())[0])}>Esta semana</button>
     </div>
-    {!roster.length && <div className="empty"><div className="e">👥</div>Aún no hay nadie con un perfil de Housekeeping asignado. Asígnalo en Config › Usuarios.</div>}
+    {!roster.length && <div className="empty"><div className="e">👥</div>Aún no hay nadie con un perfil de Housekeeping asignado. Asígnalo en Config › Usuarios y accesos.</div>}
     {roster.length>0 && <div className="dscroll"><table className="dtable">
       <thead><tr><th>Colaborador/a</th>{dias.map(f=><th key={f}>{HK_DOW_CORTO[new Date(f+"T00:00:00").getDay()]}<br/>{f.slice(8,10)}/{f.slice(5,7)}</th>)}</tr></thead>
       <tbody>{roster.map(u=><tr key={u.id}>
@@ -5768,7 +5787,7 @@ function HKProductividad({toast}){
       </div>
       <span style={{color:"var(--muted)",fontSize:13}}>{totFinalizadas} limpieza(s) finalizada(s) en el mes</span>
     </div>
-    {!roster.length && <div className="empty"><div className="e">👥</div>Aún no hay camareros/as ni áreas públicas asignados en Usuarios.</div>}
+    {!roster.length && <div className="empty"><div className="e">👥</div>Aún no hay camareros/as ni áreas públicas asignados en Config › Usuarios y accesos.</div>}
     {roster.length>0 && <div className="dscroll"><table className="dtable">
       <thead><tr><th>Colaborador/a</th><th>Días prog.</th><th>Limpiezas</th><th>Prom./día</th><th>Tiempo prom.</th><th>Auditadas</th><th>Cumple / Parcial / No cumple</th></tr></thead>
       <tbody>{filas.map(f=><tr key={f.u.id}>
@@ -5796,24 +5815,21 @@ function Housekeeping({user,toast,setFoto}){
   if(puedeCatalogo) tabsPosibles.push(["auditorias","Auditorías"]);
   if(puedeCatalogo) tabsPosibles.push(["horarios","Horarios"]);
   if(puedeCatalogo) tabsPosibles.push(["productividad","Productividad"]);
-  if(puedeCatalogo) tabsPosibles.push(["catalogo","Catálogo de habitaciones"]);
-  if(puedeCatalogo) tabsPosibles.push(["catalogoAreas","Catálogo de áreas"]);
   const [tab,setTab]=useState(tabsPosibles[0]?.[0]||"escanear");
   return <div>
     <h1 className="h1">Housekeeping · Habitaciones</h1>
-    <p className="sub">QR, flujo de limpieza y tiempos por habitación y por área pública.</p>
+    <p className="sub">Flujo de limpieza y tiempos por habitación y por área pública.</p>
     {tabsPosibles.length>1 && <div className="seg">
       {tabsPosibles.map(([id,lbl])=><button key={id} className={tab===id?"on":""} onClick={()=>setTab(id)}>{lbl}</button>)}
     </div>}
+    {esDev(user) && <div className="hint" style={{margin:"-6px 0 12px"}}>El catálogo de habitaciones/áreas y la impresión de QR se administran ahora desde <b>Config › Catálogo de habitaciones</b> y <b>Config › Catálogo de áreas</b>.</div>}
     {tab==="escanear" && puedeEscanear && <HKCamarero user={user} toast={toast} setFoto={setFoto}/>}
     {tab==="escanearAreas" && puedeAreas && <HKAreasCamarero user={user} toast={toast} setFoto={setFoto}/>}
     {tab==="monitor" && puedeCatalogo && <HKMonitor toast={toast}/>}
     {tab==="auditorias" && puedeCatalogo && <HKAuditorias user={user} toast={toast} setFoto={setFoto}/>}
     {tab==="horarios" && puedeCatalogo && <HKHorarioSemana toast={toast}/>}
     {tab==="productividad" && puedeCatalogo && <HKProductividad toast={toast}/>}
-    {tab==="catalogo" && puedeCatalogo && <HKCatalogo user={user} toast={toast}/>}
-    {tab==="catalogoAreas" && puedeCatalogo && <HKAreasCatalogo toast={toast}/>}
-    {!tabsPosibles.length && <div className="empty"><div className="e">🔒</div>Tu usuario no tiene un perfil de Housekeeping asignado. Pide a un administrador que te lo asigne en Usuarios.</div>}
+    {!tabsPosibles.length && <div className="empty"><div className="e">🔒</div>Tu usuario no tiene un perfil de Housekeeping asignado. Pide a un administrador que te lo asigne en Config › Usuarios y accesos.</div>}
   </div>;
 }
 
@@ -5946,7 +5962,7 @@ function App(){
       {view==="mantenimiento" && <Tickets tipo="Mantenimiento" user={user} toast={toast} setFoto={setFoto}/>}
       {view==="kanban" && <Kanban user={user} toast={toast} setFoto={setFoto}/>}
       {view==="housekeeping" && <Housekeeping user={user} toast={toast} setFoto={setFoto}/>}
-      {view==="admin" && <Admin user={user} toast={toast}/>}
+      {view==="admin" && <Admin key={cfgVer} user={user} toast={toast} bump={bump}/>}
     </div>
     <BottomNav user={user} view={view} go={setView} counts={counts}/>
     {toastMsg && <div className="toast">{toastMsg}</div>}
