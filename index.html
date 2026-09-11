@@ -5476,7 +5476,7 @@ function HKAreasCamarero({user,toast,setFoto}){
    que la auditoría sea una muestra de control de calidad, no una selección
    sesgada por la persona que audita. */
 const HK_AUD_ESTADOS = ["Pendiente","En revisión","Auditada"];
-const HK_AUD_RESULTADOS = ["Cumple","Cumple parcialmente","No cumple"];
+const HK_AUD_PUNTAJES = [0,1,2,3,4,5,6,7,8,9,10];
 
 /* Baraja un arreglo con Fisher-Yates usando Math.random(): alcanza para que la
    selección no sea manipulable por jefatura (ellos no la disparan a mano, se
@@ -5552,12 +5552,8 @@ function hkCalifAuditoria(checklist, totalItems){
 }
 function HKAuditoriaDetalle({aud,user,toast,setFoto,onClose,onSaved}){
   const soloLectura = aud.estado==="Auditada";
-  const [resultado,setResultado]=useState(aud.resultado||"");
+  const [puntaje,setPuntaje]=useState(aud.puntaje!=null?aud.puntaje:"");
   const [observaciones,setObservaciones]=useState(aud.observaciones||"");
-  const [hallazgos,setHallazgos]=useState(aud.hallazgos||"");
-  const [incidencias,setIncidencias]=useState(aud.incidencias||"");
-  const [correcciones,setCorrecciones]=useState(aud.correcciones||"");
-  const [accionCorrectiva,setAccionCorrectiva]=useState(aud.accionCorrectiva||"");
   const [fotos,setFotos]=useState(aud.fotos||[]);
   const [checklist,setChecklist]=useState(aud.checklistAuditoria||{});
   const [limpieza,setLimpieza]=useState(null);
@@ -5575,14 +5571,14 @@ function HKAuditoriaDetalle({aud,user,toast,setFoto,onClose,onSaved}){
     }catch(e){ toast("No se pudo abrir la auditoría: "+(e.message||e)); }
   }
   async function guardar(){
-    if(!resultado){ toast("Elige Cumple / Cumple parcialmente / No cumple"); return; }
+    if(puntaje===""||puntaje==null){ toast("Elige una calificación de 0 a 10"); return; }
     const sinMarcar = itemsAud.length - Object.keys(checklist).filter(k=>checklist[k]==='si'||checklist[k]==='no').length;
     if(sinMarcar>0 && !confirm(`${sinMarcar} ítem(s) del checklist sin marcar cumple/no cumple. ¿Guardar igual?`)) return;
     await unaVez(async()=>{
       try{
         await Cola.cambio({ tabla:"HKAuditorias", recId:aud.id, campoEstado:"estado",
-          patch:{ estado:"Auditada", auditor:user.nombre, resultado, observaciones, hallazgos, incidencias,
-            correcciones, accionCorrectiva, checklistAuditoria:{...checklist}, calificacion:calif?calif.pct:null,
+          patch:{ estado:"Auditada", auditor:user.nombre, puntaje, observaciones,
+            checklistAuditoria:{...checklist}, calificacion:calif?calif.pct:null,
             fechaAuditoria:nowISO(), horaCierreAuditoria:nowISO() },
           fotos:[...fotos], fotoField:"fotos", fotoDir:"HKAUD_{ID}", fotoPrefix:"HKAUD{ID}",
           patchId:"cierre-aud-"+aud.id }, user.nombre);
@@ -5617,21 +5613,17 @@ function HKAuditoriaDetalle({aud,user,toast,setFoto,onClose,onSaved}){
           </div>; })}
         {calif && <div className="hint" style={{marginTop:8}}>{calif.cumplen}/{calif.total} cumplidos{calif.marcados<calif.total?` (${calif.total-calif.marcados} sin marcar)`:""}</div>}
       </div>
-      <Field label="Resultado" req>
+      <Field label="Calificación general" req>
         <div className="opts">
-          {HK_AUD_RESULTADOS.map(r=><button key={r} disabled={soloLectura} className={"opt"+(resultado===r?" on":"")} onClick={()=>setResultado(r)}>{r}</button>)}
+          {HK_AUD_PUNTAJES.map(n=><button key={n} disabled={soloLectura} className={"opt"+(puntaje===n?" on":"")} onClick={()=>setPuntaje(n)}>{n}/10</button>)}
         </div>
       </Field>
       <Field label="Observaciones"><textarea className="inp" disabled={soloLectura} value={observaciones} onChange={e=>setObservaciones(e.target.value)}/></Field>
-      <Field label="Hallazgos"><textarea className="inp" disabled={soloLectura} value={hallazgos} onChange={e=>setHallazgos(e.target.value)}/></Field>
-      <Field label="Incidencias"><textarea className="inp" disabled={soloLectura} value={incidencias} onChange={e=>setIncidencias(e.target.value)}/></Field>
-      <Field label="Correcciones aplicadas en el momento"><textarea className="inp" disabled={soloLectura} value={correcciones} onChange={e=>setCorrecciones(e.target.value)}/></Field>
-      <Field label="Acción correctiva (si aplica)"><textarea className="inp" disabled={soloLectura} value={accionCorrectiva} onChange={e=>setAccionCorrectiva(e.target.value)}/></Field>
       {soloLectura
         ? (fotos.length>0 && <div className="fgrid">{fotos.map((s,i)=><div key={i} className="fthumb"><img src={s} onClick={()=>setFoto(s)}/></div>)}</div>)
         : <PhotoField fotos={fotos} setFotos={setFotos} setFoto={setFoto} label={`Fotos (${fotos.length})`} hint="Evidencia de la auditoría (opcional)."/>}
       {soloLectura
-        ? <div className="hint" style={{marginTop:8}}>Auditada por {aud.auditor} · {fmtDT(aud.horaCierreAuditoria)}{aud.calificacion!=null?` · Calificación: ${aud.calificacion}%`:""}</div>
+        ? <div className="hint" style={{marginTop:8}}>Auditada por {aud.auditor} · {fmtDT(aud.horaCierreAuditoria)}{aud.puntaje!=null?` · Calificación: ${aud.puntaje}/10`:""}</div>
         : <button className="btn primary block" disabled={busy} onClick={guardar}>{busy?"Guardando…":"Guardar auditoría"}</button>}
     </>}
   </Modal>;
@@ -5709,7 +5701,7 @@ function HKAuditoriaItem({a,vencida,onClick}){
     <div className="top"><div>
       <div className="code">Hab. {a.habitacionNumero} · {a.fecha}</div>
       <div className="ttl">{a.colaborador}</div>
-      <div className="meta">Tiempo de revisión: {tiempoRevision}{a.resultado?" · "+a.resultado:""}{a.calificacion!=null?" · Calificación: "+a.calificacion+"%":""}</div>
+      <div className="meta">Tiempo de revisión: {tiempoRevision}{a.puntaje!=null?" · "+a.puntaje+"/10":""}{a.calificacion!=null?" · Checklist: "+a.calificacion+"%":""}</div>
     </div><Pill estado={vencida?"Vencida":a.estado} overdue={vencida}/></div>
   </div>;
 }
@@ -5855,10 +5847,9 @@ function HKProductividad({toast}){
     const tiempoProm = tiempos.length ? Math.round(tiempos.reduce((a,b)=>a+b,0)/tiempos.length) : null;
     const promDia = diasProgramados ? (finalizadas.length/diasProgramados) : null;
     const audsDe = auds.filter(a=>a.colaborador===u.nombre && a.estado==="Auditada" && enElMes(a.fechaAuditoria||a.fecha));
-    const cumple = audsDe.filter(a=>a.resultado==="Cumple").length;
-    const parcial = audsDe.filter(a=>a.resultado==="Cumple parcialmente").length;
-    const noCumple = audsDe.filter(a=>a.resultado==="No cumple").length;
-    return { u, diasProgramados, finalizadas:finalizadas.length, tiempoProm, promDia, cumple, parcial, noCumple, auditadas:audsDe.length };
+    const puntajes = audsDe.map(a=>a.puntaje).filter(n=>Number.isFinite(n));
+    const puntajeProm = puntajes.length ? Math.round((puntajes.reduce((a,b)=>a+b,0)/puntajes.length)*10)/10 : null;
+    return { u, diasProgramados, finalizadas:finalizadas.length, tiempoProm, promDia, puntajeProm, auditadas:audsDe.length };
   });
   const totFinalizadas = filas.reduce((a,f)=>a+f.finalizadas,0);
   function cambiarMes(delta){
@@ -5875,7 +5866,7 @@ function HKProductividad({toast}){
     </div>
     {!roster.length && <div className="empty"><div className="e">👥</div>Aún no hay camareros/as ni áreas públicas asignados en Config › Usuarios y accesos.</div>}
     {roster.length>0 && <div className="dscroll"><table className="dtable">
-      <thead><tr><th>Colaborador/a</th><th>Días prog.</th><th>Limpiezas</th><th>Prom./día</th><th>Tiempo prom.</th><th>Auditadas</th><th>Cumple / Parcial / No cumple</th></tr></thead>
+      <thead><tr><th>Colaborador/a</th><th>Días prog.</th><th>Limpiezas</th><th>Prom./día</th><th>Tiempo prom.</th><th>Auditadas</th><th>Calificación prom.</th></tr></thead>
       <tbody>{filas.map(f=><tr key={f.u.id}>
         <td><div>{f.u.nombre}</div><div className="dsub">{HK_PERFIL_LABEL[f.u.hk&&f.u.hk.perfil]||""}</div></td>
         <td>{f.diasProgramados}</td>
@@ -5883,7 +5874,7 @@ function HKProductividad({toast}){
         <td>{f.promDia==null?"—":f.promDia.toFixed(1)}</td>
         <td>{f.tiempoProm==null?"—":f.tiempoProm+" min"}</td>
         <td>{f.auditadas}</td>
-        <td>{f.auditadas ? `${f.cumple} / ${f.parcial} / ${f.noCumple}` : "—"}</td>
+        <td>{f.puntajeProm==null?"—":f.puntajeProm+"/10"}</td>
       </tr>)}</tbody>
     </table></div>}
     <div className="hint" style={{marginTop:10}}>"Días prog." y "Prom./día" salen de lo programado en Housekeeping › Horarios para el mes elegido. Si no se ha programado a alguien todavía, esas columnas quedan en "—" en vez de mostrar un promedio inventado.</div>
