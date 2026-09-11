@@ -727,12 +727,21 @@ const ildAreasDe = u => esGD(u) ? Object.keys(AC) : (u.areas||[]);
 const puedeAprobarArea = (u,area) => esGD(u) || (u.rol==='aprobador' && (u.areas||[]).includes(area));
 const gestionaModulo = (u,m) => esDev(u) || (u.gestiona||[]).includes(m);
 /* Housekeeping es un módulo aparte del resto (ILD/Compras/Sistemas/Mantenimiento):
-   su propio conjunto de perfiles vive en u.hk.perfil, sin tocar u.rol ni u.areas
-   que rigen todo lo demás. Gerencia/Desarrollador ya tienen acceso total (esGD)
-   y además ven Housekeeping como "administrador" del módulo. */
-const esHKJefatura = u => !!u && (esGD(u) || (u.hk && u.hk.perfil==='jefatura_hk'));
-const esHKCamarero = u => !!u && !!(u.hk && u.hk.perfil==='camarero_hab');
-const esHKAreasPublicas = u => !!u && !!(u.hk && u.hk.perfil==='areas_publicas');
+   su propio conjunto de perfiles vive en u.hk, sin tocar u.rol ni u.areas que
+   rigen todo lo demás. Gerencia/Desarrollador ya tienen acceso total (esGD) y
+   además ven Housekeeping como "administrador" del módulo.
+   Una persona puede tener MÁS DE UN perfil de Housekeeping a la vez (p.ej.
+   camarero/a de habitaciones Y de áreas públicas), por eso se guarda como
+   u.hk.perfiles (arreglo). hkPerfiles() normaliza también el formato antiguo
+   u.hk.perfil (un solo texto), para no perder configuraciones ya guardadas. */
+function hkPerfiles(u){
+  if(!u || !u.hk) return [];
+  if(Array.isArray(u.hk.perfiles)) return u.hk.perfiles;
+  return u.hk.perfil ? [u.hk.perfil] : [];
+}
+const esHKJefatura = u => !!u && (esGD(u) || hkPerfiles(u).includes('jefatura_hk'));
+const esHKCamarero = u => !!u && hkPerfiles(u).includes('camarero_hab');
+const esHKAreasPublicas = u => !!u && hkPerfiles(u).includes('areas_publicas');
 const tieneHK = u => esHKJefatura(u) || esHKCamarero(u) || esHKAreasPublicas(u);
 let ACCESOS = null;     // {rol:{cap:bool}} configurable por el desarrollador
 let AMODO = {};         // {area:'normal'|'lista'} modo del ILD por área
@@ -3504,9 +3513,10 @@ function UserModal({u,onClose,onSave}){
   const [nombre,setNombre]=useState(u.nombre||""); const [pin,setPin]=useState(u.pin||"");
   const [rol,setRol]=useState(u.rol||"colaborador");
   const [areas,setAreas]=useState(u.areas||[]);
-  const [hkPerfil,setHkPerfil]=useState((u.hk&&u.hk.perfil)||"");
+  const [hkPerfilesSel,setHkPerfilesSel]=useState(hkPerfiles(u));
   const esColab=rol==="colaborador";
   const toggle=a=>setAreas(s=>s.includes(a)?s.filter(x=>x!==a):[...s,a]);
+  const toggleHkPerfil=p=>setHkPerfilesSel(s=>s.includes(p)?s.filter(x=>x!==p):[...s,p]);
   return <Modal title={u._new?(rol==="colaborador"?"Nuevo colaborador":"Nuevo aprobador / jefatura"):"Editar usuario"} onClose={onClose}>
     <Field label="Nombre y apellido" req><input className="inp" value={nombre} onChange={e=>setNombre(e.target.value)}/></Field>
     <Field label="Rol"><select className="inp" value={rol} onChange={e=>setRol(e.target.value)}>
@@ -3518,15 +3528,16 @@ function UserModal({u,onClose,onSave}){
       <div style={{maxHeight:280,overflow:"auto",border:"1px solid var(--line)",borderRadius:12,padding:"4px 10px"}}>
         {Object.keys(AC).map(a=><label key={a} style={{display:"flex",gap:9,alignItems:"center",padding:"7px 0",fontSize:13.5,borderBottom:"1px solid #f3efe6"}}>
           <input type="checkbox" checked={areas.includes(a)} onChange={()=>toggle(a)}/> {a}</label>)}</div></Field>
-    <Field label="Perfil de Housekeeping" hint="Módulo aparte: define qué ve esta persona dentro de Housekeeping (habitaciones/áreas públicas), independiente del rol de arriba.">
-      <select className="inp" value={hkPerfil} onChange={e=>setHkPerfil(e.target.value)}>
-        <option value="">— Sin acceso a Housekeeping —</option>
-        <option value="camarero_hab">Camarero/a de habitaciones</option>
-        <option value="areas_publicas">Personal de áreas públicas</option>
-        <option value="jefatura_hk">Jefatura de Housekeeping</option>
-      </select></Field>
+    <Field label="Perfil(es) de Housekeeping" hint="Módulo aparte: define qué ve esta persona dentro de Housekeeping (habitaciones/áreas públicas/jefatura), independiente del rol de arriba. Se puede marcar más de uno — por ejemplo, alguien que limpia habitaciones Y áreas públicas.">
+      <div style={{border:"1px solid var(--line)",borderRadius:12,padding:"4px 10px"}}>
+        {[["camarero_hab","Camarero/a de habitaciones"],["areas_publicas","Personal de áreas públicas"],["jefatura_hk","Jefatura de Housekeeping"]].map(([v,l])=>
+          <label key={v} style={{display:"flex",gap:9,alignItems:"center",padding:"7px 0",fontSize:13.5,borderBottom:"1px solid #f3efe6"}}>
+            <input type="checkbox" checked={hkPerfilesSel.includes(v)} onChange={()=>toggleHkPerfil(v)}/> {l}</label>)}
+      </div>
+      {!hkPerfilesSel.length && <div className="hint" style={{marginTop:6}}>Sin ninguno marcado, esta persona no tiene acceso a Housekeeping.</div>}
+    </Field>
     <div className="row end"><button className="btn ghost" onClick={onClose}>Cancelar</button>
-      <button className="btn primary" onClick={()=>{ if(!nombre.trim())return; if(rol!=="colaborador"&&pin.length!==4){alert("Las jefaturas/gerencia necesitan un PIN de 4 dígitos.");return;} onSave({...u,nombre:nombre.trim(),pin,rol,areas,hk:{perfil:hkPerfil}}); }}>Guardar</button></div>
+      <button className="btn primary" onClick={()=>{ if(!nombre.trim())return; if(rol!=="colaborador"&&pin.length!==4){alert("Las jefaturas/gerencia necesitan un PIN de 4 dígitos.");return;} onSave({...u,nombre:nombre.trim(),pin,rol,areas,hk:{perfiles:hkPerfilesSel}}); }}>Guardar</button></div>
   </Modal>;
 }
 
@@ -5524,12 +5535,28 @@ function hkSeleccionBalanceada(candidatas, n){
   return elegidas;
 }
 const HK_AUD_MIN_DIA = 3;
+/* No debe haber auditorías asignadas un día en que la jefatura de Housekeeping
+   está libre/vacaciones/incapacidad: no hay quién las haga, y quedarían
+   pendientes acumulándose sin sentido. Solo se asignan los días en que AL
+   MENOS una persona con perfil "jefatura_hk" tiene "Trabajo" programado en
+   Horarios. Si nadie tiene ese perfil configurado todavía (Horarios sin usar),
+   no se bloquea nada — se mantiene el comportamiento de siempre para no
+   romper una app que aún no programó a su jefatura. */
+async function hkJefaturaDeTurno(fecha){
+  try{
+    const jefas = new Set(USERS.filter(u=>hkPerfiles(u).includes('jefatura_hk')).map(u=>u.nombre));
+    if(!jefas.size) return true;
+    const horarios = await Store.read("HKHorarios");
+    return horarios.some(h=>h.fecha===fecha && h.tipo==="Trabajo" && jefas.has(h.colaborador));
+  }catch(e){ return true; }
+}
 /* Se ejecuta sola al abrir la pantalla de Auditorías (nunca a pedido de una
    persona eligiendo habitaciones): si el día ya tiene su mínimo de auditorías
    asignadas, no hace nada; si faltan y ya hay limpiezas terminadas ese día sin
    auditar, completa hasta el mínimo. */
 async function hkAsignarAuditoriasDelDia(fecha){
   try{
+    if(!(await hkJefaturaDeTurno(fecha))) return;
     const [auds, limpiezas] = await Promise.all([Store.read("HKAuditorias"), Store.read("HKLimpiezas")]);
     const audsHoy = auds.filter(a=>a.fecha===fecha);
     const faltan = HK_AUD_MIN_DIA - audsHoy.length;
@@ -5680,7 +5707,14 @@ function HKAuditorias({user,toast,setFoto}){
     : HK_AUD_MIN_DIA*hkDiasDelMes(hoy.getFullYear(),hoy.getMonth(),modo);
   const realizadas = delMes.filter(a=>a.estado==="Auditada").length;
   const pct = requeridas ? Math.round(realizadas/requeridas*100) : null;
+  /* Mismo criterio que hkJefaturaDeTurno (async, usado al asignar): aquí se
+     recalcula en el cliente con los horarios ya cargados, solo para explicar
+     en pantalla por qué hoy no se generaron auditorías nuevas. */
+  const jefasNombres = new Set(USERS.filter(u=>hkPerfiles(u).includes('jefatura_hk')).map(u=>u.nombre));
+  const hoyJefaturaDeTurno = !jefasNombres.size || horarios.some(h=>h.fecha===hoyEC() && h.tipo==="Trabajo" && jefasNombres.has(h.colaborador));
   return <div>
+    {jefasNombres.size>0 && !hoyJefaturaDeTurno && <div className="hint" style={{background:"#FFF4E0",border:"1px solid #F3D9A6",borderRadius:9,padding:"9px 11px",marginBottom:12,color:"#7a5a12"}}>
+      Hoy no hay jefatura de Housekeeping de turno (según Horarios) — no se asignan auditorías nuevas. Se retoman el próximo día que esté de turno.</div>}
     <div className="card">
       <h3>Cumplimiento de auditorías — {hoy.toLocaleDateString("es-EC",{month:"long",year:"numeric"})}</h3>
       <Field label="Días aplicables del mes (denominador)">
@@ -5741,6 +5775,7 @@ const HK_JORNADA_TIPOS = ["Trabajo","Libre","Vacaciones","Incapacidad"];
 const HK_JORNADA_COLOR = { Trabajo:"var(--green)", Libre:"var(--gray)", Vacaciones:"var(--blue)", Incapacidad:"var(--red)" };
 const HK_JORNADA_LETRA = { Trabajo:"T", Libre:"L", Vacaciones:"V", Incapacidad:"I" };
 const HK_PERFIL_LABEL = { jefatura_hk:"Jefatura", camarero_hab:"Camarero/a", areas_publicas:"Áreas públicas" };
+const hkPerfilesLabel = u => hkPerfiles(u).map(p=>HK_PERFIL_LABEL[p]||p).join(" + ");
 const HK_DOW_CORTO = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"];
 
 async function hkCargarHorarios(){ try{ return await Store.read("HKHorarios"); }catch(e){ return []; } }
@@ -5749,7 +5784,7 @@ async function hkCargarHorarios(){ try{ return await Store.read("HKHorarios"); }
    Gerencia General y Desarrollador cuentan como "jefatura HK" para efectos de
    permisos (esHKJefatura incluye esGD), pero no son personal de piso al que
    se le programen turnos, así que no deben aparecer en Horarios/Productividad. */
-function hkRoster(){ return USERS.filter(u=>u.hk && u.hk.perfil).sort((a,b)=>a.nombre.localeCompare(b.nombre)); }
+function hkRoster(){ return USERS.filter(u=>hkPerfiles(u).length>0).sort((a,b)=>a.nombre.localeCompare(b.nombre)); }
 /* Lunes→domingo de la semana que contiene "fechaYMD" (YYYY-MM-DD), como 7 fechas YYYY-MM-DD. */
 function hkSemanaDe(fechaYMD){
   const d = new Date(fechaYMD+"T00:00:00");
@@ -5763,7 +5798,7 @@ function hkSumarSemanas(fechaYMD, delta){ const d=new Date(fechaYMD+"T00:00:00")
    Devuelve null si nadie tiene ese perfil asignado (para no mostrar un 0
    engañoso: es "no configurado", no "cero días programados"). */
 function hkDiasProgramadosJefatura(anio, mesIdx, horarios){
-  const jefas = new Set(USERS.filter(u=>u.hk && u.hk.perfil==='jefatura_hk').map(u=>u.nombre));
+  const jefas = new Set(USERS.filter(u=>hkPerfiles(u).includes('jefatura_hk')).map(u=>u.nombre));
   if(!jefas.size) return null;
   const dias = new Set();
   (horarios||[]).forEach(h=>{
@@ -5839,7 +5874,7 @@ function HKHorarioSemana({toast}){
     {roster.length>0 && <div className="dscroll"><table className="dtable">
       <thead><tr><th>Colaborador/a</th>{dias.map(f=><th key={f}>{HK_DOW_CORTO[new Date(f+"T00:00:00").getDay()]}<br/>{f.slice(8,10)}/{f.slice(5,7)}</th>)}</tr></thead>
       <tbody>{roster.map(u=><tr key={u.id}>
-        <td><div>{u.nombre}</div><div className="dsub">{HK_PERFIL_LABEL[u.hk&&u.hk.perfil]||""}</div></td>
+        <td><div>{u.nombre}</div><div className="dsub">{hkPerfilesLabel(u)}</div></td>
         {dias.map(f=>{ const h=buscar(u.nombre,f);
           return <td key={f} style={{cursor:"pointer"}} onClick={()=>setCelda({colaborador:u.nombre,fecha:f,existente:h})}>
             {h
@@ -5998,7 +6033,7 @@ function HKProductividad({toast}){
     {roster.length>0 && <div className="dscroll"><table className="dtable">
       <thead><tr><th>Colaborador/a</th><th>Días prog.</th><th>Limpiezas</th><th>Prom./día</th><th>Tiempo prom.</th><th>Auditadas</th><th>Calificación prom.</th></tr></thead>
       <tbody>{filas.map(f=><tr key={f.u.id}>
-        <td><div>{f.u.nombre}</div><div className="dsub">{HK_PERFIL_LABEL[f.u.hk&&f.u.hk.perfil]||""}</div></td>
+        <td><div>{f.u.nombre}</div><div className="dsub">{hkPerfilesLabel(f.u)}</div></td>
         <td>{f.diasProgramados}</td>
         <td>{f.finalizadas}</td>
         <td>{f.promDia==null?"—":f.promDia.toFixed(1)}</td>
