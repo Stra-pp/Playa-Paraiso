@@ -5399,6 +5399,19 @@ function HKAreasFinalizar({registro,area,user,toast,setFoto,onDone}){
         await Cola.cambio({ tabla:"HKAreas", recId:area.id, campoEstado:"estado",
           patch:{ estado:HK_EST_DISPONIBLE, ultimaLimpieza:{ fecha:horaFin, colaborador:user.nombre, tiempoMin, codigo:registro.Codigo } },
           patchId:"areaok-"+registro.id }, user.nombre);
+        /* Igual que con Habitaciones: mientras exista también el formulario manual
+           de ILD para "Áreas Públicas", cada limpieza por QR debe generar su propio
+           ILD real (con código y flujo de aprobación) para que la jefatura pueda
+           aprobarlo desde ILD's tal como ya funciona hoy con el formulario manual
+           (modo "lista": una zona + fotos). */
+        await Cola.add({ tabla:"ILD", prefijo:"ILD",
+          rec:{ id:gid(), area:'Áreas Públicas', turno:"", zona:area.nombre, selecciones:{}, usuario:user.nombre,
+            fecha:horaFin, checks:{}, textos:{}, obs, estado:"Pendiente", notaJef:"", aprobador:"",
+            fechaAprobacion:"", notaGerencia:"", totalItems:1, completados:1, clItems:(CL['Áreas Públicas']||[]),
+            aprobadorEsperado:APR['Áreas Públicas']||"—", origenQR:true },
+          fotos:[...fotos], fotoField:"fotos", fotoDir:"ILD_{ID}", fotoPrefix:"ILD{ID}",
+          notif:{t:"ild",usuario:user.nombre},
+          resumen:{ titulo:"Áreas Públicas", sub:area.nombre } }, user.nombre);
         const r = await Cola.enviar(user.nombre);
         if(r.sinRed) toast("Guardado sin señal. Se envía solo cuando vuelva el internet.");
         else toast(`Limpieza finalizada · ${tiempoMin} min`);
