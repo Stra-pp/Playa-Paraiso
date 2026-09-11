@@ -6046,6 +6046,49 @@ function HKProductividad({toast}){
   </div>;
 }
 
+// A diferencia de Habitaciones (que se audita por muestreo, ver HKAuditorias),
+// Áreas Públicas no se muestrea: cada limpieza por QR ya genera su propio ILD
+// (ver HKAreasFinalizar) y la jefatura debe revisar el 100% de esos envíos.
+// Este componente reutiliza ILDDetail (el mismo modal de aprobar/rechazar de
+// ILD's) para no duplicar lógica de aprobación.
+function HKAreasILDs({user,toast,setFoto}){
+  const [regs,setRegs]=useState([]); const [det,setDet]=useState(null);
+  const [filtro,setFiltro]=useState("Pendiente");
+  const VIGENCIA_DIAS = 45;
+  const load=()=>cargarConReintento(async()=>{
+    const desde = desdeDias(VIGENCIA_DIAS);
+    const recientes = (await Store.readDesde("ILD", desde)).filter(r=>r.area==='Áreas Públicas');
+    let viejosPendientes = [];
+    try{ viejosPendientes = (await Store.readPendientesAntiguos("ILD", desde)).filter(r=>r.area==='Áreas Públicas'); }catch(e){}
+    if(!viejosPendientes.length) return recientes;
+    const vistos = new Set(recientes.map(r=>r.id));
+    return recientes.concat(viejosPendientes.filter(r=>!vistos.has(r.id)));
+  }, setRegs, toast, "los ILD de Áreas Públicas");
+  useEffect(()=>{ load(); },[]);
+  const ordenados = [...regs].sort((a,b)=> (b.fecha||"").localeCompare(a.fecha||""));
+  const pendientes = ordenados.filter(r=>r.estado==="Pendiente");
+  const vistos_ = filtro==="todos" ? ordenados : ordenados.filter(r=>r.estado===filtro);
+  return <div>
+    <div className="hint" style={{marginBottom:10}}>Aquí se revisa el 100% de las limpiezas de Áreas Públicas — no es una muestra, a diferencia de las auditorías de Habitaciones.</div>
+    <div className="seg">
+      {[["Pendiente","Pendientes ("+pendientes.length+")"],["Aprobado","Aprobados"],["Con observaciones","Con obs."],["todos","Todos"]].map(([k,l])=>
+        <button key={k} className={filtro===k?"on":""} onClick={()=>setFiltro(k)}>{l}</button>)}
+    </div>
+    {!vistos_.length && <div className="empty"><div className="e">🧹</div>No hay ILD de Áreas Públicas en este filtro.</div>}
+    {vistos_.map(r=><div key={r.id} className="item" onClick={()=>setDet(r)}>
+      <div className="top">
+        <div>
+          <div className="code">{r.Codigo||("ILD #"+r.id)}</div>
+          <div className="ttl">{r.zona||r.area}</div>
+          <div className="meta">{r.usuario} · {fmtDT(r.fecha)} · 📷 {(r.fotos||[]).length}</div>
+        </div>
+        <Pill estado={r.estado}/>
+      </div>
+    </div>)}
+    {det && <ILDDetail user={user} r={det} onClose={()=>setDet(null)} reload={load} toast={toast} setFoto={setFoto}/>}
+  </div>;
+}
+
 function Housekeeping({user,toast,setFoto}){
   const puedeCatalogo = esHKJefatura(user);
   const puedeEscanear = esHKCamarero(user) || esHKJefatura(user);
@@ -6055,6 +6098,11 @@ function Housekeeping({user,toast,setFoto}){
   if(puedeAreas) tabsPosibles.push(["escanearAreas","Escanear área"]);
   if(puedeCatalogo) tabsPosibles.push(["monitor","En proceso"]);
   if(puedeCatalogo) tabsPosibles.push(["auditorias","Auditorías"]);
+  /* Áreas Públicas NO se audita por muestreo como Habitaciones: cada limpieza
+     por QR ya genera su propio ILD (ver HKAreasFinalizar) y la jefatura debe
+     revisar el 100% de esos envíos, no una muestra. Esta pestaña es un acceso
+     directo dentro de Housekeeping para no tener que salir al módulo de ILD's. */
+  if(puedeCatalogo) tabsPosibles.push(["ildAreas","ILD Áreas Públicas"]);
   if(puedeCatalogo) tabsPosibles.push(["horarios","Horarios"]);
   if(puedeCatalogo) tabsPosibles.push(["productividad","Productividad"]);
   const [tab,setTab]=useState(tabsPosibles[0]?.[0]||"escanear");
@@ -6069,6 +6117,7 @@ function Housekeeping({user,toast,setFoto}){
     {tab==="escanearAreas" && puedeAreas && <HKAreasCamarero user={user} toast={toast} setFoto={setFoto}/>}
     {tab==="monitor" && puedeCatalogo && <HKMonitor toast={toast}/>}
     {tab==="auditorias" && puedeCatalogo && <HKAuditorias user={user} toast={toast} setFoto={setFoto}/>}
+    {tab==="ildAreas" && puedeCatalogo && <HKAreasILDs user={user} toast={toast} setFoto={setFoto}/>}
     {tab==="horarios" && puedeCatalogo && <HKHorarioSemana toast={toast}/>}
     {tab==="productividad" && puedeCatalogo && <HKProductividad toast={toast}/>}
     {!tabsPosibles.length && <div className="empty"><div className="e">🔒</div>Tu usuario no tiene un perfil de Housekeeping asignado. Pide a un administrador que te lo asigne en Config › Usuarios y accesos.</div>}
