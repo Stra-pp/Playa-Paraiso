@@ -3982,7 +3982,12 @@ function ComprasModal({modal,user,onClose,apply,toast,setFoto}){
 /* ===== TICKETS (Sistemas / Mantenimiento) con campos exactos del Form ===== */
 function Tickets({tipo,user,toast,setFoto}){
   const isSis=tipo==="Sistemas";
-  const chief=gestionaModulo(user,tipo.toLowerCase());
+  /* En Mantenimiento, Gerencia General se trata como jefatura del módulo aunque
+     no tenga "mantenimiento" en su u.gestiona: así ve Tickets (gestión) en vez de
+     solo "Mis tickets", y puede asignar/concluir/rechazar igual que el Jefe de
+     Mantenimiento. No se extiende a Sistemas: ahí Gerencia sigue viendo lo mismo
+     que antes (el botón aparte de "Tareas programadas"). */
+  const chief=gestionaModulo(user,tipo.toLowerCase()) || (!isSis && user.rol==='gerencia');
   const [tab,setTab]=useState("nuevo"); const [rows,setRows]=useState([]); const [modal,setModal]=useState(null);
   const load=async()=>cargarConReintento(()=>Store.read(tipo), setRows, toast, tipo); useEffect(()=>{load();},[]);
   const hoy=hoyEC();
@@ -4040,6 +4045,12 @@ function Tickets({tipo,user,toast,setFoto}){
        la cuenta; repetir la explicación completa en cada acción era ruido. */
     setTimeout(()=>toast("Guardado sin señal. Se envía solo."),60);
     return r; }
+  /* Prioridad (P1/P2/P3) de la tarea de Mantenimiento: solo la jefatura del
+     módulo (Jefe de Mantenimiento o, ahora, Gerencia General — ambos cubiertos
+     por "chief" arriba) puede fijarla. Se guarda como un campo más del registro,
+     igual que cualquier otro patch, así que ya queda incluida en la exportación
+     a Excel sin tocar esa función. */
+  async function setPrioridad(r,p){ if(!chief||isSis) return; await apply(r,{Prioridad:p}); toast(p?("Prioridad: "+p):"Prioridad quitada"); }
   const mios=rows.filter(r=>r.Solicitante===user.nombre);
   const equipo=equipoDe(user, isSis?'sistemas':'mantenimiento');
   /* "Mi equipo" listaba los tickets SOLICITADOS por los técnicos, que no es lo que
@@ -4069,10 +4080,10 @@ function Tickets({tipo,user,toast,setFoto}){
     <div className="seg" style={{flexWrap:"wrap"}}>
       <button className={tab==="nuevo"?"on":""} onClick={()=>setTab("nuevo")}>Nuevo</button>
       <button className={tab==="mios"?"on":""} onClick={()=>{setTab("mios");load();}}>{chief?"Tareas programadas":"Mis tickets"}</button>
-      {user.rol==='gerencia' && <button className={tab==="prog"?"on":""} onClick={()=>{setTab("prog");load();}}>Tareas programadas</button>}
+      {user.rol==='gerencia' && !chief && <button className={tab==="prog"?"on":""} onClick={()=>{setTab("prog");load();}}>Tareas programadas</button>}
       {verTareas&&<button className={tab==="tareas"?"on":""} onClick={()=>{setTab("tareas");load();}}>Mis tareas{asignadas.length?` (${asignadas.length})`:""}</button>}
       {verEquipo&&<button className={tab==="equipo"?"on":""} onClick={()=>{setTab("equipo");load();}}>Mi equipo</button>}
-      {puede(user,`${tipo.toLowerCase()}.gestion`)&&<button className={tab==="gestion"?"on":""} onClick={()=>{setTab("gestion");load();}}>Tickets {esDev(user)?"(todo)":""}</button>}
+      {(puede(user,`${tipo.toLowerCase()}.gestion`) || (!isSis && user.rol==='gerencia'))&&<button className={tab==="gestion"?"on":""} onClick={()=>{setTab("gestion");load();}}>Tickets {esDev(user)?"(todo)":""}</button>}
       {puede(user,`${tipo.toLowerCase()}.tablero`)&&<button className={tab==="tablero"?"on":""} onClick={()=>{setTab("tablero");load();}}><Icon name="chart" size={15} style={{marginRight:6}}/>Tablero</button>}
       {!isSis && puede(user,`${tipo.toLowerCase()}.tablero`)&&<button className={tab==="prod"?"on":""} onClick={()=>{setTab("prod");load();}}><Icon name="trendup" size={15} style={{marginRight:6}}/>Productividad</button>}
     </div>
@@ -4097,11 +4108,11 @@ function Tickets({tipo,user,toast,setFoto}){
       </>}
       <button className="btn primary block" disabled={busy} onClick={crear}>{busy?"Enviando…":"Crear ticket"}</button></div>}
     {tab==="mios" && (chief
-      ? <ListaFiltrada items={programadas} tipo={tipo} isSis={isSis} chief={chief} equipo={equipo}
+      ? <ListaFiltrada items={programadas} tipo={tipo} isSis={isSis} chief={chief} equipo={equipo} onPrioridad={setPrioridad}
           onAction={(t,r)=>setModal({t,item:r})} vacio="Aún no hay tareas programadas" unidad="tarea(s) programada(s)"
           toast={toast} nombreExport={`${tipo}_Programadas_PlayaParaiso`}/>
       : <Listado items={mios} empty="Aún no tienes tickets" render={r=><TicketCard r={r} isSis={isSis} chief={chief} equipo={equipo} onAction={(t)=>setModal({t,item:r})}/>}/>)}
-    {tab==="prog" && <ListaFiltrada items={programadas} tipo={tipo} isSis={isSis} chief={chief} equipo={equipo}
+    {tab==="prog" && <ListaFiltrada items={programadas} tipo={tipo} isSis={isSis} chief={chief} equipo={equipo} onPrioridad={setPrioridad}
       onAction={(t,r)=>setModal({t,item:r})} vacio="No hay tareas programadas" unidad="tarea(s) programada(s)"
       toast={toast} nombreExport={`${tipo}_Programadas_PlayaParaiso`}/>}
     {tab==="equipo" && <Listado items={delEquipo} empty="Tu equipo aún no ha subido tickets" render={r=><TicketCard r={r} isSis={isSis} chief={false} onAction={(t)=>setModal({t,item:r})}/>}/>}
@@ -4111,7 +4122,7 @@ function Tickets({tipo,user,toast,setFoto}){
         <button className={"btn "+(soloHoy?"primary":"ghost")} onClick={()=>setSoloHoy(true)}><Icon name="calendar" size={15} style={{marginRight:6}}/>Hoy ({asignadas.filter(r=>(r.FechaTentativa||"").slice(0,10)===hoyStr).length})</button></div>
       <Listado items={tareasMostrar} empty={soloHoy?"No tienes tareas para hoy":"No tienes tareas asignadas"}
         render={r=><TareaCard r={r} usuario={user.nombre} onAction={(t)=>setModal({t,item:r})}/>}/></div>}
-    {tab==="gestion" && <ListaFiltrada items={correctivas} tipo={tipo} isSis={isSis} chief={chief} equipo={equipo}
+    {tab==="gestion" && <ListaFiltrada items={correctivas} tipo={tipo} isSis={isSis} chief={chief} equipo={equipo} onPrioridad={setPrioridad}
       onAction={(t,r)=>setModal({t,item:r})} vacio="No hay tickets en este filtro" unidad="ticket(s)"
       toast={toast} nombreExport={`${tipo}_PlayaParaiso`}/>}
     {tab==="tablero" && <Tablero tipo={tipo}/>}
@@ -4158,7 +4169,7 @@ function fmtHrs(h){ if(h==null) return "—"; if(h<24) return (Math.round(h*10)/
 /* Barra de filtros + listado. La usan Gestión y Tareas programadas, así las dos
    tienen exactamente los mismos filtros y no hay dos copias del mismo código.
    Cada instancia lleva su propio estado: cambiar de pestaña no arrastra el filtro. */
-function ListaFiltrada({items,tipo,isSis,chief,equipo,onAction,vacio,unidad,toast,nombreExport}){
+function ListaFiltrada({items,tipo,isSis,chief,equipo,onAction,onPrioridad,vacio,unidad,toast,nombreExport}){
   const [fil,setFil]=useState("todas");
   const [soloHoy,setSoloHoy]=useState(false);
   const hoyStr=hoyEC();
@@ -4185,15 +4196,28 @@ function ListaFiltrada({items,tipo,isSis,chief,equipo,onAction,vacio,unidad,toas
     </div>
     <div className="kcount">{v.length} {unidad||"ticket(s)"}{["nuevas","proceso","v15"].includes(fil)?" · de la más antigua a la más reciente":""}</div>
     <Listado items={v} empty={vacio||"No hay registros en este filtro"}
-      render={r=><TicketCard r={r} isSis={isSis} chief={chief} equipo={equipo} onAction={(t)=>onAction(t,r)}/>}/>
+      render={r=><TicketCard r={r} isSis={isSis} chief={chief} equipo={equipo} onAction={(t)=>onAction(t,r)} onPrioridad={onPrioridad}/>}/>
   </div>;
 }
 
+/* P1 = urgente, P2 = media, P3 = baja. Solo Mantenimiento (no Sistemas). */
+const PRIORIDADES=["P1","P2","P3"];
+const colorPrioridad=p=>cssVar(p==="P1"?"--red":p==="P2"?"--amber":"--muted");
+function PrioridadPill({r,chief,onPrioridad}){
+  if(!onPrioridad || !chief) return r.Prioridad ? <span className="pill" style={{background:colorPrioridad(r.Prioridad)+"22",color:colorPrioridad(r.Prioridad)}}>{r.Prioridad}</span> : null;
+  return <div className="row" style={{gap:6,marginTop:6,flexWrap:"wrap"}}>
+    {PRIORIDADES.map(p=><button key={p} className="btn" style={{padding:"4px 10px",fontSize:12,
+      background:r.Prioridad===p?colorPrioridad(p):"#f3efe6", color:r.Prioridad===p?"#fff":"var(--muted)"}}
+      onClick={()=>onPrioridad(r,p)}>{p}</button>)}
+    {r.Prioridad && <button className="btn ghost" style={{padding:"4px 10px",fontSize:12}} onClick={()=>onPrioridad(r,"")}>Quitar</button>}
+  </div>;
+}
 function TareaCard({r,onAction,usuario}){
   const venc = r.FechaTentativa && (r.FechaTentativa||"").slice(0,10) < hoyEC() && !["Concluido","Cerrado"].includes(r.Estado);
   return <div className="item">
     <div className="top"><div><div className="code">{r.Codigo}</div><div className="ttl">{r.Descripcion}</div>
       <div className="meta">{r.Departamento} · {r.TipoSolicitud} · solicitó: {r.Solicitante}</div>
+      {r.Prioridad && <div className="meta" style={{marginTop:2}}><PrioridadPill r={r}/></div>}
       {apoyosMTO(r).length>0 && <div className="meta">Equipo: {respMTO(r)} (resp.) · {apoyosMTO(r).join(", ")}</div>}</div>
       <Pill estado={r.Estado} overdue={venc}/></div>
     {r.FechaTentativa && <div className="meta" style={{marginTop:6}}><Icon name="calendar" size={15} style={{marginRight:6}}/>Para: {fmtDate(r.FechaTentativa)}{venc?" · ⚠️ vencida":""}</div>}
@@ -4206,12 +4230,13 @@ function TareaCard({r,onAction,usuario}){
         : <span className="hint" style={{alignSelf:"center"}}>Solo {respMTO(r)||"el responsable"} puede concluirla</span>)}
     </div></div>;
 }
-function TicketCard({r,isSis,chief,equipo,onAction}){
+function TicketCard({r,isSis,chief,equipo,onAction,onPrioridad}){
   const titulo=isSis?r.Titulo:r.Descripcion;
   return <div className="item">
     <div className="top"><div><div className="code">{r.Codigo}</div><div className="ttl">{titulo}</div>
       <div className="meta">{r.Solicitante} · {r.Departamento} · {isSis?(r.Urgencia||"").split(" ")[0]:r.TipoSolicitud}</div></div>
       <Pill estado={r.Estado} overdue={isOverdue(r)}/></div>
+    {!isSis && <PrioridadPill r={r} chief={chief} onPrioridad={onPrioridad}/>}
     {r._pendiente && <div className="meta" style={{marginTop:4,color:"#7a5a12",fontWeight:700}}>📥 Cambio pendiente de enviar</div>}
     {r.FechaTentativa && <div className="meta" style={{marginTop:6}}><Icon name="calendar" size={15} style={{marginRight:6}}/>{fmtDate(r.FechaTentativa)}</div>}
     {(isSis? !!r.Asignado : equipoMTO(r).length>0) && <div className="meta" style={{marginTop:4}}><Icon name="user" size={15} style={{marginRight:6}}/>
