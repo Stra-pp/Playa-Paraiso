@@ -706,7 +706,7 @@ const APP = {
     sitePath: "/sites/Prueba7",
     lists: { ILD:"PP_ILD", Compras:"PP_Compras", Sistemas:"PP_Sistemas", Mantenimiento:"PP_Mantenimiento", Notif:"PP_Notif",
       HKHabitaciones:"PP_HK_Habitaciones", HKLimpiezas:"PP_HK_Limpiezas", HKAuditorias:"PP_HK_Auditorias", HKHorarios:"PP_HK_Horarios",
-      HKAreas:"PP_HK_Areas", HKAreasLimpiezas:"PP_HK_AreasLimpiezas" },
+      HKAreas:"PP_HK_Areas", HKAreasLimpiezas:"PP_HK_AreasLimpiezas", Horarios:"PP_Horarios" },
     base: "ILDS",
     driveId: "b!O2-zgnw6nkyHGSME4wNWNvzktKvfz2RCve_Yy1z3ygbC7N4D__mdSLQmbhqhPa0o",
     files: { ILD:"NEXO_ILD.json", Compras:"NEXO_Compras.json",
@@ -987,7 +987,7 @@ const GraphStore = {
   }
 };
 // ===== Backend de LISTAS de SharePoint (un elemento por solicitud) =====
-const LIST_TABLES=["ILD","Compras","Sistemas","Mantenimiento","Notif","HKHabitaciones","HKLimpiezas","HKAuditorias","HKHorarios","HKAreas","HKAreasLimpiezas"];
+const LIST_TABLES=["ILD","Compras","Sistemas","Mantenimiento","Notif","HKHabitaciones","HKLimpiezas","HKAuditorias","HKHorarios","HKAreas","HKAreasLimpiezas","Horarios"];
 let SP_SITE=null; const SP_LIST={}; const SP_MAP={}; const SP_COLS={}; const SP_DCOL={}; let SP_LISTNAMES=[];
 const PREFER_NX={Prefer:"HonorNonIndexedQueriesWarningMayFailRandomly"};
 /* Día calendario de Ecuador del registro. Es la clave con la que se indexa
@@ -1850,6 +1850,13 @@ function ILD({user,toast,setFoto,bump}){
      sigue viendo y editando el checklist de su propia área, sin cambios: eso no
      es "configuración" del sistema, es su lista de trabajo diaria. */
   const showChecklist = user.rol==='aprobador';
+  /* Cada jefatura (aprobador) programa el horario de su propio equipo — las
+     personas cuya "área" (Config › Usuarios y accesos) coincide con la suya.
+     No es una "configuración" del sistema sino su gestión diaria de personal,
+     por eso vive aquí junto al Checklist y no en Config. Gerencia General y
+     Desarrollador no tienen equipo propio que programar, así que no ven esta
+     pestaña (piden explícitamente no verla). */
+  const showHorarios = user.rol==='aprobador';
   const [tab,setTab]=useState(esGer?"bandeja":"nuevo");
   const [regs,setRegs]=useState([]);
   const [drafts,setDrafts]=useState([]);
@@ -1892,7 +1899,7 @@ function ILD({user,toast,setFoto,bump}){
   return <div>
     <h1 className="h1">ILD · Inspección diaria</h1>
     <p className="sub">Lista de verificación por área y turno.</p>
-    {(showNuevo||puedeRevisar||showChecklist) && <div className="seg">
+    {(showNuevo||puedeRevisar||showChecklist||showHorarios) && <div className="seg">
       {showNuevo && <button className={tab==="nuevo"?"on":""} onClick={()=>setTab("nuevo")}>Nuevo</button>}
       {showNuevo && <button className={tab==="mios"?"on":""} onClick={()=>{setTab("mios");load();}}>Mis ILD</button>}
       {drafts.length>0 && <button className={tab==="drafts"?"on":""} style={{color:"#7a5a12"}} onClick={()=>{setTab("drafts");cargarDrafts();}}>📥 Sin enviar ({drafts.length})</button>}
@@ -1900,6 +1907,7 @@ function ILD({user,toast,setFoto,bump}){
       {puedeRevisar && <button className={tab==="dash"?"on":""} onClick={()=>{setTab("dash");load();}}>Dashboard</button>}
       {esGD(user) && <button className={tab==="resumen"?"on":""} onClick={()=>setTab("resumen")}><Icon name="trendup" size={15} style={{marginRight:6}}/>Resumen Gerencial</button>}
       {showChecklist && <button className={tab==="check"?"on":""} onClick={()=>setTab("check")}>Checklist</button>}
+      {showHorarios && <button className={tab==="horarios"?"on":""} onClick={()=>setTab("horarios")}>Horarios</button>}
     </div>}
     {esDevv && <div className="hint" style={{margin:"-6px 0 12px"}}>La configuración de áreas, checklist, calendario, comidas, aprobadores, usuarios y accesos se administra ahora desde <b>Config › Gestionar ILD</b> y <b>Config › Usuarios y accesos</b>.</div>}
     {tab==="nuevo" && showNuevo && <ILDForm user={user} toast={toast} onSaved={()=>{load();setTab("mios");}} onDraft={()=>{cargarDrafts();setTab("drafts");}} setFoto={setFoto}/>}
@@ -1909,6 +1917,7 @@ function ILD({user,toast,setFoto,bump}){
     {tab==="dash" && <ILDDash user={user}/>}
     {tab==="resumen" && <ResumenGerencialILD/>}
     {tab==="check" && showChecklist && <GestionarILD user={user} toast={toast} onSave={guardarCfg}/>}
+    {tab==="horarios" && showHorarios && <ILDHorarios user={user} toast={toast}/>}
   </div>;
 }
 
@@ -5828,6 +5837,109 @@ function HKHorarioSemana({toast}){
     </table></div>}
     <div className="hint" style={{marginTop:10}}>Toca una celda para asignar Trabajo (con hora), Libre, Vacaciones o Incapacidad. T = Trabajo, L = Libre, V = Vacaciones, I = Incapacidad.</div>
     {celda && <HKTurnoModal colaborador={celda.colaborador} fecha={celda.fecha} existente={celda.existente} toast={toast}
+      onClose={()=>setCelda(null)} onSaved={load}/>}
+  </div>;
+}
+
+/* ===== ILD — Horarios por jefatura, para TODAS las áreas (no solo Housekeeping) =====
+   Mismo patrón que Housekeeping arriba (reutiliza hkSemanaDe/hkSumarSemanas/
+   hkFechaCorta/HK_DOW_CORTO/HK_JORNADA_*, que son genéricos, no específicos de HK),
+   pero cada jefatura (rol "aprobador") programa aquí el horario de su propio
+   equipo: las personas cuya "área" en Config › Usuarios y accesos coincide con
+   la(s) suya(s). Se guarda en su propia tabla "Horarios" (no PP_HK_Horarios,
+   para no mezclar el horario de Housekeeping con el de las demás áreas). Cada
+   jefe solo ve y edita el área que le corresponde (ildAreasDe(user)); si tiene
+   más de una área a cargo, elige cuál ver con el selector. */
+function ildRoster(area){ return USERS.filter(u=>Array.isArray(u.areas)&&u.areas.includes(area)).sort((a,b)=>a.nombre.localeCompare(b.nombre)); }
+async function ildCargarHorarios(){ try{ return await Store.read("Horarios"); }catch(e){ return []; } }
+
+function ILDTurnoModal({area,colaborador,fecha,existente,onClose,onSaved,toast}){
+  const [tipo,setTipo]=useState(existente?existente.tipo:"Trabajo");
+  const [horaInicio,setHoraInicio]=useState(existente&&existente.horaInicio?existente.horaInicio:"08:00");
+  const [horaFin,setHoraFin]=useState(existente&&existente.horaFin?existente.horaFin:"16:00");
+  const [busy,unaVez]=useEnvioUnico();
+  async function guardar(){
+    await unaVez(async()=>{
+      try{
+        const arr = await Store.read("Horarios");
+        const resto = arr.filter(h=>!(h.area===area && h.colaborador===colaborador && h.fecha===fecha));
+        const nuevo = { id: existente?existente.id:gid(), area, colaborador, fecha, tipo,
+          horaInicio: tipo==="Trabajo"?horaInicio:"", horaFin: tipo==="Trabajo"?horaFin:"",
+          creadoEn: existente?existente.creadoEn:nowISO(), actualizadoEn: nowISO() };
+        await Store.write("Horarios", [nuevo, ...resto]);
+        toast("Horario guardado"); onSaved(); onClose();
+      }catch(e){ toast("No se pudo guardar: "+(e.message||e)); }
+    });
+  }
+  async function quitar(){
+    await unaVez(async()=>{
+      try{
+        const arr = await Store.read("Horarios");
+        await Store.write("Horarios", arr.filter(h=>!(h.area===area && h.colaborador===colaborador && h.fecha===fecha)));
+        toast("Se quitó la asignación"); onSaved(); onClose();
+      }catch(e){ toast("No se pudo quitar: "+(e.message||e)); }
+    });
+  }
+  return <Modal title={colaborador+" · "+fecha} onClose={onClose}>
+    <Field label="Tipo de jornada">
+      <div className="opts">
+        {HK_JORNADA_TIPOS.map(t=><button key={t} className={"opt"+(tipo===t?" on":"")} onClick={()=>setTipo(t)}>{t}</button>)}
+      </div>
+    </Field>
+    {tipo==="Trabajo" && <div className="row" style={{gap:10}}>
+      <Field label="Hora inicio"><input className="inp" type="time" value={horaInicio} onChange={e=>setHoraInicio(e.target.value)}/></Field>
+      <Field label="Hora fin"><input className="inp" type="time" value={horaFin} onChange={e=>setHoraFin(e.target.value)}/></Field>
+    </div>}
+    <button className="btn primary block" disabled={busy} onClick={guardar}>{busy?"Guardando…":"Guardar"}</button>
+    {existente && <button className="btn ghost block" style={{marginTop:8}} disabled={busy} onClick={quitar}>Quitar asignación</button>}
+  </Modal>;
+}
+
+function ILDHorarios({user,toast}){
+  const areas = ildAreasDe(user); // área(s) de las que este usuario es jefatura (aprobador)
+  const [area,setArea]=useState(areas[0]||"");
+  useEffect(()=>{ if(!areas.includes(area)) setArea(areas[0]||""); },[areas.join("|")]);
+  const [horarios,setHorarios]=useState([]);
+  const [inicioSemana,setInicioSemana]=useState(()=>hkSemanaDe(hoyEC())[0]);
+  const [celda,setCelda]=useState(null);
+  const load=()=>cargarConReintento(ildCargarHorarios, setHorarios, toast, "los horarios");
+  useEffect(()=>{load();},[]);
+  const dias = hkSemanaDe(inicioSemana);
+  const roster = area?ildRoster(area):[];
+  const deArea = horarios.filter(h=>h.area===area);
+  function buscar(colaborador,fecha){ return deArea.find(h=>h.colaborador===colaborador && h.fecha===fecha) || null; }
+  return <div>
+    {areas.length>1 && <Field label="Área">
+      <select className="inp" value={area} onChange={e=>setArea(e.target.value)}>
+        {areas.map(a=><option key={a}>{a}</option>)}
+      </select>
+    </Field>}
+    <div className="row" style={{justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
+      <div className="row" style={{gap:8}}>
+        <button className="btn ghost" style={{padding:"8px 12px"}} onClick={()=>setInicioSemana(hkSumarSemanas(inicioSemana,-1))}><Icon name="chevronLeft" size={16}/></button>
+        <span style={{fontWeight:800}}>{hkFechaCorta(dias[0])} — {hkFechaCorta(dias[6])}</span>
+        <button className="btn ghost" style={{padding:"8px 12px",fontWeight:800}} onClick={()=>setInicioSemana(hkSumarSemanas(inicioSemana,1))}>›</button>
+      </div>
+      <button className="btn ghost" style={{padding:"8px 12px"}} onClick={()=>setInicioSemana(hkSemanaDe(hoyEC())[0])}>Esta semana</button>
+    </div>
+    {!area && <div className="empty"><div className="e">🗓</div>No tienes un área asignada como aprobador/a.</div>}
+    {area && !roster.length && <div className="empty"><div className="e">👥</div>Aún no hay nadie asignado a "{area}" en Config › Usuarios y accesos.</div>}
+    {area && roster.length>0 && <div className="dscroll"><table className="dtable">
+      <thead><tr><th>Colaborador/a</th>{dias.map(f=><th key={f}>{HK_DOW_CORTO[new Date(f+"T00:00:00").getDay()]}<br/>{f.slice(8,10)}/{f.slice(5,7)}</th>)}</tr></thead>
+      <tbody>{roster.map(u=><tr key={u.id}>
+        <td>{u.nombre}</td>
+        {dias.map(f=>{ const h=buscar(u.nombre,f);
+          return <td key={f} style={{cursor:"pointer"}} onClick={()=>setCelda({colaborador:u.nombre,fecha:f,existente:h})}>
+            {h
+              ? <span style={{display:"inline-block",minWidth:26,padding:"4px 7px",borderRadius:7,fontWeight:800,fontSize:12,color:"#fff",background:HK_JORNADA_COLOR[h.tipo]}}>
+                  {HK_JORNADA_LETRA[h.tipo]}</span>
+              : <span style={{color:"#ccc"}}>–</span>}
+            {h && h.tipo==="Trabajo" && h.horaInicio && <div className="dsub" style={{marginTop:2}}>{h.horaInicio}-{h.horaFin}</div>}
+          </td>; })}
+      </tr>)}</tbody>
+    </table></div>}
+    <div className="hint" style={{marginTop:10}}>Toca una celda para asignar Trabajo (con hora), Libre, Vacaciones o Incapacidad. T = Trabajo, L = Libre, V = Vacaciones, I = Incapacidad.</div>
+    {celda && <ILDTurnoModal area={area} colaborador={celda.colaborador} fecha={celda.fecha} existente={celda.existente} toast={toast}
       onClose={()=>setCelda(null)} onSaved={load}/>}
   </div>;
 }
