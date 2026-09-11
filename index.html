@@ -1351,7 +1351,17 @@ async function cfgRead(){ let c; try{ c=await Store.read("ILD_Config"); }catch{ 
   if(!c || Array.isArray(c)) return null; return c; }
 function applyIldConfig(cfg){ if(!cfg) return;
   if(cfg.areas){ Object.keys(AC).forEach(k=>delete AC[k]); Object.assign(AC, cfg.areas); }
-  if(cfg.checklist){ Object.keys(CL).forEach(k=>delete CL[k]); Object.assign(CL, cfg.checklist); }
+  if(cfg.checklist){
+    /* No se borra todo el CL por defecto: si un área (p.ej. "Habitaciones")
+       nunca se guardó desde el editor de checklist, cfg.checklist no la trae,
+       y borrarla dejaría esa área sin ítems (checklist 0/0) aunque el código
+       sí tenga una lista por defecto. Se respeta lo guardado para las áreas
+       que sí están en cfg.checklist, y se conserva el default para las que no. */
+    const porDefecto = {...CL};
+    Object.keys(CL).forEach(k=>delete CL[k]);
+    Object.assign(CL, cfg.checklist);
+    Object.keys(porDefecto).forEach(k=>{ if(!(k in CL)) CL[k]=porDefecto[k]; });
+  }
   if(cfg.aprobadores){ Object.keys(APR).forEach(k=>delete APR[k]); Object.assign(APR, cfg.aprobadores); }
   if(cfg.diasCfg){ const d=cfg.diasCfg;
     DIAS_CFG.feriados=d.feriados||[]; DIAS_CFG.areas=d.areas||{};
@@ -5078,6 +5088,20 @@ function HKFinalizar({registro,room,user,toast,setFoto,onDone}){
         await Cola.cambio({ tabla:"HKHabitaciones", recId:room.id, campoEstado:"estado",
           patch:{ estado:HK_EST_DISPONIBLE, ultimaLimpieza:{ fecha:horaFin, colaborador:user.nombre, tiempoMin, codigo:registro.Codigo } },
           patchId:"habok-"+registro.id }, user.nombre);
+        /* Por pedido explícito: mientras no se decida eliminar el formulario manual
+           de ILD para "Habitaciones", cada limpieza por QR también genera su propio
+           registro real en la tabla "ILD" (con código ILD-XXXX y flujo de aprobación),
+           igual que si se hubiera llenado desde ILDForm — mismo checklist, mismas
+           fotos, mismo aprobador esperado. Así el dashboard/aprobación de ILD's ve
+           también las limpiezas hechas por escaneo de QR. */
+        await Cola.add({ tabla:"ILD", prefijo:"ILD",
+          rec:{ id:gid(), area:'Habitaciones', turno:AC['Habitaciones']?.t||'', selecciones:{}, usuario:user.nombre,
+            fecha:horaFin, checks:{...checks}, textos:{}, obs, estado:"Pendiente", notaJef:"", aprobador:"",
+            fechaAprobacion:"", notaGerencia:"", totalItems:items.length, completados:done, clItems:[...items],
+            aprobadorEsperado:APR['Habitaciones']||"—", habitacionNumero:room.numero, origenQR:true },
+          fotos:[...fotos], fotoField:"fotos", fotoDir:"ILD_{ID}", fotoPrefix:"ILD{ID}",
+          notif:{t:"ild",usuario:user.nombre},
+          resumen:{ titulo:"Habitaciones", sub:"Hab. "+room.numero } }, user.nombre);
         const r = await Cola.enviar(user.nombre);
         if(r.sinRed) toast("Guardado sin señal. Se envía solo cuando vuelva el internet.");
         else toast(`Limpieza finalizada · ${tiempoMin} min`);
