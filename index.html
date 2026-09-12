@@ -5681,9 +5681,48 @@ function HKAuditoriaDetalle({aud,user,toast,setFoto,onClose,onSaved}){
 function HKAuditorias({user,toast,setFoto}){
   const [auds,setAuds]=useState([]); const [detalle,setDetalle]=useState(null);
   const [horarios,setHorarios]=useState([]);
+  const [limpiezas,setLimpiezas]=useState([]);
   const [modo,setModo]=useState(()=>{ try{return localStorage.getItem("pp_hk_audit_denom")||"calendario";}catch(e){return "calendario";} });
   const load=()=>cargarConReintento(async()=>Store.read("HKAuditorias"), setAuds, toast, "las auditorías");
-  useEffect(()=>{ (async()=>{ await hkAsignarAuditoriasDelDia(hoyEC()); load(); try{ setHorarios(await hkCargarHorarios()); }catch(e){} })(); },[]);
+  useEffect(()=>{ (async()=>{ await hkAsignarAuditoriasDelDia(hoyEC()); load(); try{ setHorarios(await hkCargarHorarios()); }catch(e){} try{ setLimpiezas(await hkCargarLimpiezas()); }catch(e){} })(); },[]);
+  /* Además de las 3/día que se asignan solas, la jefatura debe poder ver TODAS
+     las habitaciones ya limpiadas (finalizadas) y sin auditar todavía, y elegir
+     cuáles revisar — incluida la opción de auditarlas todas (p. ej. mientras se
+     hacen pruebas del módulo). Esto no reemplaza el mínimo automático, lo
+     complementa: cualquier habitación finalizada que no tenga ya una auditoría
+     puede convertirse en una con un clic. */
+  const limpiezaAuditadaIds = new Set(auds.map(a=>a.limpiezaId));
+  const disponibles = limpiezas.filter(l=>l.estado==="Finalizado" && !limpiezaAuditadaIds.has(l.id))
+    .sort((a,b)=> (b.fecha||"").localeCompare(a.fecha||"") || (b.horaFin||a.horaInicio||"").localeCompare(a.horaFin||a.horaInicio||""));
+  function nuevaAuditoriaDe(l){
+    return { id: gid(), habitacionId:l.habitacionId, habitacionNumero:l.habitacionNumero, limpiezaId:l.id, limpiezaCodigo:l.Codigo,
+      colaborador:l.colaborador, fecha:l.fecha, asignadoEn:nowISO(), horaEnvioILD:l.horaFin||l.horaInicio,
+      estado:"Pendiente", auditor:"", resultado:"", observaciones:"", hallazgos:"", incidencias:"", correcciones:"",
+      accionCorrectiva:"", fotos:[], fechaAuditoria:"", horaCierreAuditoria:"", cambiosAplicados:[] };
+  }
+  async function auditarAhora(l){
+    try{
+      const fresco = await Store.read("HKAuditorias");
+      if(fresco.some(a=>a.limpiezaId===l.id)){ toast("Esta habitación ya tiene una auditoría"); await load(); return; }
+      const nueva = nuevaAuditoriaDe(l);
+      await Store.write("HKAuditorias", [nueva, ...fresco]);
+      await load();
+      setDetalle(nueva);
+    }catch(e){ toast("No se pudo crear la auditoría: "+(e.message||e)); }
+  }
+  async function auditarTodas(){
+    if(!disponibles.length) return;
+    if(!confirm(`Se creará una auditoría pendiente para ${disponibles.length} habitación(es) disponible(s). ¿Continuar?`)) return;
+    try{
+      const fresco = await Store.read("HKAuditorias");
+      const yaAud = new Set(fresco.map(a=>a.limpiezaId));
+      const nuevas = disponibles.filter(l=>!yaAud.has(l.id)).map(nuevaAuditoriaDe);
+      if(!nuevas.length){ toast("Ya no hay habitaciones nuevas para auditar"); await load(); return; }
+      await Store.write("HKAuditorias", [...nuevas, ...fresco]);
+      await load();
+      toast(`${nuevas.length} auditoría(s) creada(s)`);
+    }catch(e){ toast("No se pudieron crear las auditorías: "+(e.message||e)); }
+  }
   function cambiarModo(m){ setModo(m); try{localStorage.setItem("pp_hk_audit_denom",m);}catch(e){} }
   const hoy = new Date();
   const auditoriasVencidas = a => a.estado!=="Auditada" && a.fecha < hoyEC();
@@ -5734,9 +5773,24 @@ function HKAuditorias({user,toast,setFoto}){
           </div>}
     </div>
     <div className="row" style={{justifyContent:"space-between",marginBottom:8}}>
-      <span style={{color:"var(--muted)",fontSize:13}}>{ordenadas.length} auditoría(s) — mínimo {HK_AUD_MIN_DIA}/día, seleccionadas automáticamente</span>
+      <span style={{color:"var(--muted)",fontSize:13}}>{ordenadas.length} auditoría(s) — mínimo {HK_AUD_MIN_DIA}/día automáticas, y puedes agregar cualquier otra habitación abajo</span>
     </div>
-    {!ordenadas.length && <div className="empty"><div className="e">🔍</div>Aún no hay auditorías. Se asignan solas cuando haya limpiezas terminadas en el día.</div>}
+    <div className="card" style={{marginBottom:14}}>
+      <div className="row" style={{justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+        <h3 style={{margin:0}}>Habitaciones disponibles para auditar ({disponibles.length})</h3>
+        {disponibles.length>0 && <button className="btn ghost" style={{padding:"6px 12px",fontSize:13}} onClick={auditarTodas}>Auditar todas</button>}
+      </div>
+      <div className="hint" style={{marginTop:6}}>Toda habitación ya limpiada (finalizada) que aún no tenga auditoría aparece aquí, no solo el mínimo de {HK_AUD_MIN_DIA}/día. Toca una para auditarla, o usa "Auditar todas" para crear una pendiente de cada una — útil mientras se hacen pruebas.</div>
+      {!disponibles.length && <div className="hint" style={{marginTop:8}}>No hay habitaciones limpiadas pendientes de auditar en este momento.</div>}
+      {disponibles.map(l=><div key={l.id} className="item" style={{cursor:"pointer"}} onClick={()=>auditarAhora(l)}>
+        <div className="top"><div>
+          <div className="code">Hab. {l.habitacionNumero} · {l.fecha}</div>
+          <div className="ttl">{l.colaborador}</div>
+          <div className="meta">Limpieza {l.Codigo||""} · finalizada {fmtDT(l.horaFin||l.horaInicio)}</div>
+        </div></div>
+      </div>)}
+    </div>
+    {!ordenadas.length && <div className="empty"><div className="e">🔍</div>Aún no hay auditorías. Se asignan solas cuando haya limpiezas terminadas en el día, o elige una arriba.</div>}
     {!!pendientesVencidas.length && <>
       <div className="hint" style={{color:"var(--red)",fontWeight:700,marginTop:4}}>⚠ {pendientesVencidas.length} auditoría(s) pendiente(s) de días anteriores — no desaparecen, se mantienen aquí hasta que se realicen.</div>
       {pendientesVencidas.map(a=><HKAuditoriaItem key={a.id} a={a} vencida={true} onClick={()=>setDetalle(a)}/>)}
