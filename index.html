@@ -724,6 +724,12 @@ const DEEPLINK=(()=>{ try{ const p=new URLSearchParams(location.search).get("ver
 const esGD = u => u && ['gerencia','desarrollador'].includes(u.rol);
 const esDev = u => u && u.rol==='desarrollador';
 const ildAreasDe = u => esGD(u) ? Object.keys(AC) : (u.areas||[]);
+/* Áreas del grupo "Housekeeping" (Habitaciones, Áreas Públicas) ya tienen su
+   propio módulo (Housekeeping): se generan solas al escanear el QR y se
+   revisan ahí mismo (HKAuditorias / HKAreasILDs). No deben aparecer también
+   en el módulo genérico de ILD (ni para crear una manual, ni en la bandeja
+   de revisión) — eso duplicaba el mismo trabajo en dos pantallas distintas. */
+const esAreaHK = a => AC[a]?.g === 'Housekeeping';
 const puedeAprobarArea = (u,area) => esGD(u) || (u.rol==='aprobador' && (u.areas||[]).includes(area));
 const gestionaModulo = (u,m) => esDev(u) || (u.gestiona||[]).includes(m);
 /* Housekeeping es un módulo aparte del resto (ILD/Compras/Sistemas/Mantenimiento):
@@ -1922,7 +1928,7 @@ function ILD({user,toast,setFoto,bump}){
     {tab==="nuevo" && showNuevo && <ILDForm user={user} toast={toast} onSaved={()=>{load();setTab("mios");}} onDraft={()=>{cargarDrafts();setTab("drafts");}} setFoto={setFoto}/>}
     {tab==="mios" && showNuevo && <ILDMios user={user} regs={regs} setFoto={setFoto}/>}
     {tab==="drafts" && showNuevo && <DraftsPanel user={user} drafts={drafts} onEnviar={()=>enviarPendientes(false)} onReload={cargarDrafts} setFoto={setFoto} toast={toast}/>}
-    {tab==="bandeja" && <ILDPanel user={user} regs={regs} enCola={enCola} reload={()=>{load();cargarDrafts();}} toast={toast} setFoto={setFoto}/>}
+    {tab==="bandeja" && <ILDPanel user={user} regs={regs.filter(r=>!esAreaHK(r.area))} enCola={enCola} reload={()=>{load();cargarDrafts();}} toast={toast} setFoto={setFoto}/>}
     {tab==="dash" && <ILDDash user={user}/>}
     {tab==="resumen" && <ResumenGerencialILD/>}
     {tab==="check" && showChecklist && <GestionarILD user={user} toast={toast} onSave={guardarCfg}/>}
@@ -2332,7 +2338,7 @@ function DraftsPanel({user,drafts,onEnviar,onReload,setFoto,toast}){
 }
 
 function ILDForm({user,toast,onSaved,setFoto,onDraft}){
-  const areas=ildAreasDe(user);
+  const areas=ildAreasDe(user).filter(a=>!esAreaHK(a));
   const [area,setArea]=useState(""); const [turno,setTurno]=useState("");
   const [checks,setChecks]=useState({}); const [sel,setSel]=useState({}); const [txt,setTxt]=useState({});
   const [fotos,setFotos]=useState([]); const [obs,setObs]=useState(""); const [busy,unaVez]=useEnvioUnico();
@@ -5772,25 +5778,32 @@ function HKAuditorias({user,toast,setFoto}){
             <div><div style={{fontSize:22,fontWeight:800,color:pct>=100?"var(--green)":pct>=60?"var(--amber)":"var(--red)"}}>{pct}%</div><div className="hint">Cumplimiento del mes</div></div>
           </div>}
     </div>
-    <div className="row" style={{justifyContent:"space-between",marginBottom:8}}>
-      <span style={{color:"var(--muted)",fontSize:13}}>{ordenadas.length} auditoría(s) — mínimo {HK_AUD_MIN_DIA}/día automáticas, y puedes agregar cualquier otra habitación abajo</span>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginTop:18,marginBottom:2}}>
+      <Icon name="clipboard" size={16} style={{color:"var(--green)"}}/>
+      <h3 style={{margin:0,fontSize:15}}>Habitaciones disponibles para auditar</h3>
+      <span className="pill" style={{background:"#E9F5EE",color:"var(--green)"}}>{disponibles.length}</span>
+      <div style={{flex:1}}/>
+      {disponibles.length>0 && <button className="btn ghost" style={{padding:"6px 12px",fontSize:13}} onClick={auditarTodas}>Auditar todas</button>}
     </div>
-    <div className="card" style={{marginBottom:14}}>
-      <div className="row" style={{justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
-        <h3 style={{margin:0}}>Habitaciones disponibles para auditar ({disponibles.length})</h3>
-        {disponibles.length>0 && <button className="btn ghost" style={{padding:"6px 12px",fontSize:13}} onClick={auditarTodas}>Auditar todas</button>}
-      </div>
-      <div className="hint" style={{marginTop:6}}>Toda habitación ya limpiada (finalizada) que aún no tenga auditoría aparece aquí, no solo el mínimo de {HK_AUD_MIN_DIA}/día. Toca una para auditarla, o usa "Auditar todas" para crear una pendiente de cada una — útil mientras se hacen pruebas.</div>
-      {!disponibles.length && <div className="hint" style={{marginTop:8}}>No hay habitaciones limpiadas pendientes de auditar en este momento.</div>}
-      {disponibles.map(l=><div key={l.id} className="item" style={{cursor:"pointer"}} onClick={()=>auditarAhora(l)}>
-        <div className="top"><div>
+    <div className="hint" style={{marginBottom:10}}>Toda habitación ya limpiada que aún no tenga auditoría aparece aquí, no solo el mínimo de {HK_AUD_MIN_DIA}/día. Toca una para auditarla.</div>
+    {!disponibles.length && <div className="hint" style={{marginBottom:14}}>No hay habitaciones limpiadas pendientes de auditar en este momento.</div>}
+    {disponibles.map(l=><div key={l.id} className="item" style={{borderStyle:"dashed",cursor:"pointer"}} onClick={()=>auditarAhora(l)}>
+      <div className="top">
+        <div>
           <div className="code">Hab. {l.habitacionNumero} · {l.fecha}</div>
           <div className="ttl">{l.colaborador}</div>
           <div className="meta">Limpieza {l.Codigo||""} · finalizada {fmtDT(l.horaFin||l.horaInicio)}</div>
-        </div></div>
-      </div>)}
+        </div>
+        <button className="btn green" style={{padding:"6px 12px",fontSize:12.5,whiteSpace:"nowrap"}} onClick={e=>{e.stopPropagation();auditarAhora(l);}}>Auditar</button>
+      </div>
+    </div>)}
+    <div style={{display:"flex",alignItems:"center",gap:8,marginTop:22,marginBottom:2}}>
+      <Icon name="clipboard" size={16} style={{color:"var(--ocean)"}}/>
+      <h3 style={{margin:0,fontSize:15}}>Auditorías asignadas</h3>
+      <span className="pill" style={{background:"#E7F0F3",color:"var(--ocean-d)"}}>{ordenadas.length}</span>
     </div>
-    {!ordenadas.length && <div className="empty"><div className="e">🔍</div>Aún no hay auditorías. Se asignan solas cuando haya limpiezas terminadas en el día, o elige una arriba.</div>}
+    <div className="hint" style={{marginBottom:10}}>Mínimo {HK_AUD_MIN_DIA}/día se asignan solas; el resto se agrega arriba.</div>
+    {!ordenadas.length && <div className="empty"><div className="e">🔍</div>Aún no hay auditorías. Se asignan solas cuando haya limpiezas terminadas en el día, o elige una habitación arriba.</div>}
     {!!pendientesVencidas.length && <>
       <div className="hint" style={{color:"var(--red)",fontWeight:700,marginTop:4}}>⚠ {pendientesVencidas.length} auditoría(s) pendiente(s) de días anteriores — no desaparecen, se mantienen aquí hasta que se realicen.</div>
       {pendientesVencidas.map(a=><HKAuditoriaItem key={a.id} a={a} vencida={true} onClick={()=>setDetalle(a)}/>)}
@@ -6251,7 +6264,7 @@ function App(){
         compras:pendChief(c,"compras",["Solicitado","En Gerencia","En compra","Listo para entregar"]),
         sistemas:pendChief(s,"sistemas",["Nuevo","Sin fecha asignada","En proceso"]),
         mantenimiento:pendChief(m,"mantenimiento",["Nuevo","Sin fecha asignada","En proceso"]),
-        ild:(esGD(who)||who.rol==='aprobador')?il.filter(r=>!esDuplicado(r)&&r.estado==='Pendiente'&&(esGD(who)||(who.areas||[]).includes(r.area))).length:0
+        ild:(esGD(who)||who.rol==='aprobador')?il.filter(r=>!esDuplicado(r)&&r.estado==='Pendiente'&&!esAreaHK(r.area)&&(esGD(who)||(who.areas||[]).includes(r.area))).length:0
       });
       setGerr("");
     }catch(e){
