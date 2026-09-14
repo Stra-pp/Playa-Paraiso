@@ -729,7 +729,6 @@ const ildAreasDe = u => esGD(u) ? Object.keys(AC) : (u.areas||[]);
    revisan ahí mismo (HKAuditorias / HKAreasILDs). No deben aparecer también
    en el módulo genérico de ILD (ni para crear una manual, ni en la bandeja
    de revisión) — eso duplicaba el mismo trabajo en dos pantallas distintas. */
-const esAreaHK = a => AC[a]?.g === 'Housekeeping';
 /* Compara nombres de área ignorando mayúsculas/espacios sobrantes y, sobre
    todo, la forma Unicode del acento (Á puede guardarse como un solo carácter
    precompuesto o como "A" + acento combinante aparte — se ven idénticos en
@@ -740,6 +739,33 @@ const esAreaHK = a => AC[a]?.g === 'Housekeeping';
    aparecen los botones de aprobar aunque todo se vea bien configurado. */
 const normArea = s => String(s||'').normalize('NFC').trim().toLowerCase();
 const mismaArea = (a,b) => normArea(a)===normArea(b);
+/* La cuenta en vivo de Playa Paraíso tiene las áreas de Housekeeping guardadas
+   como "ILD Habitaciones" / "ILD Áreas Públicas" (con el prefijo "ILD "), no
+   como "Habitaciones" / "Áreas Públicas" a secas que trae el código de
+   fábrica. Como TODO lo de Housekeeping (el ILD que se genera solo al
+   escanear el QR, quién puede aprobarlo, el checklist que se usa) tiene que
+   usar exactamente el mismo nombre que la jefatura tiene marcado en "ILD /
+   áreas que realiza o aprueba", esta función busca el nombre real ya
+   existente en AC en vez de asumir el nombre de fábrica — así funciona tanto
+   si el área se llama "Habitaciones" como "ILD Habitaciones" (o cualquier
+   variante de mayúsculas/acento), sin tener que adivinar cuál usan. */
+function resolverAreaHK(nombreFabrica){
+  if(AC[nombreFabrica]) return nombreFabrica;
+  const objetivo = normArea(nombreFabrica).replace(/^ild[\s\-:]+/,'');
+  const match = Object.keys(AC).find(k=>normArea(k).replace(/^ild[\s\-:]+/,'')===objetivo);
+  return match || nombreFabrica;
+}
+const AREA_HAB = () => resolverAreaHK('Habitaciones');
+const AREA_AP = () => resolverAreaHK('Áreas Públicas');
+/* Áreas del grupo "Housekeeping" (Habitaciones, Áreas Públicas) ya tienen su
+   propio módulo (Housekeeping): se generan solas al escanear el QR y se
+   revisan ahí mismo (HKAuditorias / HKAreasILDs). No deben aparecer también
+   en el módulo genérico de ILD (ni para crear una manual, ni en la bandeja
+   de revisión) — eso duplicaba el mismo trabajo en dos pantallas distintas.
+   Se compara tanto por el grupo guardado en AC como por el nombre resuelto,
+   porque si la cuenta en vivo nunca guardó "g" para el área renombrada, lo
+   único confiable que queda es el nombre. */
+const esAreaHK = a => AC[a]?.g === 'Housekeeping' || mismaArea(a,AREA_HAB()) || mismaArea(a,AREA_AP());
 const puedeAprobarArea = (u,area) => esGD(u) || (u.rol==='aprobador' && (u.areas||[]).some(a=>mismaArea(a,area)));
 const gestionaModulo = (u,m) => esDev(u) || (u.gestiona||[]).includes(m);
 /* Housekeeping es un módulo aparte del resto (ILD/Compras/Sistemas/Mantenimiento):
@@ -785,7 +811,7 @@ function defaultPuede(u,cap){
 function puede(u,cap){ if(esDev(u)) return true;
   if(ACCESOS && ACCESOS[u.rol] && (cap in ACCESOS[u.rol])) return !!ACCESOS[u.rol][cap];
   return defaultPuede(u,cap); }
-const areaModo = a => AMODO[a] || (a==='Áreas Públicas'?'lista':'normal');
+const areaModo = a => AMODO[a] || (mismaArea(a,AREA_AP())?'lista':'normal');
 /* Quiénes pueden recibir una asignación.
    Antes se cruzaban solo las áreas del usuario contra las de los colaboradores.
    Eso dejaba la lista vacía en dos casos reales:
@@ -1375,7 +1401,20 @@ function diasEsperadosPeriodo(area,year,mes){
 async function cfgRead(){ let c; try{ c=await Store.read("ILD_Config"); }catch{ c=null; }
   if(!c || Array.isArray(c)) return null; return c; }
 function applyIldConfig(cfg){ if(!cfg) return;
-  if(cfg.areas){ Object.keys(AC).forEach(k=>delete AC[k]); Object.assign(AC, cfg.areas); }
+  /* Mismo problema que ya se corrigió para el checklist (CL) más abajo, pero
+     nunca se había arreglado aquí para las áreas (AC): si se borraba todo y
+     se reemplazaba solo por lo guardado, un área de fábrica que la cuenta en
+     vivo nunca tocó bajo ese nombre exacto (o que renombró) desaparecía de AC
+     por completo — no solo "sin datos", sino con la clave inexistente — y
+     cualquier lookup por ese nombre (AC['Habitaciones'], por ejemplo) volvía
+     undefined. Se conserva el valor de fábrica para las claves que no vienen
+     en lo guardado, igual que ya se hace con CL. */
+  if(cfg.areas){
+    const acPorDefecto = {...AC};
+    Object.keys(AC).forEach(k=>delete AC[k]);
+    Object.assign(AC, cfg.areas);
+    Object.keys(acPorDefecto).forEach(k=>{ if(!(k in AC)) AC[k]=acPorDefecto[k]; });
+  }
   if(cfg.checklist){
     /* No se borra todo el CL por defecto: si un área (p.ej. "Habitaciones")
        nunca se guardó desde el editor de checklist, cfg.checklist no la trae,
@@ -5107,10 +5146,10 @@ function HKCatalogo({user,toast}){
    "Habitaciones" en ILD (CL['Habitaciones']), para no duplicar catálogo ni
    confundir a jefatura con dos listas distintas. */
 function HKFinalizar({registro,room,user,toast,setFoto,onDone}){
-  const items = CL['Habitaciones']||[];
+  const items = CL[AREA_HAB()]||[];
   const [checks,setChecks]=useState({}); const [fotos,setFotos]=useState([]); const [obs,setObs]=useState("");
   const [busy,unaVez]=useEnvioUnico();
-  const reqTotal = fotosReq('Habitaciones');
+  const reqTotal = fotosReq(AREA_HAB());
   const done = items.filter((it,i)=>checks[i]).length;
   async function finalizar(){
     if(done<items.length && !confirm(`${items.length-done} ítem(s) sin marcar. ¿Finalizar igual?`)) return;
@@ -5133,10 +5172,10 @@ function HKFinalizar({registro,room,user,toast,setFoto,onDone}){
            fotos, mismo aprobador esperado. Así el dashboard/aprobación de ILD's ve
            también las limpiezas hechas por escaneo de QR. */
         await Cola.add({ tabla:"ILD", prefijo:"ILD",
-          rec:{ id:gid(), area:'Habitaciones', turno:AC['Habitaciones']?.t||'', selecciones:{}, usuario:user.nombre,
+          rec:{ id:gid(), area:AREA_HAB(), turno:AC[AREA_HAB()]?.t||'', selecciones:{}, usuario:user.nombre,
             fecha:horaFin, checks:{...checks}, textos:{}, obs, estado:"Pendiente", notaJef:"", aprobador:"",
             fechaAprobacion:"", notaGerencia:"", totalItems:items.length, completados:done, clItems:[...items],
-            aprobadorEsperado:APR['Habitaciones']||"—", habitacionNumero:room.numero, origenQR:true },
+            aprobadorEsperado:APR[AREA_HAB()]||"—", habitacionNumero:room.numero, origenQR:true },
           fotos:[...fotos], fotoField:"fotos", fotoDir:"ILD_{ID}", fotoPrefix:"ILD{ID}",
           notif:{t:"ild",usuario:user.nombre},
           resumen:{ titulo:"Habitaciones", sub:"Hab. "+room.numero } }, user.nombre);
@@ -5434,10 +5473,10 @@ function HKAreasFinalizar({registro,area,user,toast,setFoto,onDone}){
            aprobarlo desde ILD's tal como ya funciona hoy con el formulario manual
            (modo "lista": una zona + fotos). */
         await Cola.add({ tabla:"ILD", prefijo:"ILD",
-          rec:{ id:gid(), area:'Áreas Públicas', turno:"", zona:area.nombre, selecciones:{}, usuario:user.nombre,
+          rec:{ id:gid(), area:AREA_AP(), turno:"", zona:area.nombre, selecciones:{}, usuario:user.nombre,
             fecha:horaFin, checks:{}, textos:{}, obs, estado:"Pendiente", notaJef:"", aprobador:"",
-            fechaAprobacion:"", notaGerencia:"", totalItems:1, completados:1, clItems:(CL['Áreas Públicas']||[]),
-            aprobadorEsperado:APR['Áreas Públicas']||"—", origenQR:true },
+            fechaAprobacion:"", notaGerencia:"", totalItems:1, completados:1, clItems:(CL[AREA_AP()]||[]),
+            aprobadorEsperado:APR[AREA_AP()]||"—", origenQR:true },
           fotos:[...fotos], fotoField:"fotos", fotoDir:"ILD_{ID}", fotoPrefix:"ILD{ID}",
           notif:{t:"ild",usuario:user.nombre},
           resumen:{ titulo:"Áreas Públicas", sub:area.nombre } }, user.nombre);
@@ -5631,7 +5670,7 @@ function HKAuditoriaDetalle({aud,user,toast,setFoto,onClose,onSaved}){
   useEffect(()=>{ let vivo=true; (async()=>{ try{ const arr=await Store.read("HKLimpiezas");
     const l=arr.find(x=>x.id===aud.limpiezaId)||null; if(vivo) setLimpieza(l); }catch(e){} })();
     return ()=>{vivo=false;}; },[aud.limpiezaId]);
-  const itemsAud = CL['Habitaciones']||[];
+  const itemsAud = CL[AREA_HAB()]||[];
   const calif = hkCalifAuditoria(checklist, itemsAud.length);
   function marcar(i,val){ if(soloLectura) return; setChecklist(c=>({...c,[i]: c[i]===val?"":val})); }
   async function comenzar(){
@@ -6134,9 +6173,9 @@ function HKAreasILDs({user,toast,setFoto}){
   const VIGENCIA_DIAS = 45;
   const load=()=>cargarConReintento(async()=>{
     const desde = desdeDias(VIGENCIA_DIAS);
-    const recientes = (await Store.readDesde("ILD", desde)).filter(r=>r.area==='Áreas Públicas');
+    const recientes = (await Store.readDesde("ILD", desde)).filter(r=>mismaArea(r.area,AREA_AP()));
     let viejosPendientes = [];
-    try{ viejosPendientes = (await Store.readPendientesAntiguos("ILD", desde)).filter(r=>r.area==='Áreas Públicas'); }catch(e){}
+    try{ viejosPendientes = (await Store.readPendientesAntiguos("ILD", desde)).filter(r=>mismaArea(r.area,AREA_AP())); }catch(e){}
     if(!viejosPendientes.length) return recientes;
     const vistos = new Set(recientes.map(r=>r.id));
     return recientes.concat(viejosPendientes.filter(r=>!vistos.has(r.id)));
