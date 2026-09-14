@@ -730,7 +730,17 @@ const ildAreasDe = u => esGD(u) ? Object.keys(AC) : (u.areas||[]);
    en el módulo genérico de ILD (ni para crear una manual, ni en la bandeja
    de revisión) — eso duplicaba el mismo trabajo en dos pantallas distintas. */
 const esAreaHK = a => AC[a]?.g === 'Housekeeping';
-const puedeAprobarArea = (u,area) => esGD(u) || (u.rol==='aprobador' && (u.areas||[]).includes(area));
+/* Compara nombres de área ignorando mayúsculas/espacios sobrantes y, sobre
+   todo, la forma Unicode del acento (Á puede guardarse como un solo carácter
+   precompuesto o como "A" + acento combinante aparte — se ven idénticos en
+   pantalla pero "===" los trata como distintos). Esto es justo lo que puede
+   pasar cuando un área se escribió a mano en la configuración en vivo (por
+   SharePoint) en vez de venir del mismo código: el checkbox se ve marcado
+   pero la comparación exacta nunca coincide, y a esa persona nunca le
+   aparecen los botones de aprobar aunque todo se vea bien configurado. */
+const normArea = s => String(s||'').normalize('NFC').trim().toLowerCase();
+const mismaArea = (a,b) => normArea(a)===normArea(b);
+const puedeAprobarArea = (u,area) => esGD(u) || (u.rol==='aprobador' && (u.areas||[]).some(a=>mismaArea(a,area)));
 const gestionaModulo = (u,m) => esDev(u) || (u.gestiona||[]).includes(m);
 /* Housekeeping es un módulo aparte del resto (ILD/Compras/Sistemas/Mantenimiento):
    su propio conjunto de perfiles vive en u.hk, sin tocar u.rol ni u.areas que
@@ -2516,7 +2526,7 @@ function ILDPanel({user,regs,enCola,reload,toast,setFoto}){
      pendientes de aprobar: así nadie los vuelve a tocar. */
   const espera=(enCola||[]).map(String);
   const nEspera=base.filter(r=>espera.includes(String(r.id))).length;
-  const esSuyo=r=>(user.areas||[]).includes(r.area)||r.aprobadorEsperado===user.nombre||r.aprobador===user.nombre;
+  const esSuyo=r=>(user.areas||[]).some(a=>mismaArea(a,r.area))||r.aprobadorEsperado===user.nombre||r.aprobador===user.nombre;
   if(!esGD(user)) base=base.filter(esSuyo);
   const grupoDe=r=>(AC[r.area]&&AC[r.area].g)||"(otros)";
   const gruposBandeja=[...new Set(base.map(grupoDe).filter(Boolean))].sort();
@@ -2673,7 +2683,7 @@ function ILDDetail({user,r,onClose,reload,toast,setFoto}){
     }catch(e){ if(vivo) setPendCola(null); } })();
     return ()=>{ vivo=false; };
   },[r.id]);
-  const esApro=user.rol==='aprobador'&&(user.areas||[]).includes(r.area);
+  const esApro=user.rol==='aprobador'&&(user.areas||[]).some(a=>mismaArea(a,r.area));
   const esGer=user.rol==='gerencia', esDevv=user.rol==='desarrollador';
   const puedeAprobar=esDevv||esApro||esGer;
   const puedeReAprobar=esApro && r.estado!=='Pendiente';
