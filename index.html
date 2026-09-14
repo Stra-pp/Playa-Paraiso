@@ -5011,8 +5011,37 @@ const HK_HAB_SEED = HK_HAB_SEED_NUMEROS.map(num => ({
   activo: true, estado: HK_EST_DISPONIBLE, creadoEn: "2026-09-10T00:00:00.000Z", ultimaLimpieza: null
 }));
 
-async function hkCargarHabitaciones(){ try{ return await Store.read("HKHabitaciones"); }catch(e){ return []; } }
-async function hkCargarLimpiezas(){ try{ return await Store.read("HKLimpiezas"); }catch(e){ return []; } }
+/* Cola.enviar solo aplica un cambio de verdad contra SharePoint cuando hay
+   señal: sin internet, un "Finalizar" quedaba encolado pero la habitación o
+   el área seguían mostrándose "En proceso" con el cronómetro corriendo hasta
+   que la cola lograba enviarse, distorsionando los tiempos. Esta función
+   superpone, solo para lo que se MUESTRA en pantalla, los cambios que ya
+   están en la cola local de este dispositivo (encolados por Cola.cambio /
+   Cola.add) sobre los datos que vinieron del servidor: así la persona ve de
+   inmediato el resultado de lo que hizo (Finalizado, hora fin, minutos) sin
+   esperar a que haya señal. En cuanto la vuelve a haber, Cola.enviar aplica
+   el mismo cambio pero de verdad, y el dato del servidor pasa a coincidir. */
+async function conPendientesLocal(tabla, arr){
+  try{
+    const pend = (await Cola.todas()).filter(d=>d.payload && d.payload.tabla===tabla && !d.conflicto);
+    if(!pend.length) return arr;
+    const out = arr.map(x=>({...x}));
+    for(const d of pend){
+      const pl = d.payload;
+      if(pl.clase==="cambio" && pl.recId!=null){
+        const i = out.findIndex(x=>String(x.id)===String(pl.recId) || (pl.recCodigo && x.Codigo===pl.recCodigo));
+        if(i>=0) out[i] = { ...out[i], ...(pl.patch||{}), _pendienteLocal:true };
+      } else if(pl.rec && pl.rec.id){
+        const i = out.findIndex(x=>String(x.id)===String(pl.rec.id));
+        if(i>=0) out[i] = { ...out[i], ...pl.rec, _pendienteLocal:true };
+        else out.push({ ...pl.rec, _pendienteLocal:true });
+      }
+    }
+    return out;
+  }catch(e){ return arr; }
+}
+async function hkCargarHabitaciones(){ try{ return await conPendientesLocal("HKHabitaciones", await Store.read("HKHabitaciones")); }catch(e){ return []; } }
+async function hkCargarLimpiezas(){ try{ return await conPendientesLocal("HKLimpiezas", await Store.read("HKLimpiezas")); }catch(e){ return []; } }
 
 function HKRoomModal({room,onClose,onSaved,toast,rooms}){
   const esNuevo = !room;
@@ -5343,7 +5372,7 @@ const HK_AREAS_SEED = (CL['Áreas Públicas']||[]).map(nombre => ({
 }));
 
 async function hkCargarAreas(){ try{ return await Store.read("HKAreas"); }catch(e){ return []; } }
-async function hkCargarAreasLimpiezas(){ try{ return await Store.read("HKAreasLimpiezas"); }catch(e){ return []; } }
+async function hkCargarAreasLimpiezas(){ try{ return await conPendientesLocal("HKAreasLimpiezas", await Store.read("HKAreasLimpiezas")); }catch(e){ return []; } }
 
 /* Igual que hkImprimirQRs pero para áreas: pestaña aparte, misma librería
    embebida (QRCODEJS_DATAURI) para no depender de red al imprimir. */
