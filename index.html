@@ -4085,12 +4085,14 @@ function Tickets({tipo,user,toast,setFoto}){
   const load=async()=>cargarConReintento(()=>Store.read(tipo), setRows, toast, tipo); useEffect(()=>{load();},[]);
   const hoy=hoyEC();
   const vacioSis={Departamento:DEPTS_SIS[0],Urgencia:URGENCIA_SIS[1],Titulo:"",Descripcion:""};
-  const vacioMto={Departamento:DEPTS[0],FechaSolicitud:hoy,TipoSolicitud:"Normal",Descripcion:""};
+  const vacioMto={Departamento:DEPTS[0],FechaSolicitud:hoy,TipoSolicitud:"P3",Titulo:"",AreaNovedad:"",Descripcion:""};
   const [f,setF]=useState(isSis?vacioSis:vacioMto); const [fotos,setFotos]=useState([]); const [busy,unaVez]=useEnvioUnico(); const aprobadores=USERS.filter(u=>u.rol==='aprobador').map(u=>u.nombre).sort(); const [solicOtro,setSolicOtro]=useState(""); const [areaOtro,setAreaOtro]=useState(DEPTS[0]);
   const ch=(k,v)=>setF(s=>({...s,[k]:v}));
   async function crear(){
     if(isSis){ if(!f.Titulo.trim()){toast("Falta el título de la tarea");return;} if(!f.Descripcion.trim()){toast("Falta la descripción");return;} }
-    else { if(!f.Descripcion.trim()){toast("Falta la descripción de la novedad");return;}
+    else { if(!f.Titulo.trim()){toast("Falta el título de la novedad");return;}
+      if(!f.AreaNovedad.trim()){toast("Falta el área de la novedad");return;}
+      if(!f.Descripcion.trim()){toast("Falta la descripción de la novedad");return;}
       /* La foto es obligatoria en las órdenes de mantenimiento: sin imagen el
          técnico no sabe qué va a encontrar y el cierre no se puede comparar.
          Las tareas programadas quedan exentas porque nacen de la planificación,
@@ -4108,7 +4110,7 @@ function Tickets({tipo,user,toast,setFoto}){
       await Cola.add({ tabla:tipo, prefijo:isSis?"SIS":"MTO", rec:base, fotos:[...fotos], fotoField:"Fotos",
         fotoDir:(isSis?"SIS":"MTO")+"_{COD}", fotoPrefix:"{COD}",
         notif:{t:"ticket",usuario:user.nombre,tipo},
-        resumen:{ titulo:(isSis?f.Titulo:f.Descripcion)||"Ticket", sub:f.Departamento||"" } }, user.nombre);
+        resumen:{ titulo:f.Titulo||f.Descripcion||"Ticket", sub:f.Departamento||"" } }, user.nombre);
       const rr=await Cola.enviar(user.nombre);
       toast(rr.ok||rr.dup ? ("Ticket creado"+(rr.ultimo?": "+rr.ultimo:""))
         : rr.sinRed ? "Sin señal: el ticket quedó guardado y se enviará solo cuando vuelva el internet."
@@ -4143,7 +4145,16 @@ function Tickets({tipo,user,toast,setFoto}){
      por "chief" arriba) puede fijarla. Se guarda como un campo más del registro,
      igual que cualquier otro patch, así que ya queda incluida en la exportación
      a Excel sin tocar esa función. */
-  async function setPrioridad(r,p){ if(!chief||isSis) return; await apply(r,{Prioridad:p}); toast(p?("Prioridad: "+p):"Prioridad quitada"); }
+  async function setPrioridad(r,p){
+    if(!chief||isSis||!p||p===r.TipoSolicitud) return;
+    const solic = r.Solicitante&&r.Solicitante!=="Tarea programada" ? r.Solicitante : "";
+    await apply(r,{TipoSolicitud:p},"",{
+      avisar: solic ? { para:[{ nombre:solic,
+        texto:`${user.nombre} ajustó la prioridad de tu solicitud ${r.Codigo||""} a ${p}.`,
+        codigo:r.Codigo||"" }] } : undefined
+    });
+    toast("Prioridad ajustada a "+p+(solic?" · se notificó a "+solic:""));
+  }
   const mios=rows.filter(r=>r.Solicitante===user.nombre);
   const equipo=equipoDe(user, isSis?'sistemas':'mantenimiento');
   /* "Mi equipo" listaba los tickets SOLICITADOS por los técnicos, que no es lo que
@@ -4193,7 +4204,9 @@ function Tickets({tipo,user,toast,setFoto}){
         <PhotoField fotos={fotos} setFotos={setFotos} label="Adjuntos (opcional)" setFoto={setFoto}/>
       </> : <>
         <Field label="Fecha de solicitud" req><input type="date" className="inp" value={f.FechaSolicitud} onChange={e=>ch("FechaSolicitud",e.target.value)}/></Field>
-        <Field label="Tipo de solicitud" req>{(chief&&solicOtro==="__prog")?<input className="inp" value="Tarea programada" disabled/>:<select className="inp" value={f.TipoSolicitud} onChange={e=>ch("TipoSolicitud",e.target.value)}><option>Normal</option><option>Urgente</option></select>}</Field>
+        <Field label="Tipo de solicitud" req hint="P1 = urgente, P2 = media, P3 = baja. La jefatura de Mantenimiento o Gerencia General puede ajustarla luego.">{(chief&&solicOtro==="__prog")?<input className="inp" value="Tarea programada" disabled/>:<select className="inp" value={f.TipoSolicitud} onChange={e=>ch("TipoSolicitud",e.target.value)}>{PRIORIDADES.map(p=><option key={p}>{p}</option>)}</select>}</Field>
+        <Field label="Título de la novedad" req><input className="inp" value={f.Titulo} onChange={e=>ch("Titulo",e.target.value)} placeholder="Ej. Aire acondicionado no enfría"/></Field>
+        <Field label="Área de la novedad" req><input className="inp" value={f.AreaNovedad} onChange={e=>ch("AreaNovedad",e.target.value)} placeholder="Ej. Habitación 204, Piscina principal, Cocina Beach Bar"/></Field>
         <Field label="Descripción de la novedad" req><textarea className="inp" value={f.Descripcion} onChange={e=>ch("Descripcion",e.target.value)} placeholder="Describe la novedad…"/></Field>
         {(chief&&solicOtro==="__prog")
           ? <PhotoField fotos={fotos} setFotos={setFotos} label="Imagen de la tarea (opcional)" setFoto={setFoto}/>
@@ -4293,24 +4306,29 @@ function ListaFiltrada({items,tipo,isSis,chief,equipo,onAction,onPrioridad,vacio
   </div>;
 }
 
-/* P1 = urgente, P2 = media, P3 = baja. Solo Mantenimiento (no Sistemas). */
+/* P1 = urgente, P2 = media, P3 = baja. Es el "Tipo de solicitud" del ticket de
+   Mantenimiento (antes Normal/Urgente). Solo Mantenimiento (no Sistemas). La
+   elige quien crea la solicitud, y solo la jefatura de Mantenimiento o
+   Gerencia General puede ajustarla después (avisa al solicitante al hacerlo,
+   ver setPrioridad en Tickets). */
 const PRIORIDADES=["P1","P2","P3"];
 const colorPrioridad=p=>cssVar(p==="P1"?"--red":p==="P2"?"--amber":"--muted");
 function PrioridadPill({r,chief,onPrioridad}){
-  if(!onPrioridad || !chief) return r.Prioridad ? <span className="pill" style={{background:colorPrioridad(r.Prioridad)+"22",color:colorPrioridad(r.Prioridad)}}>{r.Prioridad}</span> : null;
+  if(!onPrioridad || !chief) return r.TipoSolicitud && PRIORIDADES.includes(r.TipoSolicitud)
+    ? <span className="pill" style={{background:colorPrioridad(r.TipoSolicitud)+"22",color:colorPrioridad(r.TipoSolicitud)}}>{r.TipoSolicitud}</span> : null;
+  if(!PRIORIDADES.includes(r.TipoSolicitud)) return null; /* Tarea programada u otro valor: no aplica ajuste de prioridad */
   return <div className="row" style={{gap:6,marginTop:6,flexWrap:"wrap"}}>
     {PRIORIDADES.map(p=><button key={p} className="btn" style={{padding:"4px 10px",fontSize:12,
-      background:r.Prioridad===p?colorPrioridad(p):"#f3efe6", color:r.Prioridad===p?"#fff":"var(--muted)"}}
+      background:r.TipoSolicitud===p?colorPrioridad(p):"#f3efe6", color:r.TipoSolicitud===p?"#fff":"var(--muted)"}}
       onClick={()=>onPrioridad(r,p)}>{p}</button>)}
-    {r.Prioridad && <button className="btn ghost" style={{padding:"4px 10px",fontSize:12}} onClick={()=>onPrioridad(r,"")}>Quitar</button>}
   </div>;
 }
 function TareaCard({r,onAction,usuario}){
   const venc = r.FechaTentativa && (r.FechaTentativa||"").slice(0,10) < hoyEC() && !["Concluido","Cerrado"].includes(r.Estado);
   return <div className="item">
-    <div className="top"><div><div className="code">{r.Codigo}</div><div className="ttl">{r.Descripcion}</div>
-      <div className="meta">{r.Departamento} · {r.TipoSolicitud} · solicitó: {r.Solicitante}</div>
-      {r.Prioridad && <div className="meta" style={{marginTop:2}}><PrioridadPill r={r}/></div>}
+    <div className="top"><div><div className="code">{r.Codigo}</div><div className="ttl">{r.Titulo||r.Descripcion}</div>
+      <div className="meta">{r.Departamento}{r.AreaNovedad?" · Área: "+r.AreaNovedad:""} · solicitó: {r.Solicitante}</div>
+      <div className="meta" style={{marginTop:2}}><PrioridadPill r={r}/></div>
       {apoyosMTO(r).length>0 && <div className="meta">Equipo: {respMTO(r)} (resp.) · {apoyosMTO(r).join(", ")}</div>}</div>
       <Pill estado={r.Estado} overdue={venc}/></div>
     {r.FechaTentativa && <div className="meta" style={{marginTop:6}}><Icon name="calendar" size={15} style={{marginRight:6}}/>Para: {fmtDate(r.FechaTentativa)}{venc?" · ⚠️ vencida":""}</div>}
@@ -4324,10 +4342,10 @@ function TareaCard({r,onAction,usuario}){
     </div></div>;
 }
 function TicketCard({r,isSis,chief,equipo,onAction,onPrioridad}){
-  const titulo=isSis?r.Titulo:r.Descripcion;
+  const titulo=r.Titulo||r.Descripcion;
   return <div className="item">
     <div className="top"><div><div className="code">{r.Codigo}</div><div className="ttl">{titulo}</div>
-      <div className="meta">{r.Solicitante} · {r.Departamento} · {isSis?(r.Urgencia||"").split(" ")[0]:r.TipoSolicitud}</div></div>
+      <div className="meta">{r.Solicitante} · {r.Departamento}{!isSis&&r.AreaNovedad?" · Área: "+r.AreaNovedad:""} · {isSis?(r.Urgencia||"").split(" ")[0]:r.TipoSolicitud}</div></div>
       <Pill estado={r.Estado} overdue={isOverdue(r)}/></div>
     {!isSis && <PrioridadPill r={r} chief={chief} onPrioridad={onPrioridad}/>}
     {r._pendiente && <div className="meta" style={{marginTop:4,color:"#7a5a12",fontWeight:700}}>📥 Cambio pendiente de enviar</div>}
@@ -4414,8 +4432,9 @@ function TicketModal({tipo,isSis,modal,user,equipo,onClose,apply,toast,setFoto})
         ...(item.AreaSolicitante?[["Área solicitante",item.AreaSolicitante]]:[]),
         ...(item.CreadoPor&&item.CreadoPor!==item.Solicitante?[["Registrado por",item.CreadoPor]]:[]),
         ["Departamento",item.Departamento],
-        isSis?["Urgencia",item.Urgencia]:["Tipo",item.TipoSolicitud],
-        isSis?["Título",item.Titulo]:["Fecha solicitud",fmtDate(item.FechaSolicitud)],
+        isSis?["Urgencia",item.Urgencia]:["Tipo de solicitud",item.TipoSolicitud],
+        ["Título",item.Titulo||"—"],
+        ...(!isSis?[["Área de la novedad",item.AreaNovedad||"—"],["Fecha solicitud",fmtDate(item.FechaSolicitud)]]:[]),
         ["Descripción",item.Descripcion],["Estado",item.Estado],["Fecha límite",fmtDate(item.FechaTentativa)],
         isSis?["Asignado",item.Asignado||"—"]:["Responsable",respMTO(item)||"—"],
         ...(!isSis&&apoyosMTO(item).length?[["Apoyos",apoyosMTO(item).join(", ")]]:[]),
@@ -4553,7 +4572,7 @@ function Listado({items,render,empty}){
 /* ===== KANBAN ===== */
 function KanModal({proc,tabla,r,canEdit,cols,onClose,onSaved,toast,setFoto}){
   const isCom=tabla==="Compras", isSis=tabla==="Sistemas";
-  const titulo=isCom?r.Modelo:isSis?r.Titulo:r.Descripcion;
+  const titulo=isCom?r.Modelo:(r.Titulo||r.Descripcion);
   const area=isCom?r.Area:r.Departamento;
   const [estado,setEstado]=useState(r.Estado); const [com,setCom]=useState(""); const [fecha,setFecha]=useState(r.FechaTentativa||"");
   async function guardar(){ const arr=await Store.read(tabla);
@@ -4565,6 +4584,7 @@ function KanModal({proc,tabla,r,canEdit,cols,onClose,onSaved,toast,setFoto}){
   return <Modal title={r.Codigo} onClose={onClose}>
     {[["Solicitante",r.Solicitante],["Área/Depto",area||"—"],["Detalle",titulo||"—"],
       isCom?["Tipo",r.TipoCompra||"—"]:["Prioridad",(isSis?r.Urgencia:r.TipoSolicitud)||"—"],
+      ...(!isCom&&!isSis?[["Área de la novedad",r.AreaNovedad||"—"]]:[]),
       ["Descripción",r.Descripcion||r.Justificacion||"—"],["Estado",r.Estado],
       ["Asignado",r.Asignado||"—"],["Fecha",fmtDate(r.FechaTentativa)]].map(([k,v])=>
       <div className="kv" key={k}><b>{k}</b><span style={{textAlign:"right",maxWidth:"62%"}}>{v}</span></div>)}
