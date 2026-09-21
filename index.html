@@ -4194,6 +4194,23 @@ function Tickets({tipo,user,toast,setFoto}){
     });
     toast("Prioridad ajustada a "+p+(solic?" · se notificó a "+solic:""));
   }
+  /* Recuperar a mano las prioridades de la versión anterior: antes de fusionar
+     "Prioridad" (P1/P2/P3) dentro de "Tipo de solicitud", GG y la jefatura de
+     Mantenimiento ya habían puesto esa prioridad en varias tareas. Existe una
+     migración automática que corre sola una vez por equipo al abrir la app,
+     pero si por lo que sea no alcanzó a aplicarse (se cargó sin señal esa vez,
+     u otro motivo), este botón hace lo mismo bajo demanda y avisa cuántas
+     tareas corrigió, en vez de quedar dependiendo de un paso silencioso. */
+  async function restaurarPrioridadesAntiguas(){
+    try{
+      const arr = await Store.read("Mantenimiento");
+      const aMigrar = arr.filter(r=>PRIORIDADES.includes(r.Prioridad) && !PRIORIDADES.includes(r.TipoSolicitud));
+      if(!aMigrar.length){ toast("No hay tareas con prioridad antigua pendiente de restaurar"); return; }
+      for(const r of aMigrar){ try{ await Store.writeOne("Mantenimiento", {...r, TipoSolicitud:r.Prioridad}); }catch(e){} }
+      toast(`${aMigrar.length} tarea(s) recuperaron su prioridad antigua (P1/P2/P3)`);
+      load();
+    }catch(e){ toast("No se pudo restaurar: "+(e.message||e)); }
+  }
   const mios=rows.filter(r=>r.Solicitante===user.nombre);
   const equipo=equipoDe(user, isSis?'sistemas':'mantenimiento');
   /* "Mi equipo" listaba los tickets SOLICITADOS por los técnicos, que no es lo que
@@ -4230,6 +4247,7 @@ function Tickets({tipo,user,toast,setFoto}){
       {puede(user,`${tipo.toLowerCase()}.tablero`)&&<button className={tab==="tablero"?"on":""} onClick={()=>{setTab("tablero");load();}}><Icon name="chart" size={15} style={{marginRight:6}}/>Tablero</button>}
       {!isSis && puede(user,`${tipo.toLowerCase()}.tablero`)&&<button className={tab==="prod"?"on":""} onClick={()=>{setTab("prod");load();}}><Icon name="trendup" size={15} style={{marginRight:6}}/>Productividad</button>}
     </div>
+    {!isSis && chief && <button className="btn ghost" style={{marginBottom:12,fontSize:12.5}} onClick={restaurarPrioridadesAntiguas}>🔁 Recuperar prioridades antiguas (P1/P2/P3)</button>}
     {tab==="nuevo" && <div className="card">
       {chief
         ? <><Field label="Usuario que solicita" req hint="Puedes registrar a nombre de un aprobador (la encuesta le llegará a esa persona) o como Tarea programada (sin encuesta)."><select className="inp" value={solicOtro} onChange={e=>setSolicOtro(e.target.value)}><option value="">Yo mismo ({user.nombre})</option><option value="__prog">Tarea programada</option>{aprobadores.map(n=><option key={n} value={n}>{n}</option>)}</select></Field>
@@ -5395,15 +5413,25 @@ function HKCamarero({user,toast,setFoto}){
   </div>;
 }
 
-function HKMonitor({toast}){
+function HKMonitor({toast,user,setFoto}){
   const [rooms,setRooms]=useState([]); const [limpiezas,setLimpiezas]=useState([]);
-  const [areasLimpiezas,setAreasLimpiezas]=useState([]);
+  const [areasLimpiezas,setAreasLimpiezas]=useState([]); const [areas,setAreas]=useState([]);
+  const [finalizarArea,setFinalizarArea]=useState(null); /* {registro, area} */
   const load=()=>cargarConReintento(async()=>({rooms:await hkCargarHabitaciones(), limpiezas:await hkCargarLimpiezas(),
-      areasLimpiezas: await hkCargarAreasLimpiezas()}),
-    d=>{setRooms(d.rooms);setLimpiezas(d.limpiezas);setAreasLimpiezas(d.areasLimpiezas);}, toast, "Housekeeping");
+      areasLimpiezas: await hkCargarAreasLimpiezas(), areas: await hkCargarAreas()}),
+    d=>{setRooms(d.rooms);setLimpiezas(d.limpiezas);setAreasLimpiezas(d.areasLimpiezas);setAreas(d.areas);}, toast, "Housekeeping");
   useEffect(()=>{ load(); const t=setInterval(load,60000); return ()=>clearInterval(t); },[]);
   const enProceso = limpiezas.filter(l=>l.estado==="En proceso");
   const areasEnProceso = areasLimpiezas.filter(l=>l.estado==="En proceso");
+  /* Finalizar manualmente desde aquí: para las áreas públicas que quedaron
+     "En proceso" sin que nadie pudiera volver a escanear su QR (sin señal,
+     tablet cambiada, etc.), la jefatura ya no depende de reabrir el QR — cierra
+     la limpieza directamente desde este monitor, con el mismo formulario
+     (fotos + observaciones) que usa el escaneo normal. */
+  function finalizarAhora(l){
+    const area = areas.find(a=>a.id===l.areaId) || {id:l.areaId, nombre:l.areaNombre};
+    setFinalizarArea({registro:l, area});
+  }
   return <div>
     <div className="row" style={{justifyContent:"space-between",marginBottom:10}}>
       <span style={{color:"var(--muted)",fontSize:13}}>{enProceso.length} habitación(es) y {areasEnProceso.length} área(s) en limpieza ahora mismo</span>
@@ -5425,7 +5453,10 @@ function HKMonitor({toast}){
           <div className="ttl">{l.colaborador}</div>
           <div className="meta">Inicio: {fmtDT(l.horaInicio)} · lleva {mins} min</div>
         </div><Pill estado="En proceso"/></div>
+        <div className="acts"><button className="btn green" onClick={()=>finalizarAhora(l)}>✅ Finalizar</button></div>
       </div>; })}
+    {finalizarArea && <HKAreasFinalizar registro={finalizarArea.registro} area={finalizarArea.area} user={user} toast={toast} setFoto={setFoto}
+      onDone={()=>{ setFinalizarArea(null); load(); }}/>}
   </div>;
 }
 
@@ -6341,7 +6372,7 @@ function Housekeeping({user,toast,setFoto}){
     {esDev(user) && <div className="hint" style={{margin:"-6px 0 12px"}}>El catálogo de habitaciones/áreas y la impresión de QR se administran ahora desde <b>Config › Catálogo de habitaciones</b> y <b>Config › Catálogo de áreas</b>.</div>}
     {tab==="escanear" && puedeEscanear && <HKCamarero user={user} toast={toast} setFoto={setFoto}/>}
     {tab==="escanearAreas" && puedeAreas && <HKAreasCamarero user={user} toast={toast} setFoto={setFoto}/>}
-    {tab==="monitor" && puedeCatalogo && <HKMonitor toast={toast}/>}
+    {tab==="monitor" && puedeCatalogo && <HKMonitor toast={toast} user={user} setFoto={setFoto}/>}
     {tab==="auditorias" && puedeCatalogo && <HKAuditorias user={user} toast={toast} setFoto={setFoto}/>}
     {tab==="ildAreas" && puedeCatalogo && <HKAreasILDs user={user} toast={toast} setFoto={setFoto}/>}
     {tab==="horarios" && puedeCatalogo && <HKHorarioSemana toast={toast}/>}
@@ -6412,11 +6443,11 @@ function App(){
            en las que aún no tengan un TipoSolicitud de P1/P2/P3 (para no pisar
            nada ya migrado ni nada creado con el sistema nuevo), y solo una vez
            por dispositivo. */
-        try{ if(!localStorage.getItem("pp_mto_prioridad_migrada_v1")){
+        try{ if(!localStorage.getItem("pp_mto_prioridad_migrada_v2")){
           const mant = await Store.read("Mantenimiento");
           const aMigrar = mant.filter(r=>PRIORIDADES.includes(r.Prioridad) && !PRIORIDADES.includes(r.TipoSolicitud));
           for(const r of aMigrar){ try{ await Store.writeOne("Mantenimiento", {...r, TipoSolicitud:r.Prioridad}); }catch(e){} }
-          localStorage.setItem("pp_mto_prioridad_migrada_v1","1"); } }catch(e){}
+          localStorage.setItem("pp_mto_prioridad_migrada_v2","1"); } }catch(e){}
         bump(); } }
     setChecking(false);
   })(); },[]);
