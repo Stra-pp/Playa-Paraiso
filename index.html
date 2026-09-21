@@ -1113,14 +1113,32 @@ function spCacheGet(t){ const c=SP_ITEMS[t]; if(!c) return null;
 function spCachePut(t,rec){ const c=SP_ITEMS[t]; if(!c) return;
   const i=c.items.findIndex(x=>x.id===rec.id); if(i>=0) c.items[i]=rec; else c.items=[rec,...c.items]; c.ts=Date.now(); }
 const ListStore={
+  /* Sin señal (o si la lectura en vivo falla), en vez de devolver la lista
+     vacía se usa la última copia buena guardada en el equipo (ver
+     cacheListaGuardar/cacheListaLeer). Antes esto era lo que hacía que, al
+     perder internet más de 45s o recargar la página sin señal, un QR ya no
+     encontrara la habitación o la limpieza: la lista se leía en blanco y
+     todo parecía "perdido" cuando solo faltaba la conexión. */
   async read(t,opts){ const fresh=opts&&opts.noCache;
     if(!fresh){ const cached=spCacheGet(t); if(cached) return cached; }
-    const items=await spPages(t,""); spMerge(t,items); const parsed=spParse(t,items); spCacheSet(t,parsed); return parsed; },
-  async readDesde(t,since){ await spEnsureList(t); const c=SP_COLS[t]||{};
+    if(!navigator.onLine){ const off=await cacheListaLeer(t); if(off) return off; return []; }
+    try{
+      const items=await spPages(t,""); spMerge(t,items); const parsed=spParse(t,items); spCacheSet(t,parsed);
+      cacheListaGuardar(t,parsed);
+      return parsed;
+    }catch(e){
+      const off=await cacheListaLeer(t); if(off) return off;
+      throw e;
+    } },
+  async readDesde(t,since){
+    if(!navigator.onLine){ const off=await cacheListaLeer(t); return (off||[]).filter(r=>recFecha(r)>=since); }
+    await spEnsureList(t); const c=SP_COLS[t]||{};
     if(!c.f) return (await this.read(t)).filter(r=>recFecha(r)>=since);
     try{ const items=await spPages(t,`$filter=fields/${c.f} ge '${since}'`); spMerge(t,items); return spParse(t,items); }
     catch(e){ return (await this.read(t)).filter(r=>recFecha(r)>=since); } },
-  async readRango(t,desde,hasta){ await spEnsureList(t); const c=SP_COLS[t]||{};
+  async readRango(t,desde,hasta){
+    if(!navigator.onLine){ const off=await cacheListaLeer(t); return (off||[]).filter(r=>recFecha(r)>=desde&&recFecha(r)<hasta); }
+    await spEnsureList(t); const c=SP_COLS[t]||{};
     if(!c.f) return (await this.read(t)).filter(r=>recFecha(r)>=desde&&recFecha(r)<hasta);
     /* La columna indexada de fecha pudo escribirse en UTC por versiones anteriores.
        Se pide un día más a cada lado y el recorte fino lo hace recFecha, que ya
@@ -1136,7 +1154,9 @@ const ListStore={
      los haya revisado. Si la lista no tiene columnas Fecha/Estado indexadas
      (versión muy antigua sin esas columnas) se devuelve vacío en vez de forzar
      otra descarga completa — el registro seguirá en SharePoint igual. */
-  async readPendientes(t,antesDe){ await spEnsureList(t); const c=SP_COLS[t]||{};
+  async readPendientes(t,antesDe){
+    if(!navigator.onLine){ const off=await cacheListaLeer(t); return (off||[]).filter(r=>recEstado(r)==="Pendiente"&&recFecha(r)<antesDe); }
+    await spEnsureList(t); const c=SP_COLS[t]||{};
     if(!c.f || !c.e) return [];
     try{ const items=await spPages(t,`$filter=fields/${c.e} eq 'Pendiente' and fields/${c.f} lt '${antesDe}'`);
       spMerge(t,items); return spParse(t,items); }
@@ -1146,7 +1166,9 @@ const ListStore={
      sesión, que es el caso normal: la bandeja de aprobación ya lo trajo al abrir la
      pantalla), es una sola llamada liviana a Graph. Solo si el registro es
      desconocido en esta sesión se recurre a traer la lista para ubicarlo. */
-  async readOne(t,id,codigo){ await spEnsureList(t);
+  async readOne(t,id,codigo){
+    if(!navigator.onLine){ const off=await cacheListaLeer(t); if(off){ const hit=off.find(x=>x.id===id||(codigo&&x.Codigo===codigo)); if(hit) return hit; } return null; }
+    await spEnsureList(t);
     const cached=spCacheGet(t); if(cached){ const hit=cached.find(x=>x.id===id||(codigo&&x.Codigo===codigo)); if(hit) return hit; }
     const m=(SP_MAP[t]||new Map()).get(id);
     if(m){ const site=await spSite(); const lid=await spEnsureList(t); const dcol=SP_DCOL[t]||"Data";
@@ -1988,14 +2010,31 @@ function ILD({user,toast,setFoto,bump}){
 /* ===== Borradores offline (IndexedDB): guardar ILD en la tablet sin señal ===== */
 const DDB={ _db:null,
   open(){ return new Promise((res,rej)=>{ if(this._db) return res(this._db);
-    let rq; try{ rq=indexedDB.open("pp_offline",1); }catch(e){ return rej(e); }
-    rq.onupgradeneeded=e=>{ const db=e.target.result; if(!db.objectStoreNames.contains("drafts")) db.createObjectStore("drafts",{keyPath:"id"}); };
+    let rq; try{ rq=indexedDB.open("pp_offline",2); }catch(e){ return rej(e); }
+    rq.onupgradeneeded=e=>{ const db=e.target.result; if(!db.objectStoreNames.contains("drafts")) db.createObjectStore("drafts",{keyPath:"id"});
+      /* "listcache": última copia buena de cada lista de SharePoint (Habitaciones,
+         Limpiezas, Áreas…), guardada cada vez que se logra leer con señal. Sin
+         esto, si el equipo queda sin internet más de 45s (el caché en memoria
+         expira) o se recarga la página estando offline, las listas se veían
+         vacías: el QR no encontraba la habitación y todo parecía "perdido"
+         aunque solo era falta de red. Ahora hay un respaldo que sobrevive
+         recargas y cortes largos de señal. */
+      if(!db.objectStoreNames.contains("listcache")) db.createObjectStore("listcache",{keyPath:"tabla"}); };
     rq.onsuccess=e=>{ this._db=e.target.result; res(this._db); };
     rq.onerror=()=>rej(rq.error); }); },
   async all(){ try{ const db=await this.open(); return await new Promise((res,rej)=>{ const r=db.transaction("drafts","readonly").objectStore("drafts").getAll(); r.onsuccess=()=>res(r.result||[]); r.onerror=()=>rej(r.error); }); }catch(e){ return []; } },
   async put(d){ const db=await this.open(); return new Promise((res,rej)=>{ const r=db.transaction("drafts","readwrite").objectStore("drafts").put(d); r.onsuccess=()=>res(); r.onerror=()=>rej(r.error); }); },
-  async del(id){ try{ const db=await this.open(); return await new Promise((res,rej)=>{ const r=db.transaction("drafts","readwrite").objectStore("drafts").delete(id); r.onsuccess=()=>res(); r.onerror=()=>rej(r.error); }); }catch(e){} }
+  async del(id){ try{ const db=await this.open(); return await new Promise((res,rej)=>{ const r=db.transaction("drafts","readwrite").objectStore("drafts").delete(id); r.onsuccess=()=>res(); r.onerror=()=>rej(r.error); }); }catch(e){} },
+  /* Snapshot persistente de una lista completa, tabla por tabla. */
+  async getList(tabla){ try{ const db=await this.open(); return await new Promise((res,rej)=>{ const r=db.transaction("listcache","readonly").objectStore("listcache").get(tabla); r.onsuccess=()=>res(r.result||null); r.onerror=()=>rej(r.error); }); }catch(e){ return null; } },
+  async putList(tabla,items){ try{ const db=await this.open(); return await new Promise((res,rej)=>{ const r=db.transaction("listcache","readwrite").objectStore("listcache").put({tabla,items,ts:nowISO()}); r.onsuccess=()=>res(); r.onerror=()=>rej(r.error); }); }catch(e){} }
 };
+/* Última copia buena de cada lista, para cuando no hay internet o la consulta
+   en vivo falla: se guarda al leer con éxito y se usa como respaldo. Nunca
+   reemplaza al dato del servidor cuando SÍ hay señal; solo evita pantallas
+   vacías cuando no la hay. */
+async function cacheListaGuardar(tabla,items){ try{ await DDB.putList(tabla, items); }catch(e){} }
+async function cacheListaLeer(tabla){ try{ const c=await DDB.getList(tabla); return c?c.items:null; }catch(e){ return null; } }
 /* =========================================================================
    COLA DE ENVÍO ÚNICA — ILD, Compras, Sistemas y Mantenimiento
    -------------------------------------------------------------------------
