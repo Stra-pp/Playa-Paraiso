@@ -6282,7 +6282,12 @@ function HKProductividad({toast}){
     const tiempos = finalizadas.map(l=>l.tiempoMin).filter(n=>Number.isFinite(n));
     const tiempoProm = tiempos.length ? Math.round(tiempos.reduce((a,b)=>a+b,0)/tiempos.length) : null;
     const promDia = diasProgramados ? (finalizadas.length/diasProgramados) : null;
-    const audsDe = auds.filter(a=>a.colaborador===u.nombre && a.estado==="Auditada" && enElMes(a.fechaAuditoria||a.fecha));
+    /* a.fechaAuditoria es un ISO completo (nowISO(), con hora), no "YYYY-MM-DD":
+       hay que recortarlo a los primeros 10 caracteres antes de pasarlo a
+       enElMes (que le agrega "T00:00:00"), si no la fecha queda inválida y
+       el filtro del mes descarta TODAS las auditorías silenciosamente —
+       por eso no aparecían ni las "Auditadas" ni la "Calificación prom." */
+    const audsDe = auds.filter(a=>a.colaborador===u.nombre && a.estado==="Auditada" && enElMes(String(a.fechaAuditoria||a.fecha||"").slice(0,10)));
     const califs = audsDe.map(a=>a.calificacion).filter(n=>Number.isFinite(n));
     const califProm = califs.length ? Math.round(califs.reduce((a,b)=>a+b,0)/califs.length) : null;
     return { u, diasProgramados, finalizadas:finalizadas.length, tiempoProm, promDia, califProm, auditadas:audsDe.length };
@@ -6301,7 +6306,9 @@ function HKProductividad({toast}){
     const tiempos = finalizadas.map(l=>l.tiempoMin).filter(n=>Number.isFinite(n));
     const tiempoProm = tiempos.length ? Math.round(tiempos.reduce((a,b)=>a+b,0)/tiempos.length) : null;
     const promDia = diasProgramados ? (finalizadas.length/diasProgramados) : null;
-    const ildsDe = ilds.filter(r=>r.usuario===u.nombre && enElMes(r.fecha));
+    /* r.fecha en ILD también es un ISO completo (nowISO()), no "YYYY-MM-DD":
+       mismo recorte que arriba para que enElMes no reciba una fecha inválida. */
+    const ildsDe = ilds.filter(r=>r.usuario===u.nombre && enElMes(String(r.fecha||"").slice(0,10)));
     const revisados = ildsDe.filter(r=>r.estado!=="Pendiente");
     const aprobados = revisados.filter(r=>r.estado==="Aprobado");
     const pctAprobados = revisados.length ? Math.round(aprobados.length/revisados.length*100) : null;
