@@ -1110,6 +1110,12 @@ const SP_ITEMS={}; const SP_LIST_TTL_MS=45000;
 function spCacheSet(t,items){ SP_ITEMS[t]={items,ts:Date.now()}; }
 function spCacheGet(t){ const c=SP_ITEMS[t]; if(!c) return null;
   return (Date.now()-c.ts)<SP_LIST_TTL_MS ? c.items : null; }
+/* Descarta la caché en memoria de una tabla para forzar una lectura en vivo
+   la próxima vez (ver usos en HKMonitor tras cerrar una limpieza sin fotos):
+   evita que, si el registro quedó desactualizado en la caché por cualquier
+   motivo, la persona siga viendo el estado viejo un rato hasta que expire el
+   TTL de 45s. */
+function spCacheBust(t){ delete SP_ITEMS[t]; }
 function spCachePut(t,rec){ const c=SP_ITEMS[t]; if(!c) return;
   const i=c.items.findIndex(x=>x.id===rec.id); if(i>=0) c.items[i]=rec; else c.items=[rec,...c.items]; c.ts=Date.now(); }
 const ListStore={
@@ -5139,8 +5145,23 @@ async function conPendientesLocal(tabla, arr){
     return out;
   }catch(e){ return arr; }
 }
+/* Defensa contra duplicados: si por alguna falla de sincronización (por
+   ejemplo, un registro viejo que ya no se ubicaba por su spId y se volvió a
+   crear en vez de actualizarse) quedaron dos filas con el mismo id — una ya
+   "Finalizado" y otra todavía "En proceso" — se muestra solo una, y se
+   prefiere la "Finalizado" para que una limpieza que sí se cerró no se siga
+   viendo como pendiente ("se borra y al rato vuelve a aparecer"). */
+function hkDedupPorId(arr){
+  const porId = new Map();
+  for(const r of arr){
+    const prev = porId.get(r.id);
+    if(!prev){ porId.set(r.id, r); continue; }
+    if(prev.estado==="En proceso" && r.estado!=="En proceso") porId.set(r.id, r);
+  }
+  return [...porId.values()];
+}
 async function hkCargarHabitaciones(){ try{ return await conPendientesLocal("HKHabitaciones", await Store.read("HKHabitaciones")); }catch(e){ return []; } }
-async function hkCargarLimpiezas(){ try{ return await conPendientesLocal("HKLimpiezas", await Store.read("HKLimpiezas")); }catch(e){ return []; } }
+async function hkCargarLimpiezas(){ try{ return hkDedupPorId(await conPendientesLocal("HKLimpiezas", await Store.read("HKLimpiezas"))); }catch(e){ return []; } }
 
 function HKRoomModal({room,onClose,onSaved,toast,rooms}){
   const esNuevo = !room;
@@ -5460,6 +5481,12 @@ function HKMonitor({toast,user,setFoto}){
         notif:{t:"ild",usuario:l.colaborador},
         resumen:{ titulo:"Habitaciones", sub:"Hab. "+room.numero+" (sin fotos)" } }, user.nombre);
       const r = await Cola.enviar(user.nombre);
+      /* Se descarta la caché en memoria de estas dos tablas antes de recargar:
+         si el registro se quedó "En proceso" en la caché por cualquier motivo,
+         esto obliga a leerlo de nuevo en vivo en vez de seguir mostrando el
+         estado viejo hasta que expire (era la causa de "se borra y al rato
+         vuelve a aparecer"). */
+      spCacheBust("HKLimpiezas"); spCacheBust("HKHabitaciones");
       toast(r.sinRed?"Guardado sin señal. Se envía solo cuando vuelva el internet.":"Limpieza cerrada sin fotos.");
       load();
     }catch(e){ toast("No se pudo cerrar: "+(e.message||e)); }
@@ -5486,6 +5513,7 @@ function HKMonitor({toast,user,setFoto}){
         notif:{t:"ild",usuario:l.colaborador},
         resumen:{ titulo:"Áreas Públicas", sub:area.nombre+" (sin fotos)" } }, user.nombre);
       const r = await Cola.enviar(user.nombre);
+      spCacheBust("HKAreasLimpiezas"); spCacheBust("HKAreas");
       toast(r.sinRed?"Guardado sin señal. Se envía solo cuando vuelva el internet.":"Limpieza cerrada sin fotos.");
       load();
     }catch(e){ toast("No se pudo cerrar: "+(e.message||e)); }
@@ -5518,7 +5546,7 @@ function HKMonitor({toast,user,setFoto}){
         </div>
       </div>; })}
     {finalizarArea && <HKAreasFinalizar registro={finalizarArea.registro} area={finalizarArea.area} user={user} toast={toast} setFoto={setFoto}
-      onDone={()=>{ setFinalizarArea(null); load(); }}/>}
+      onDone={()=>{ setFinalizarArea(null); spCacheBust("HKAreasLimpiezas"); spCacheBust("HKAreas"); load(); }}/>}
   </div>;
 }
 
@@ -5546,7 +5574,7 @@ const HK_AREAS_SEED = (CL['Áreas Públicas']||[]).map(nombre => ({
 }));
 
 async function hkCargarAreas(){ try{ return await Store.read("HKAreas"); }catch(e){ return []; } }
-async function hkCargarAreasLimpiezas(){ try{ return await conPendientesLocal("HKAreasLimpiezas", await Store.read("HKAreasLimpiezas")); }catch(e){ return []; } }
+async function hkCargarAreasLimpiezas(){ try{ return hkDedupPorId(await conPendientesLocal("HKAreasLimpiezas", await Store.read("HKAreasLimpiezas"))); }catch(e){ return []; } }
 
 /* Igual que hkImprimirQRs pero para áreas: pestaña aparte, misma librería
    embebida (QRCODEJS_DATAURI) para no depender de red al imprimir. */
