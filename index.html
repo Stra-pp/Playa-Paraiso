@@ -4277,9 +4277,14 @@ function fmtHrs(h){ if(h==null) return "—"; if(h<24) return (Math.round(h*10)/
    Cada instancia lleva su propio estado: cambiar de pestaña no arrastra el filtro. */
 function ListaFiltrada({items,tipo,isSis,chief,equipo,onAction,onPrioridad,vacio,unidad,toast,nombreExport}){
   const [fil,setFil]=useState("todas");
+  const [filP,setFilP]=useState("todas");
   const [soloHoy,setSoloHoy]=useState(false);
   const hoyStr=hoyEC();
-  const base = soloHoy ? (items||[]).filter(r=>(r.FechaTentativa||"").slice(0,10)===hoyStr) : (items||[]);
+  let base = soloHoy ? (items||[]).filter(r=>(r.FechaTentativa||"").slice(0,10)===hoyStr) : (items||[]);
+  /* Filtro por prioridad (P1/P2/P3): solo aplica a Mantenimiento, donde el
+     "Tipo de solicitud" ES la prioridad. Es independiente del filtro por
+     estado: se combinan (AND) para poder ver, por ejemplo, "P1 · Nuevas". */
+  if(!isSis && filP!=="todas") base = base.filter(r=>r.TipoSolicitud===filP);
   const porFecha=(a,b)=>new Date(fechaBase(a))-new Date(fechaBase(b));
   let v=base;
   if(fil==="nuevas") v=base.filter(r=>bucketEstado(r.Estado)==="nuevas").sort(porFecha);
@@ -4295,6 +4300,11 @@ function ListaFiltrada({items,tipo,isSis,chief,equipo,onAction,onPrioridad,vacio
       <button className={fil==="concluidas"?"on":""} onClick={()=>setFil("concluidas")}>✅ Concluidas / cerradas</button>
       <button className={fil==="v15"?"on":""} onClick={()=>setFil("v15")}>⏰ +15 días en nuevo</button>
     </div>
+    {!isSis && <div className="seg" style={{flexWrap:"wrap",marginTop:8}}>
+      <button className={filP==="todas"?"on":""} onClick={()=>setFilP("todas")}>Toda prioridad</button>
+      {PRIORIDADES.map(p=><button key={p} className={filP===p?"on":""} onClick={()=>setFilP(p)}
+        style={filP===p?{background:colorPrioridad(p),borderColor:colorPrioridad(p)}:undefined}>{p}</button>)}
+    </div>}
     <div className="row" style={{margin:"8px 0 12px",gap:8,flexWrap:"wrap"}}>
       <button className={"btn "+(soloHoy?"ghost":"primary")} onClick={()=>setSoloHoy(false)}>Todas fechas</button>
       <button className={"btn "+(soloHoy?"primary":"ghost")} onClick={()=>setSoloHoy(true)}>📅 Vencen hoy ({venceHoy})</button>
@@ -4313,10 +4323,19 @@ function ListaFiltrada({items,tipo,isSis,chief,equipo,onAction,onPrioridad,vacio
    ver setPrioridad en Tickets). */
 const PRIORIDADES=["P1","P2","P3"];
 const colorPrioridad=p=>cssVar(p==="P1"?"--red":p==="P2"?"--amber":"--muted");
-function PrioridadPill({r,chief,onPrioridad}){
-  if(!onPrioridad || !chief) return r.TipoSolicitud && PRIORIDADES.includes(r.TipoSolicitud)
-    ? <span className="pill" style={{background:colorPrioridad(r.TipoSolicitud)+"22",color:colorPrioridad(r.TipoSolicitud)}}>{r.TipoSolicitud}</span> : null;
-  if(!PRIORIDADES.includes(r.TipoSolicitud)) return null; /* Tarea programada u otro valor: no aplica ajuste de prioridad */
+/* Insignia de solo lectura: el color de siempre (P1 rojo, P2 ámbar, P3 gris)
+   junto al estado del ticket, visible para cualquiera lo vea o no pueda
+   cambiarla. */
+function PrioridadBadge({tipo}){
+  if(!PRIORIDADES.includes(tipo)) return null;
+  return <span className="pill" style={{background:colorPrioridad(tipo)+"22",color:colorPrioridad(tipo),fontWeight:700}}>{tipo}</span>;
+}
+/* Selector editable: solo para la jefatura de Mantenimiento / Gerencia General
+   (onPrioridad viene de setPrioridad en Tickets, que además notifica al
+   solicitante). Si no hay onPrioridad no se puede cambiar, así que no se
+   dibuja el selector (la insignia de arriba ya deja ver la prioridad). */
+function PrioridadPill({r,onPrioridad}){
+  if(!onPrioridad || !PRIORIDADES.includes(r.TipoSolicitud)) return null;
   return <div className="row" style={{gap:6,marginTop:6,flexWrap:"wrap"}}>
     {PRIORIDADES.map(p=><button key={p} className="btn" style={{padding:"4px 10px",fontSize:12,
       background:r.TipoSolicitud===p?colorPrioridad(p):"#f3efe6", color:r.TipoSolicitud===p?"#fff":"var(--muted)"}}
@@ -4328,9 +4347,10 @@ function TareaCard({r,onAction,usuario}){
   return <div className="item">
     <div className="top"><div><div className="code">{r.Codigo}</div><div className="ttl">{r.Titulo||r.Descripcion}</div>
       <div className="meta">{r.Departamento}{r.AreaNovedad?" · Área: "+r.AreaNovedad:""} · solicitó: {r.Solicitante}</div>
-      <div className="meta" style={{marginTop:2}}><PrioridadPill r={r}/></div>
       {apoyosMTO(r).length>0 && <div className="meta">Equipo: {respMTO(r)} (resp.) · {apoyosMTO(r).join(", ")}</div>}</div>
-      <Pill estado={r.Estado} overdue={venc}/></div>
+      <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
+        <Pill estado={r.Estado} overdue={venc}/><PrioridadBadge tipo={r.TipoSolicitud}/>
+      </div></div>
     {r.FechaTentativa && <div className="meta" style={{marginTop:6}}><Icon name="calendar" size={15} style={{marginRight:6}}/>Para: {fmtDate(r.FechaTentativa)}{venc?" · ⚠️ vencida":""}</div>}
     {r.CierreCumplimiento && <div className="meta" style={{marginTop:4,fontWeight:700,color:r.CierreCumplimiento.includes("atraso")?"var(--coral)":"var(--green)"}}>{r.CierreCumplimiento}</div>}
     <div className="acts">
@@ -4345,9 +4365,11 @@ function TicketCard({r,isSis,chief,equipo,onAction,onPrioridad}){
   const titulo=r.Titulo||r.Descripcion;
   return <div className="item">
     <div className="top"><div><div className="code">{r.Codigo}</div><div className="ttl">{titulo}</div>
-      <div className="meta">{r.Solicitante} · {r.Departamento}{!isSis&&r.AreaNovedad?" · Área: "+r.AreaNovedad:""} · {isSis?(r.Urgencia||"").split(" ")[0]:r.TipoSolicitud}</div></div>
-      <Pill estado={r.Estado} overdue={isOverdue(r)}/></div>
-    {!isSis && <PrioridadPill r={r} chief={chief} onPrioridad={onPrioridad}/>}
+      <div className="meta">{r.Solicitante} · {r.Departamento}{!isSis&&r.AreaNovedad?" · Área: "+r.AreaNovedad:""}{isSis?" · "+(r.Urgencia||"").split(" ")[0]:""}</div></div>
+      <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
+        <Pill estado={r.Estado} overdue={isOverdue(r)}/>{!isSis && <PrioridadBadge tipo={r.TipoSolicitud}/>}
+      </div></div>
+    {!isSis && chief && <PrioridadPill r={r} onPrioridad={onPrioridad}/>}
     {r._pendiente && <div className="meta" style={{marginTop:4,color:"#7a5a12",fontWeight:700}}>📥 Cambio pendiente de enviar</div>}
     {r.FechaTentativa && <div className="meta" style={{marginTop:6}}><Icon name="calendar" size={15} style={{marginRight:6}}/>{fmtDate(r.FechaTentativa)}</div>}
     {(isSis? !!r.Asignado : equipoMTO(r).length>0) && <div className="meta" style={{marginTop:4}}><Icon name="user" size={15} style={{marginRight:6}}/>
