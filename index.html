@@ -6403,6 +6403,20 @@ function App(){
           const curAreas = await Store.read("HKAreas");
           if(!curAreas.length && HK_AREAS_SEED.length) await Store.write("HKAreas", HK_AREAS_SEED);
           localStorage.setItem("pp_hk_areas_seed_v1","1"); } }catch(e){}
+        /* Migración única: tareas viejas de Mantenimiento que ya tenían su
+           prioridad puesta en el campo aparte "Prioridad" (P1/P2/P3), de antes
+           de que "Tipo de solicitud" pasara a ser esa misma prioridad. Sin esto
+           esas tareas se quedaban mostrando su "Tipo de solicitud" antiguo
+           (Normal/Urgente/vacío) y la prioridad que la jefatura ya les había
+           puesto se veía como perdida. Se copia Prioridad → TipoSolicitud solo
+           en las que aún no tengan un TipoSolicitud de P1/P2/P3 (para no pisar
+           nada ya migrado ni nada creado con el sistema nuevo), y solo una vez
+           por dispositivo. */
+        try{ if(!localStorage.getItem("pp_mto_prioridad_migrada_v1")){
+          const mant = await Store.read("Mantenimiento");
+          const aMigrar = mant.filter(r=>PRIORIDADES.includes(r.Prioridad) && !PRIORIDADES.includes(r.TipoSolicitud));
+          for(const r of aMigrar){ try{ await Store.writeOne("Mantenimiento", {...r, TipoSolicitud:r.Prioridad}); }catch(e){} }
+          localStorage.setItem("pp_mto_prioridad_migrada_v1","1"); } }catch(e){}
         bump(); } }
     setChecking(false);
   })(); },[]);
