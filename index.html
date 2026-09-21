@@ -4396,9 +4396,15 @@ function PrioridadBadge({tipo}){
 /* Selector editable: solo para la jefatura de Mantenimiento / Gerencia General
    (onPrioridad viene de setPrioridad en Tickets, que además notifica al
    solicitante). Si no hay onPrioridad no se puede cambiar, así que no se
-   dibuja el selector (la insignia de arriba ya deja ver la prioridad). */
+   dibuja el selector (la insignia de arriba ya deja ver la prioridad).
+   Por pedido explícito: antes exigía que el ticket YA tuviera P1/P2/P3 en
+   TipoSolicitud para dibujar los botones, así que los tickets antiguos (de
+   antes de este campo, con TipoSolicitud="Normal"/"Urgente" o vacío) que
+   siguen abiertos se quedaban SIN forma de asignarles prioridad. Ahora se
+   muestra para cualquier ticket que no esté concluido/cerrado, tenga o no
+   ya una prioridad puesta. */
 function PrioridadPill({r,onPrioridad}){
-  if(!onPrioridad || !PRIORIDADES.includes(r.TipoSolicitud)) return null;
+  if(!onPrioridad || bucketEstado(r.Estado)==="concluidas") return null;
   return <div className="row" style={{gap:6,marginTop:6,flexWrap:"wrap"}}>
     {PRIORIDADES.map(p=><button key={p} className="btn" style={{padding:"4px 10px",fontSize:12,
       background:r.TipoSolicitud===p?colorPrioridad(p):"#f3efe6", color:r.TipoSolicitud===p?"#fff":"var(--muted)"}}
