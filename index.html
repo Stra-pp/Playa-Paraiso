@@ -4231,7 +4231,13 @@ function Tickets({tipo,user,toast,setFoto}){
       load();
     }catch(e){ toast("No se pudo restaurar: "+(e.message||e)); }
   }
-  const mios=rows.filter(r=>r.Solicitante===user.nombre);
+  /* Por pedido explícito: una vez que el ticket llega a "Cerrado" (el paso
+     final, después de la encuesta de satisfacción — ver t==="encuesta" más
+     abajo), ya no debe seguir apareciendo en "Mis tickets" de quien lo creó:
+     solo debe ver ahí las que están nuevas, en proceso o concluidas
+     (finalizadas). "Rechazado" SÍ se mantiene visible (decisión explícita),
+     para que el solicitante sepa que su ticket no se hizo. */
+  const mios=rows.filter(r=>r.Solicitante===user.nombre && r.Estado!=="Cerrado");
   const equipo=equipoDe(user, isSis?'sistemas':'mantenimiento');
   /* "Mi equipo" listaba los tickets SOLICITADOS por los técnicos, que no es lo que
      una jefatura de mantenimiento necesita ver: sus tareas ya están en Gestión y en
