@@ -5479,7 +5479,11 @@ function HKMonitor({toast,user,setFoto}){
         patch:{ estado:HK_EST_DISPONIBLE, ultimaLimpieza:{ fecha:horaFin, colaborador:l.colaborador, tiempoMin, codigo:l.Codigo } },
         patchId:"habok-sf-"+l.id }, user.nombre);
       await Cola.add({ tabla:"ILD", prefijo:"ILD",
-        rec:{ id:gid(), area:AREA_HAB(), turno:AC[AREA_HAB()]?.t||'', selecciones:{}, usuario:l.colaborador,
+        /* id ESTABLE (derivado de l.id, no gid() nuevo cada vez): si la persona
+           le da varias veces al botón porque la pantalla no mostraba avance,
+           colaEnviarUno ya detecta que ese id "ya" se envió y no crea un ILD
+           duplicado — antes cada clic generaba una aprobación pendiente nueva. */
+        rec:{ id:"ildsf-"+l.id, area:AREA_HAB(), turno:AC[AREA_HAB()]?.t||'', selecciones:{}, usuario:l.colaborador,
           fecha:horaFin, checks:l.checks||{}, textos:{}, obs:NOTA_SIN_FOTOS, estado:"Pendiente", notaJef:"", aprobador:"",
           fechaAprobacion:"", notaGerencia:"", totalItems:items.length, completados:Object.keys(l.checks||{}).length, clItems:[...items],
           aprobadorEsperado:APR[AREA_HAB()]||"—", habitacionNumero:room.numero, origenQR:true, cierreSinFotos:true },
@@ -5511,7 +5515,9 @@ function HKMonitor({toast,user,setFoto}){
         patch:{ estado:HK_EST_DISPONIBLE, ultimaLimpieza:{ fecha:horaFin, colaborador:l.colaborador, tiempoMin, codigo:l.Codigo } },
         patchId:"areaok-sf-"+l.id }, user.nombre);
       await Cola.add({ tabla:"ILD", prefijo:"ILD",
-        rec:{ id:gid(), area:AREA_AP(), turno:"", zona:area.nombre, selecciones:{}, usuario:l.colaborador,
+        /* Mismo id estable que en cerrarHabitacionSinFotos, para que reintentos
+           del mismo cierre no generen una aprobación pendiente duplicada. */
+        rec:{ id:"ildsf-"+l.id, area:AREA_AP(), turno:"", zona:area.nombre, selecciones:{}, usuario:l.colaborador,
           fecha:horaFin, checks:{}, textos:{}, obs:NOTA_SIN_FOTOS, estado:"Pendiente", notaJef:"", aprobador:"",
           fechaAprobacion:"", notaGerencia:"", totalItems:1, completados:1, clItems:(CL[AREA_AP()]||[]),
           aprobadorEsperado:APR[AREA_AP()]||"—", origenQR:true, cierreSinFotos:true },
@@ -6402,6 +6408,7 @@ function HKProductividad({toast}){
 function HKAreasILDs({user,toast,setFoto}){
   const [regs,setRegs]=useState([]); const [det,setDet]=useState(null);
   const [filtro,setFiltro]=useState("Pendiente");
+  const [borrando,setBorrando]=useState(false);
   const VIGENCIA_DIAS = 45;
   const load=()=>cargarConReintento(async()=>{
     const desde = desdeDias(VIGENCIA_DIAS);
@@ -6416,8 +6423,49 @@ function HKAreasILDs({user,toast,setFoto}){
   const ordenados = [...regs].sort((a,b)=> (b.fecha||"").localeCompare(a.fecha||""));
   const pendientes = ordenados.filter(r=>r.estado==="Pendiente");
   const vistos_ = filtro==="todos" ? ordenados : ordenados.filter(r=>r.estado===filtro);
+  /* "Cerrar sin fotos" (ver HKMonitor) podía crear más de un ILD para la MISMA
+     limpieza si se le daba varias veces al botón porque la pantalla no
+     mostraba avance (bug de caché ya corregido). Se agrupan las pendientes
+     marcadas cierreSinFotos por área+colaborador+día: si hay más de una en el
+     mismo grupo, son duplicadas entre sí y se puede dejar solo la más
+     reciente con un clic, en vez de aprobarlas/rechazarlas una por una. */
+  const gruposDuplicados = (()=>{
+    const porGrupo = new Map();
+    pendientes.filter(r=>r.cierreSinFotos).forEach(r=>{
+      const clave = `${r.zona||r.area}|${r.usuario}|${(r.fecha||"").slice(0,10)}`;
+      if(!porGrupo.has(clave)) porGrupo.set(clave, []);
+      porGrupo.get(clave).push(r);
+    });
+    return [...porGrupo.entries()].filter(([,arr])=>arr.length>1)
+      .map(([clave,arr])=>({ clave, items: arr.sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||"")) }));
+  })();
+  const totalDuplicadosSobrantes = gruposDuplicados.reduce((n,g)=>n+g.items.length-1,0);
+  async function eliminarDuplicados(){
+    if(!totalDuplicadosSobrantes) return;
+    if(!confirm(`Se eliminarán ${totalDuplicadosSobrantes} ILD duplicado(s) de "cierre sin fotos" (se deja solo el más reciente de cada área/colaborador/día). Esta acción no se puede deshacer. ¿Continuar?`)) return;
+    setBorrando(true);
+    try{
+      let n=0;
+      for(const g of gruposDuplicados){
+        for(const r of g.items.slice(1)){ try{ await Store.remove("ILD", r.id); n++; }catch(e){} }
+      }
+      toast(`${n} ILD duplicado(s) eliminado(s)`);
+      await load();
+    }catch(e){ toast("No se pudo completar la limpieza: "+(e.message||e)); }
+    setBorrando(false);
+  }
+  async function eliminarUno(r,ev){
+    ev.stopPropagation();
+    if(!confirm(`¿Eliminar este ILD (${r.Codigo||("#"+r.id)}) de forma permanente? Esta acción no se puede deshacer.`)) return;
+    try{ await Store.remove("ILD", r.id); toast("ILD eliminado"); await load(); }
+    catch(e){ toast("No se pudo eliminar: "+(e.message||e)); }
+  }
   return <div>
     <div className="hint" style={{marginBottom:10}}>Aquí se revisa el 100% de las limpiezas de Áreas Públicas — no es una muestra, a diferencia de las auditorías de Habitaciones.</div>
+    {!!totalDuplicadosSobrantes && <div className="hint" style={{background:"#FFF4E0",border:"1px solid #F3D9A6",borderRadius:9,padding:"9px 11px",marginBottom:12,color:"#7a5a12"}}>
+      Se detectaron {totalDuplicadosSobrantes} ILD pendiente(s) duplicado(s), probablemente de "Cerrar sin fotos" dado varias veces sobre la misma limpieza.
+      <div style={{marginTop:8}}><button className="btn red" disabled={borrando} onClick={eliminarDuplicados}>{borrando?"Eliminando…":`🧹 Eliminar ${totalDuplicadosSobrantes} duplicado(s)`}</button></div>
+    </div>}
     <div className="seg">
       {[["Pendiente","Pendientes ("+pendientes.length+")"],["Aprobado","Aprobados"],["Con observaciones","Con obs."],["todos","Todos"]].map(([k,l])=>
         <button key={k} className={filtro===k?"on":""} onClick={()=>setFiltro(k)}>{l}</button>)}
@@ -6426,11 +6474,14 @@ function HKAreasILDs({user,toast,setFoto}){
     {vistos_.map(r=><div key={r.id} className="item" onClick={()=>setDet(r)}>
       <div className="top">
         <div>
-          <div className="code">{r.Codigo||("ILD #"+r.id)}</div>
+          <div className="code">{r.Codigo||("ILD #"+r.id)}{r.cierreSinFotos?" · sin fotos":""}</div>
           <div className="ttl">{r.zona||r.area}</div>
           <div className="meta">{r.usuario} · {fmtDT(r.fecha)} · 📷 {(r.fotos||[]).length}</div>
         </div>
-        <Pill estado={r.estado}/>
+        <div className="row" style={{gap:6,alignItems:"center"}}>
+          <Pill estado={r.estado}/>
+          {r.estado==="Pendiente" && <button className="btn ghost" style={{padding:"4px 8px",fontSize:12}} onClick={e=>eliminarUno(r,e)}>🗑️</button>}
+        </div>
       </div>
     </div>)}
     {det && <ILDDetail user={user} r={det} onClose={()=>setDet(null)} reload={load} toast={toast} setFoto={setFoto}/>}
