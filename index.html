@@ -2719,7 +2719,11 @@ function SpImg({foto,idx,onClick}){
 function actaILD(r){
   const esc=s=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
   const f=d=>d?new Date(d).toLocaleString('es-EC',{timeZone:TZ_EC}):'—';
-  const items=itemsDe(r);
+  /* Igual que en ILDDetail: en modo "lista" (Áreas Públicas) no hay checklist
+     de tareas, cada ILD es una zona puntual — no se imprime la tabla con las
+     ~20 zonas del catálogo (siempre en blanco), solo cuál zona fue. */
+  const esModoLista = areaModo(r.area)==='lista';
+  const items=esModoLista?[]:itemsDe(r);
   const filas=items.map((it,i)=>{ const tx=itemText(it),tp=itemTipo(it); let val="—";
     if(tp==='sino'||tp==='sino_foto'){ const v=(r.checks&&r.checks['yn-'+i])||""; val=v==='si'?'Sí':v==='no'?'No':'—'; }
     else if(tp==='texto'){ val=(r.textos&&r.textos[i])||'—'; }
@@ -2736,12 +2740,13 @@ function actaILD(r){
   .note{margin-top:12px;padding:10px;border-radius:8px;background:#f6f4ee;font-size:13px}</style></head><body>
   <div class="tag">${esc(r.estado)}</div>
   <h1>ILD No. ${esc(cod)} — ${esc(r.area)}${r.turno?` · ${esc(r.turno)}`:""}</h1>
+  ${esModoLista?`<div class="kv"><b>Zona limpiada</b><span>${esc(r.zona||'—')}</span></div>`:""}
   <div class="kv"><b>Responsable</b><span>${esc(r.usuario)}</span></div>
   <div class="kv"><b>Fecha</b><span>${f(r.fecha)}</span></div>
   <div class="kv"><b>Aprobado por</b><span>${esc(r.aprobador||'—')}</span></div>
   <div class="kv"><b>Fecha de aprobación</b><span>${f(r.fechaAprobacion)}</span></div>
-  <div class="kv"><b>Ítems completados</b><span>${esc((r.completados||0)+"/"+(r.totalItems||0))}</span></div>
-  <table><tr><th>Ítem del checklist</th><th style="text-align:center">Resultado</th></tr>${filas}</table>
+  ${esModoLista?"":`<div class="kv"><b>Ítems completados</b><span>${esc((r.completados||0)+"/"+(r.totalItems||0))}</span></div>
+  <table><tr><th>Ítem del checklist</th><th style="text-align:center">Resultado</th></tr>${filas}</table>`}
   ${r.obs?`<div class="note"><b>Nota del colaborador:</b> ${esc(r.obs)}</div>`:""}
   ${r.notaJef?`<div class="note"><b>Comentario de ${esc(r.aprobador)}:</b> ${esc(r.notaJef)}</div>`:""}
   ${r.notaGerencia?`<div class="note"><b>Gerencia:</b> ${esc(r.notaGerencia)}</div>`:""}
@@ -2806,12 +2811,21 @@ function ILDDetail({user,r,onClose,reload,toast,setFoto}){
       : "La nota quedó guardada en este equipo. Se reintentará.");
     reload(); onClose();
   }
+  /* Áreas Públicas (y cualquier otra área en modo "lista") no llena un
+     checklist de tareas: cada ILD es UNA zona puntual, y r.clItems guardaba
+     el catálogo COMPLETO de las ~20 zonas solo para poder mostrar su nombre
+     en otras pantallas — mostrarlo aquí como "Checklist" no aporta nada
+     (siempre sale todo en blanco, "○") y confunde, porque el QR o el
+     formulario ya dicen exactamente qué zona se limpió (r.zona). Por pedido
+     explícito, para estas ILD se muestra solo la zona, no el listado. */
+  const esModoLista = areaModo(r.area)==='lista';
   return <Modal title={(r.Codigo||("ILD #"+r.id))} onClose={onClose}>
-    {[["Área",r.area+(r.turno?` · ${r.turno}`:"")],["Responsable",r.usuario],["Fecha",fmtDT(r.fecha)],
-      ["Aprobador esperado",r.aprobadorEsperado||"—"],["Ítems",`${r.completados}/${r.totalItems}`],
+    {[["Área",r.area+(r.turno?` · ${r.turno}`:"")], ...(esModoLista?[["Zona limpiada",r.zona||"—"]]:[]),
+      ["Responsable",r.usuario],["Fecha",fmtDT(r.fecha)],
+      ["Aprobador esperado",r.aprobadorEsperado||"—"], ...(esModoLista?[]:[["Ítems",`${r.completados}/${r.totalItems}`]]),
       ["Estado",r.estado]].map(([k,v])=><div className="kv" key={k}><b>{k}</b><span>{v}</span></div>)}
     <button className="btn ocean block" style={{margin:"10px 0"}} onClick={()=>actaILD(r)}><Icon name="filetext" size={15} style={{marginRight:6}}/>Descargar PDF del ILD</button>
-    <h3 style={{margin:"14px 0 6px"}}>Checklist</h3>
+    {!esModoLista && <><h3 style={{margin:"14px 0 6px"}}>Checklist</h3>
     {items.map((it,i)=>{ const tx=itemText(it),tp=itemTipo(it);
       let val;
       if(tp==='sino'||tp==='sino_foto'){ const v=(r.checks&&r.checks['yn-'+i])||""; val=v==='si'?<b style={{color:"var(--green)"}}>✅ Sí</b>:v==='no'?<b style={{color:"var(--red)"}}>❌ No</b>:<span style={{color:"#bbb"}}>—</span>; }
@@ -2820,7 +2834,7 @@ function ILDDetail({user,r,onClose,reload,toast,setFoto}){
       else { val=<span style={{color:r.checks&&r.checks[i]?"var(--green)":"#ccc"}}>{r.checks&&r.checks[i]?"✓":"○"}</span>; }
       return <div key={i} style={{display:"flex",justifyContent:"space-between",gap:10,padding:"7px 0",borderBottom:"1px solid #f3efe6",fontSize:13}}>
         <span style={{flex:1}}>{i+1}. {tx}</span>{val}</div>;
-    })}
+    })}</>}
     {(r.fotos||[]).length>0 && <><h3 style={{margin:"14px 0 6px"}}>Fotos ({r.fotos.length})</h3>
       <div className="fgrid">{r.fotos.map((f,i)=><SpImg key={i} foto={f} idx={i+1} onClick={setFoto}/>)}</div></>}
     {r.obs && <div className="note obs"><b><Icon name="edit" size={15} style={{marginRight:6}}/>Nota del colaborador</b><div>{r.obs}</div></div>}
