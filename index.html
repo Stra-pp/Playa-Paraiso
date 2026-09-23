@@ -4238,6 +4238,22 @@ function Tickets({tipo,user,toast,setFoto}){
      (finalizadas). "Rechazado" SÍ se mantiene visible (decisión explícita),
      para que el solicitante sepa que su ticket no se hizo. */
   const mios=rows.filter(r=>r.Solicitante===user.nombre && r.Estado!=="Cerrado");
+  /* Botones de filtro por estado para "Mis tickets" (no-jefatura): pedido
+     explícito para que el propio solicitante pueda ubicar rápido sus tickets
+     nuevos, en proceso, concluidos o rechazados sin tener que leer toda la
+     lista. "Concluidas" y "Rechazadas" se separan aunque bucketEstado() las
+     agrupe a ambas como "concluidas", porque para quien solicitó el ticket
+     son estados con significado muy distinto. */
+  const [filMios,setFilMios]=useState("todas");
+  const miosNuevas=mios.filter(r=>bucketEstado(r.Estado)==="nuevas");
+  const miosProceso=mios.filter(r=>bucketEstado(r.Estado)==="proceso");
+  const miosConcluidas=mios.filter(r=>r.Estado==="Concluido");
+  const miosRechazadas=mios.filter(r=>r.Estado==="Rechazado");
+  const miosMostrar = filMios==="nuevas"?miosNuevas
+    : filMios==="proceso"?miosProceso
+    : filMios==="concluidas"?miosConcluidas
+    : filMios==="rechazadas"?miosRechazadas
+    : mios;
   const equipo=equipoDe(user, isSis?'sistemas':'mantenimiento');
   /* "Mi equipo" listaba los tickets SOLICITADOS por los técnicos, que no es lo que
      una jefatura de mantenimiento necesita ver: sus tareas ya están en Gestión y en
@@ -4300,7 +4316,16 @@ function Tickets({tipo,user,toast,setFoto}){
       ? <ListaFiltrada items={programadas} tipo={tipo} isSis={isSis} chief={chief} equipo={equipo} onPrioridad={setPrioridad}
           onAction={(t,r)=>setModal({t,item:r})} vacio="Aún no hay tareas programadas" unidad="tarea(s) programada(s)"
           toast={toast} nombreExport={`${tipo}_Programadas_PlayaParaiso`}/>
-      : <Listado items={mios} empty="Aún no tienes tickets" render={r=><TicketCard r={r} isSis={isSis} chief={chief} equipo={equipo} onAction={(t)=>setModal({t,item:r})}/>}/>)}
+      : <div>
+          <div className="seg" style={{flexWrap:"wrap",marginBottom:12}}>
+            <button className={filMios==="todas"?"on":""} onClick={()=>setFilMios("todas")}>Todas ({mios.length})</button>
+            <button className={filMios==="nuevas"?"on":""} onClick={()=>setFilMios("nuevas")}>🆕 Nuevas ({miosNuevas.length})</button>
+            <button className={filMios==="proceso"?"on":""} onClick={()=>setFilMios("proceso")}>🔄 En proceso ({miosProceso.length})</button>
+            <button className={filMios==="concluidas"?"on":""} onClick={()=>setFilMios("concluidas")}>✅ Concluidas ({miosConcluidas.length})</button>
+            {miosRechazadas.length>0 && <button className={filMios==="rechazadas"?"on":""} onClick={()=>setFilMios("rechazadas")}>❌ Rechazadas ({miosRechazadas.length})</button>}
+          </div>
+          <Listado items={miosMostrar} empty="No hay tickets en este filtro" render={r=><TicketCard r={r} isSis={isSis} chief={chief} equipo={equipo} onAction={(t)=>setModal({t,item:r})}/>}/>
+        </div>)}
     {tab==="prog" && <ListaFiltrada items={programadas} tipo={tipo} isSis={isSis} chief={chief} equipo={equipo} onPrioridad={setPrioridad}
       onAction={(t,r)=>setModal({t,item:r})} vacio="No hay tareas programadas" unidad="tarea(s) programada(s)"
       toast={toast} nombreExport={`${tipo}_Programadas_PlayaParaiso`}/>}
