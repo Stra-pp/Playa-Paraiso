@@ -694,8 +694,8 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v6.7 · UI 5.9 (pulido + nav inferior) · SharePoint Prueba7(Listas) · Notif+Offline · Fix conexión/exportación/fotos avance",
-  versionShort: "Playa Paraíso v6.7",
+  version: "Playa Paraíso · App unificada v6.8 · ILD inactivos + eliminados persistentes + orden Dashboard · UI 5.9 (pulido + nav inferior) · SharePoint Prueba7(Listas) · Notif+Offline · Fix conexión/exportación/fotos avance",
+  versionShort: "Playa Paraíso v6.8",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -722,6 +722,8 @@ const DEEPLINK=(()=>{ try{ const p=new URLSearchParams(location.search).get("ver
 
 /* ===== Capacidades por rol ===== */
 const esGD = u => u && ['gerencia','desarrollador'].includes(u.rol);
+const esInactivo = a => !!(AC[a] && AC[a].inactivoDesde && AC[a].inactivoDesde<=hoyISO_v68());
+function hoyISO_v68(){ const h=new Date(Date.now()-5*3600000); return h.toISOString().slice(0,10); }
 const esDev = u => u && u.rol==='desarrollador';
 const ildAreasDe = u => esGD(u) ? Object.keys(AC) : (u.areas||[]);
 /* Áreas del grupo "Housekeeping" (Habitaciones, Áreas Públicas) ya tienen su
@@ -786,6 +788,12 @@ const esHKCamarero = u => !!u && hkPerfiles(u).includes('camarero_hab');
 const esHKAreasPublicas = u => !!u && hkPerfiles(u).includes('areas_publicas');
 const tieneHK = u => esHKJefatura(u) || esHKCamarero(u) || esHKAreasPublicas(u);
 let ACCESOS = null;     // {rol:{cap:bool}} configurable por el desarrollador
+/* v6.8 · ILD eliminados a propósito. applyIldConfig() vuelve a agregar las áreas
+   "de fábrica" que no vienen en lo guardado; sin esta lista, un ILD de fábrica
+   eliminado desde Gestionar ILD reaparecía al recargar (así se acumularon los
+   ILD viejos con 0% en el Dashboard, y "Habitaciones"/"Áreas Públicas" de fábrica
+   le ganaron a "ILD Habitaciones"/"ILD Áreas Públicas" en resolverAreaHK). */
+let AC_ELIM = [];
 let AMODO = {};         // {area:'normal'|'lista'} modo del ILD por área
 /* {area:true|false} · Qué ILD de servicio se consolidan en las filas
    Desayuno/Almuerzo/Cena del Dashboard. Se configura desde Config › ILD ›
@@ -1371,6 +1379,9 @@ function isoYMD(y,m,d){ return `${y}-${String(m+1).padStart(2,"0")}-${String(d).
    Sirve para responder "hoy cocina no, pero recepción sí". */
 function aplicaDia(area, iso){
   if(!iso) return false;
+  /* v6.8 · ILD inactivo: desde esa fecha ya no se espera (conserva su historial). */
+  const ina = AC[area] && AC[area].inactivoDesde;
+  if(ina && iso>=ina) return false;
   const ex = (DIAS_CFG.excepciones||{})[iso];
   if(ex){
     if(ex.areas && ex.areas[area]!=null) return !!ex.areas[area];
@@ -1465,6 +1476,8 @@ function applyIldConfig(cfg){ if(!cfg) return;
   if(cfg.amodo) AMODO=cfg.amodo;
   if(cfg.agrupaComida) AGRUPA_COMIDA=cfg.agrupaComida;
   if(cfg.notif) NOTIF={...NOTIF_DEF,...cfg.notif};
+  if(Array.isArray(cfg.eliminados)) AC_ELIM=cfg.eliminados.slice();
+  AC_ELIM.forEach(k=>{ delete AC[k]; delete CL[k]; delete APR[k]; });
   migrarV67(); }
 
 /* ===== v6.7 · Normalización estructural =====
@@ -1491,7 +1504,7 @@ function migrarV67(){
     });
   }catch(e){}
 }
-async function cfgSave(){ await Store.write("ILD_Config",{checklist:CL,areas:AC,aprobadores:APR,usuarios:USERS,diasCfg:DIAS_CFG,accesos:ACCESOS,amodo:AMODO,agrupaComida:AGRUPA_COMIDA,notif:NOTIF}); }
+async function cfgSave(){ await Store.write("ILD_Config",{checklist:CL,areas:AC,aprobadores:APR,usuarios:USERS,diasCfg:DIAS_CFG,accesos:ACCESOS,amodo:AMODO,agrupaComida:AGRUPA_COMIDA,notif:NOTIF,eliminados:AC_ELIM}); }
 
 /* ===== Notificaciones (correo Graph + Teams por correo de canal) ===== */
 const NOTIF_DEF = {
@@ -2432,7 +2445,7 @@ function DraftsPanel({user,drafts,onEnviar,onReload,setFoto,toast}){
 }
 
 function ILDForm({user,toast,onSaved,setFoto,onDraft}){
-  const areas=ildAreasDe(user).filter(a=>!esAreaHK(a));
+  const areas=ildAreasDe(user).filter(a=>!esAreaHK(a) && !esInactivo(a));
   const [area,setArea]=useState(""); const [turno,setTurno]=useState("");
   const [checks,setChecks]=useState({}); const [sel,setSel]=useState({}); const [txt,setTxt]=useState({});
   const [fotos,setFotos]=useState([]); const [obs,setObs]=useState(""); const [busy,unaVez]=useEnvioUnico();
@@ -2894,7 +2907,11 @@ function agrupaComida(a){
 }
 /* Nombre corto para el desglose: quita el prefijo "ILD" y el sufijo "- Grupo" */
 function cortoILD(a){
-  return String(a).replace(/^\s*ILD\s+/i,"").replace(/\s*[-–]\s*[^-–]+$/,"").trim() || a;
+  /* v6.8 · Antes cortaba todo lo que iba después del último guion, y dos ILD
+     distintos ("CHIRINGUITO – SERVICIO A LA CARTA" / "– SERVICIO BUFFET DESAYUNO")
+     salían iguales ("CHIRINGUITO"). Ahora solo quita "ILD", "Servicio" y guiones. */
+  const t=String(a).replace(/^\s*ILD\s+/i,"").replace(/\bservicio\b/ig," ").replace(/\s*[-–]\s*/g," ").replace(/\s+/g," ").trim();
+  return t ? t.charAt(0).toUpperCase()+t.slice(1).toLowerCase() : a;
 }
 /* Comida elegida en un registro (el índice depende del checklist vigente al enviar) */
 function comidaDe(r){
@@ -2973,9 +2990,16 @@ function ILDDash({user}){
     return {area:ref,turno:comida,nombre:comida,sub:"",mix,esComida:true,
       subidos:recs.length,ap,ob,pe,dias,diasMes,cubiertos,cumpl,horas};
   }
-  const gruposVis=(grp==="todas"?grupos:[grp]);
+  /* v6.8 · Orden fijo (alfabético; Apertura antes de Cierre) en vez del orden en
+     que se crearon los ILD, y un ILD inactivo solo aparece si tiene registros
+     en el mes elegido (así los meses pasados conservan su historial). */
+  const cmp=(a,b)=>a.localeCompare(b,'es',{sensitivity:'base',numeric:true});
+  const iniMes=`${year}-${String(mes+1).padStart(2,"0")}-01`;
+  const visible=a=>{ const ina=AC[a]&&AC[a].inactivoDesde;
+    return !(ina && ina<=iniMes) || regs.some(r=>r.area===a && delMes(r)); };
+  const gruposVis=(grp==="todas"?[...grupos].sort(cmp):[grp]);
   const tablas=gruposVis.map(g=>{
-    const areasG=areasUser.filter(a=>AC[a]?.g===g);
+    const areasG=areasUser.filter(a=>AC[a]?.g===g && visible(a)).sort(cmp);
     const comidaG=areasG.filter(agrupaComida);
     const normales=areasG.filter(a=>comidaG.indexOf(a)<0);
     const rows=[]; normales.forEach(a=>filasDe(a).forEach(t=>rows.push(rowData(a,t))));
@@ -2991,7 +3015,7 @@ function ILDDash({user}){
 
   /* Detalle por ítem de los ILD en modo lista (Áreas Públicas): cuántos envíos
      hubo en el mes por cada zona. Detectado por modo, no por nombre. */
-  const areasLista = areasUser.filter(a=>areaModo(a)==='lista' && (grp==="todas" || AC[a]?.g===grp));
+  const areasLista = areasUser.filter(a=>areaModo(a)==='lista' && visible(a) && (grp==="todas" || AC[a]?.g===grp)).sort(cmp);
   const detallesLista = areasLista.map(a=>{
     const recs=regs.filter(r=>!esDuplicado(r) && r.area===a && delMes(r));
     const items=(CL[a]||[]).map(it=>{ const tx=itemText(it); const rs=recs.filter(r=>r.zona===tx);
@@ -3130,7 +3154,7 @@ function GestionarILD({user,toast,onSave}){
     toast(res.ok?("Prueba enviada a: "+to):("No se pudo: "+res.reason)); }
   async function renombrarArea(){ const nv=prompt("Nuevo nombre del ILD:", area); if(nv==null) return;
     const v=nv.trim(); if(!v||v===area) return; if(AC[v]){ toast("Ya existe un ILD con ese nombre"); return; }
-    AC[v]=AC[area]; delete AC[area];
+    AC[v]=AC[area]; delete AC[area]; AC_ELIM=AC_ELIM.filter(x=>x!==v);
     if(APR[area]!==undefined){ APR[v]=APR[area]; delete APR[area]; }
     if(CL[area]!==undefined){ CL[v]=CL[area]; delete CL[area]; }
     if(AMODO[area]!==undefined){ AMODO[v]=AMODO[area]; delete AMODO[area]; }
@@ -3144,8 +3168,15 @@ function GestionarILD({user,toast,onSave}){
         if(n){ await Store.write("ILD",upd2); toast(`Renombrado · ${n} registro(s) actualizados`); } else toast("ILD renombrado");
       }catch(e){ toast("Renombrado, pero no pude actualizar registros: "+(e.message||"")); }
     } else toast("ILD renombrado a: "+v); }
+  function toggleInactivo(){ if(!AC[area]) return;
+    if(AC[area].inactivoDesde){ delete AC[area].inactivoDesde; onSave(); re(); toast("ILD reactivado: "+area); return; }
+    const h=hoyDateEC(); const def=`${h.getFullYear()}-${String(h.getMonth()+1).padStart(2,"0")}-01`;
+    const v=prompt("Inactivo desde (AAAA-MM-DD). Desde esa fecha no se espera ni aparece en el Dashboard; el historial se conserva.",def);
+    if(v==null) return; if(!/^\d{4}-\d{2}-\d{2}$/.test(v.trim())){ toast("Fecha inválida (usa AAAA-MM-DD)"); return; }
+    AC[area].inactivoDesde=v.trim(); onSave(); re(); toast("ILD inactivo desde "+v.trim()); }
   function borrarArea(){ if(!confirm(`¿Eliminar el ILD "${area}"? Los registros ya guardados NO se borran.`)) return;
     delete AC[area]; delete APR[area]; delete CL[area]; delete AMODO[area]; delete DIAS_CFG.areas[area]; delete AGRUPA_COMIDA[area];
+    if(!AC_ELIM.includes(area)) AC_ELIM.push(area);
     USERS.forEach(u=>{ if(u.areas) u.areas=u.areas.filter(x=>x!==area); });
     onSave(); const rest=areas.filter(a=>a!==area); setArea(rest[0]||""); force(x=>x+1); toast("ILD eliminado: "+area); }
 
@@ -3156,7 +3187,7 @@ function GestionarILD({user,toast,onSave}){
   const [nTurnoPreg,setNTurnoPreg]=useState(false); const [nApr,setNApr]=useState(rolesAprobadores()[0]||"");
   function crearArea(){ const n=nNombre.trim(); const grupo=(nGrupo==="__nuevo"?nGrupoNuevo.trim():nGrupo)||"General";
     if(!n){toast("Escribe el nombre del ILD");return;} if(AC[n]){toast("Ya existe un ILD con ese nombre");return;}
-    AC[n]={r:0,g:grupo,t:nTurno,turno:nTurnoPreg}; APR[n]=nApr; if(!CL[n]) CL[n]=[];
+    AC[n]={r:0,g:grupo,t:nTurno,turno:nTurnoPreg}; APR[n]=nApr; if(!CL[n]) CL[n]=[]; AC_ELIM=AC_ELIM.filter(x=>x!==n);
     onSave(); toast("ILD creado: "+n+". Personalízalo abajo."); setNNombre(""); setCreando(false); setArea(n); force(x=>x+1); }
 
   /* ---------- días esperados + calendario, fusionados ---------- */
@@ -3315,8 +3346,10 @@ function GestionarILD({user,toast,onSave}){
       </div>
       <div className="row" style={{marginTop:8}}>
         <button className="btn ghost" style={{flex:1,padding:"7px"}} onClick={renombrarArea}>✏️ Renombrar</button>
+        <button className="btn ghost" style={{flex:1,padding:"7px"}} onClick={toggleInactivo}>{AC[area]&&AC[area].inactivoDesde?"▶️ Reactivar":"⏸ Inactivar"}</button>
         <button className="btn red" style={{flex:1,padding:"7px"}} onClick={borrarArea}>🗑 Eliminar</button>
       </div>
+      {AC[area]&&AC[area].inactivoDesde && <div className="hint" style={{marginTop:6}}>⏸ Inactivo desde {AC[area].inactivoDesde}: no se espera ni aparece en el Dashboard desde esa fecha; su historial se conserva.</div>}
       {!APR[area] && <div className="hint" style={{color:"#a83232",marginTop:6}}>⚠️ Sin aprobador asignado — solo Gerencia/Desarrollador pueden aprobar este ILD.</div>}
     </Secc>}
 
