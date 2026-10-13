@@ -693,8 +693,8 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v7.2 · Comidas por Apertura/Cierre · v7.1 · Días por ILD + feriados por área · v7.0 · Resumen diario de ILD por correo · v6.9 · Briefing HK en ILD + cierre de pendientes antiguos + auditorías progresivas · v6.8 · ILD inactivos + eliminados persistentes + orden Dashboard · UI 5.9 (pulido + nav inferior) · SharePoint Prueba7(Listas) · Notif+Offline · Fix conexión/exportación/fotos avance",
-  versionShort: "Playa Paraíso v7.2",
+  version: "Playa Paraíso · App unificada v7.3 · Habitaciones fuera del Dashboard ILD · v7.2 · Comidas por Apertura/Cierre · v7.1 · Días por ILD + feriados por área · v7.0 · Resumen diario de ILD por correo · v6.9 · Briefing HK en ILD + cierre de pendientes antiguos + auditorías progresivas · v6.8 · ILD inactivos + eliminados persistentes + orden Dashboard · UI 5.9 (pulido + nav inferior) · SharePoint Prueba7(Listas) · Notif+Offline · Fix conexión/exportación/fotos avance",
+  versionShort: "Playa Paraíso v7.3",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -779,6 +779,9 @@ const itemsHabHK = () => (CL[AREA_HAB()]||[]).filter(it=>!HK_ITEM_QUITADO(it));
    "de Housekeeping" las dos áreas que sí viven en ese módulo: Habitaciones y
    Áreas Públicas (con o sin prefijo "ILD "). */
 const _sinIld = s => normArea(s).replace(/^ild[\s\-:]+/,'');
+/* v7.3 · Habitaciones (con o sin prefijo "ILD") se controla en Housekeeping con
+   las auditorías: no aplica como ILD en el Dashboard ni en el Resumen Gerencial. */
+const esAreaHabitaciones = a => _sinIld(a)===_sinIld('Habitaciones');
 const esAreaHK = a => { const n=_sinIld(a);
   return n===_sinIld('Habitaciones') || n===_sinIld('Áreas Públicas') || mismaArea(a,AREA_HAB()) || mismaArea(a,AREA_AP()); };
 const puedeAprobarArea = (u,area) => esGD(u) || (u.rol==='aprobador' && (u.areas||[]).some(a=>mismaArea(a,area)));
@@ -3153,7 +3156,7 @@ function subTurno(area,turno){
 function ILDDash({user}){
   const meses=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
   const hoy=hoyDateEC();
-  const areasUser = esGD(user)?Object.keys(AC):(user.areas||[]);
+  const areasUser = (esGD(user)?Object.keys(AC):(user.areas||[])).filter(a=>!esAreaHabitaciones(a));
   const grupos=[...new Set(areasUser.map(a=>AC[a]?.g).filter(Boolean))];
   const [grp,setGrp]=useState("todas"); const [mes,setMes]=useState(hoy.getMonth()); const year=hoy.getFullYear();
   const esMesActual = mes===hoy.getMonth();
@@ -3962,10 +3965,11 @@ function ResumenGerencialILD(){
     try{ const d=mes==null?await Store.readAnio("ILD",anio):await Store.readMes("ILD",anio,mes); if(v)setRegs(d); }
     catch(e){ if(v)setRegs([]); } finally{ if(v)setCargando(false); } })(); return ()=>{v=false;}; },[anio,mes]);
   const grupoDe=r=>AC[r.area]&&AC[r.area].g;
+  /* v7.3 · Habitaciones no aplica como ILD (ver esAreaHabitaciones). */
   /* Los duplicados no cuentan para métricas en ninguna otra pantalla de la app
      (bandeja, Dashboard) — antes acá sí se contaban, y eso era parte de por qué
      los totales de esta pantalla no cuadraban con el Dashboard. */
-  const regsValidos = sinDuplicados(regs);
+  const regsValidos = sinDuplicados(regs).filter(r=>!esAreaHabitaciones(r.area));
   /* El Dashboard arma sus filas recorriendo las áreas de la configuración
      actual (AC): un ILD cuya "área" ya no existe ahí (se renombró o se borró
      del Checklist) simplemente no aparece en ninguna fila suya, ni en su
@@ -3987,7 +3991,7 @@ function ResumenGerencialILD(){
      vez de simplemente no aparecer. Es la misma idea que usa el Dashboard,
      llevada a nivel de grupo en vez de área/turno. */
   const areasPorGrupo={};
-  Object.keys(AC).forEach(a=>{ const g=AC[a]&&AC[a].g; if(g) (areasPorGrupo[g]=areasPorGrupo[g]||[]).push(a); });
+  Object.keys(AC).forEach(a=>{ const g=AC[a]&&AC[a].g; if(g && !esAreaHabitaciones(a)) (areasPorGrupo[g]=areasPorGrupo[g]||[]).push(a); });
   const grupos=Object.values(byG).map(g=>{
     const dias=(areasPorGrupo[g.label]||[]).reduce((s,a)=>s+diasEsperadosPeriodo(a,anio,mes),0);
     return {...g, dias,
