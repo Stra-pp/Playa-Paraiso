@@ -693,8 +693,8 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v6.9 · Briefing HK en ILD + cierre de pendientes antiguos + auditorías progresivas · v6.8 · ILD inactivos + eliminados persistentes + orden Dashboard · UI 5.9 (pulido + nav inferior) · SharePoint Prueba7(Listas) · Notif+Offline · Fix conexión/exportación/fotos avance",
-  versionShort: "Playa Paraíso v6.9",
+  version: "Playa Paraíso · App unificada v7.0 · Resumen diario de ILD por correo · v6.9 · Briefing HK en ILD + cierre de pendientes antiguos + auditorías progresivas · v6.8 · ILD inactivos + eliminados persistentes + orden Dashboard · UI 5.9 (pulido + nav inferior) · SharePoint Prueba7(Listas) · Notif+Offline · Fix conexión/exportación/fotos avance",
+  versionShort: "Playa Paraíso v7.0",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -709,7 +709,7 @@ const APP = {
     base: "ILDS",
     driveId: "b!O2-zgnw6nkyHGSME4wNWNvzktKvfz2RCve_Yy1z3ygbC7N4D__mdSLQmbhqhPa0o",
     files: { ILD:"NEXO_ILD.json", Compras:"NEXO_Compras.json",
-             Sistemas:"NEXO_Sistemas.json", Mantenimiento:"NEXO_Mantenimiento.json", ILD_Config:"NEXO_Config.json", Notif:"NEXO_Notif.json" },
+             Sistemas:"NEXO_Sistemas.json", Mantenimiento:"NEXO_Mantenimiento.json", ILD_Config:"NEXO_Config.json", Notif:"NEXO_Notif.json", ILD_Resumen:"NEXO_ResumenILD.json" },
     fotosFolder: "Fotos"
   },
 };
@@ -1617,6 +1617,132 @@ async function sendMail(to,subject,html){
     else if(/MailboxNotEnabled|inactive|on-premise/i.test(m)) ayuda=" · La cuenta con la que iniciaste sesión no tiene buzón de correo activo.";
     return {ok:false,reason:(r.status+(m?(" — "+m):""))+ayuda};
   }catch(e){ return {ok:false,reason:e.message}; }
+}
+/* ===== v7.0 · Resumen diario de ILD por correo a cada jefatura aprobadora =====
+   La app es una página web: no puede ejecutarse sola a una hora. El resumen lo
+   envía el PRIMER equipo con la app abierta (en línea y con la configuración real
+   cargada) después de la hora de corte (23:00, hora de Ecuador). Si a esa hora
+   nadie la tiene abierta, sale al día siguiente apenas alguien la abra, con el
+   resumen del día anterior completo. Un archivo marcador en SharePoint
+   (NEXO_ResumenILD.json) evita que se envíe dos veces. Destinatarios: cada
+   usuario con rol "aprobador" que tenga correo en Config › Usuarios y accesos;
+   reciben los ILD del día de SUS áreas (sin Habitaciones / Áreas Públicas, que
+   se revisan en Housekeeping) con su estado, y los ILD que no se subieron. */
+const RESUMEN_HORA_CORTE = 23;
+const escH = t => String(t==null?"":t).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const mailValido = m => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(m||"").trim());
+function resumenDiaObjetivo(){
+  const hora = Number(new Date().toLocaleString("en-US",{timeZone:TZ_EC,hour:"2-digit",hour12:false}))%24;
+  return hora>=RESUMEN_HORA_CORTE ? hoyEC() : sumaDiasYMD(hoyEC(),-1);
+}
+function resumenAreasDe(u){ return (u.areas||[]).filter(a=>AC[a] && !esAreaHK(a)); }
+function resumenDestinatarios(){ return USERS.filter(u=>u.rol==='aprobador' && mailValido(u.correo) && resumenAreasDe(u).length); }
+function resumenArmar(u, dia, regs){
+  const areas = resumenAreasDe(u);
+  const recs = regs.filter(r=>areas.some(a=>mismaArea(a,r.area))).sort((a,b)=>String(a.fecha).localeCompare(String(b.fecha)));
+  const faltan = [];
+  /* ILD de servicio agrupados por comida (a la carta / buffets): se miden por
+     comida, igual que en el Dashboard — basta que Desayuno/Almuerzo/Cena se
+     reporte en cualquiera de esos outlets. */
+  const grupoComida = areas.filter(a=>agrupaComida(a) && aplicaDia(a,dia));
+  if(grupoComida.length) COMIDAS.forEach(c=>{
+    if(!recs.some(r=>grupoComida.some(a=>mismaArea(r.area,a)) && comidaDe(r)===c)) faltan.push(`${c} (servicio: ${grupoComida.map(cortoILD).join(" / ")})`); });
+  areas.forEach(a=>{ if(!aplicaDia(a,dia) || agrupaComida(a)) return;
+    const turnos = AC[a]?.turno ? ["Apertura","Cierre"] : [""];
+    turnos.forEach(t=>{ if(!recs.some(r=>mismaArea(r.area,a) && (!t || r.turno===t))) faltan.push(a+(t?` · ${t}`:"")); }); });
+  const ap=recs.filter(r=>r.estado==="Aprobado").length, ob=recs.filter(r=>r.estado==="Con observaciones").length, pe=recs.filter(r=>r.estado==="Pendiente").length;
+  return {recs,faltan,ap,ob,pe};
+}
+function resumenHTML(u, dia, d){
+  const fDia = new Date(dia+"T12:00:00").toLocaleDateString("es-EC",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
+  const col = e => e==="Aprobado"?"#1F7A4D":e==="Con observaciones"?"#6B4BA1":"#B7791F";
+  const hora = f => { try{ return new Date(f).toLocaleTimeString("es-EC",{timeZone:TZ_EC,hour:"2-digit",minute:"2-digit"}); }catch(e){ return ""; } };
+  const kpi = (n,l,c) => `<td style="padding:10px;text-align:center;border:1px solid #eee;border-top:3px solid ${c}"><div style="font-size:20px;font-weight:bold;color:${c}">${n}</div><div style="font-size:12px;color:#667">${l}</div></td>`;
+  const filas = d.recs.map(r=>`<tr>
+      <td style="padding:7px 8px;border-bottom:1px solid #eee;font-size:13px">${escH(r.Codigo||("ILD-"+r.id))}</td>
+      <td style="padding:7px 8px;border-bottom:1px solid #eee;font-size:13px">${escH(r.area)}${r.turno?` · ${escH(r.turno)}`:""}</td>
+      <td style="padding:7px 8px;border-bottom:1px solid #eee;font-size:13px">${escH(r.usuario)} · ${hora(r.fecha)}</td>
+      <td style="padding:7px 8px;border-bottom:1px solid #eee;font-size:13px;font-weight:bold;color:${col(r.estado)}">${escH(r.estado||"Pendiente")}${r.aprobador?`<div style="font-weight:normal;color:#667;font-size:12px">${escH(r.aprobador)}</div>`:""}</td></tr>`).join("");
+  const tabla = d.recs.length ? `<table style="width:100%;border-collapse:collapse;margin-top:6px">
+      <tr style="background:#F4F1EA"><th style="padding:7px 8px;text-align:left;font-size:12px">Código</th><th style="padding:7px 8px;text-align:left;font-size:12px">ILD</th><th style="padding:7px 8px;text-align:left;font-size:12px">Subido por</th><th style="padding:7px 8px;text-align:left;font-size:12px">Estado</th></tr>${filas}</table>`
+    : `<p style="font-size:14px;color:#22303a">No se subió ningún ILD de tus áreas este día.</p>`;
+  const faltan = d.faltan.length ? `<p style="margin:16px 0 6px;font-size:14px;font-weight:bold;color:#A52A3A">ILD esperados que no se subieron (${d.faltan.length})</p>
+      <ul style="margin:0;padding-left:18px;font-size:13px;color:#22303a">${d.faltan.map(f=>`<li>${escH(f)}</li>`).join("")}</ul>` : "";
+  const link = linkVer("ILD","");
+  return `<div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto">
+    <div style="background:#0B6B7A;color:#ffffff;padding:14px 20px;border-radius:12px 12px 0 0;font-size:16px;font-weight:bold">Resumen diario de ILD · ${escH(fDia)}</div>
+    <div style="border:1px solid #e5e0d6;border-top:none;padding:18px 20px;border-radius:0 0 12px 12px;background:#ffffff">
+      <p style="margin:0 0 12px;font-size:14px;color:#22303a">Hola ${escH(u.nombre)}, este es el estado de los ILD de tus áreas.</p>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:12px"><tr>${kpi(d.recs.length,"Subidos","#0B6B7A")}${kpi(d.ap,"Aprobados","#1F7A4D")}${kpi(d.ob,"Con obs.","#6B4BA1")}${kpi(d.pe,"Pendientes","#B7791F")}${kpi(d.faltan.length,"No subidos","#A52A3A")}</tr></table>
+      ${tabla}${faltan}
+      ${d.pe?`<p style="margin:14px 0 0;font-size:13px;color:#B7791F"><b>${d.pe}</b> ILD siguen pendientes de tu aprobación.</p>`:""}
+      <a href="${link}" style="display:inline-block;margin-top:14px;background:#A52A3A;color:#ffffff;text-decoration:none;padding:11px 22px;border-radius:8px;font-weight:bold;font-size:14px">Abrir ILD en la app ›</a>
+      <p style="margin:16px 0 0;font-size:12px;color:#8a94a0">Playa Paraíso · Resumen automático diario (corte ${RESUMEN_HORA_CORTE}:00). Por favor no responda a este correo.</p>
+    </div></div>`;
+}
+let _resumenCorriendo=false;
+async function resumenEnviar(dia, opts){
+  const o=opts||{};
+  const regs = sinDuplicados((await Store.readDesde("ILD", dia)).filter(r=>recFecha(r)===dia));
+  const enviados=[], errores=[];
+  for(const u of (o.soloA?[o.soloA]:resumenDestinatarios())){
+    const d=resumenArmar(u,dia,regs);
+    const destino = o.redirigirA || u.correo;
+    const res = await sendMail(destino, `[ILD] Resumen ${dia} · ${d.recs.length} subidos · ${d.pe} pendientes${d.faltan.length?` · ${d.faltan.length} sin subir`:""}`, resumenHTML(u,dia,d));
+    if(res.ok) enviados.push(u.nombre); else errores.push(u.nombre+": "+res.reason);
+  }
+  return {enviados,errores};
+}
+async function ildResumenDiario(){
+  if(_resumenCorriendo) return; _resumenCorriendo=true;
+  try{
+    if(MODE!=="graph" || CFG_ESTADO!=="ok" || !NOTIF.enabled || !graphToken || !navigator.onLine) return;
+    if(!resumenDestinatarios().length) return;
+    const dia = resumenDiaObjetivo();
+    const prev = await GraphStore.read("ILD_Resumen");
+    if(prev && !Array.isArray(prev) && prev.ultimoDia && prev.ultimoDia>=dia) return;
+    /* Se "reserva" el día ANTES de enviar y se confirma la reserva: si dos equipos
+       llegan casi a la vez, solo envía el que quedó escrito. */
+    const token = gid()+"-"+Date.now();
+    await GraphStore.write("ILD_Resumen", {...(prev&&!Array.isArray(prev)?prev:{}), ultimoDia:dia, reserva:token, por:graphUser||"", inicio:nowISO()});
+    await new Promise(r=>setTimeout(r,2500));
+    const chk = await GraphStore.read("ILD_Resumen");
+    if(!chk || chk.reserva!==token) return;
+    const r = await resumenEnviar(dia);
+    await GraphStore.write("ILD_Resumen", {...chk, fin:nowISO(), enviados:r.enviados, errores:r.errores});
+  }catch(e){ /* no rompe la app: se reintenta en el próximo ciclo si no se llegó a reservar */ }
+  finally{ _resumenCorriendo=false; }
+}
+function ResumenILDConfig({toast}){
+  const [estado,setEstado]=useState(null); const [busy,setBusy]=useState("");
+  const dest=resumenDestinatarios();
+  const sinCorreo=USERS.filter(u=>u.rol==='aprobador' && resumenAreasDe(u).length && !mailValido(u.correo));
+  const cargar=async()=>{ if(MODE!=="graph") return; try{ const e=await GraphStore.read("ILD_Resumen"); setEstado(Array.isArray(e)?null:e); }catch(e){} };
+  useEffect(()=>{ cargar(); },[]);
+  async function prueba(){ if(!graphUser){ toast("Inicia sesión con Microsoft primero"); return; }
+    const u=dest[0]; if(!u){ toast("Ningún aprobador tiene correo todavía"); return; }
+    setBusy("prueba"); const dia=sumaDiasYMD(hoyEC(),-1);
+    try{ const r=await resumenEnviar(dia,{soloA:u,redirigirA:graphUser});
+      toast(r.enviados.length?`Prueba (resumen de ${u.nombre}, ${dia}) enviada a ${graphUser}`:"No se pudo: "+(r.errores[0]||"")); }
+    finally{ setBusy(""); } }
+  async function reenviar(){ const dia=sumaDiasYMD(hoyEC(),-1);
+    if(!confirm(`Se enviará el resumen del ${dia} a ${dest.length} jefatura(s) ahora, aunque ya se haya enviado. ¿Continuar?`)) return;
+    setBusy("reenviar");
+    try{ const r=await resumenEnviar(dia);
+      try{ await GraphStore.write("ILD_Resumen",{...(estado||{}),ultimoDia:dia>((estado&&estado.ultimoDia)||"")?dia:estado.ultimoDia,fin:nowISO(),por:graphUser||"",enviados:r.enviados,errores:r.errores,manual:true}); }catch(e){}
+      toast(`Enviado a ${r.enviados.length}`+(r.errores.length?` · ${r.errores.length} con error`:"")); cargar(); }
+    finally{ setBusy(""); } }
+  return <div className="card"><h3>Resumen diario de ILD</h3>
+    <div className="hint">Cada jefatura aprobadora recibe por correo los ILD de sus áreas del día (subidos, estado de aprobación y los que no se subieron). Corte: <b>{RESUMEN_HORA_CORTE}:00</b>. Lo envía el primer equipo con la app abierta después del corte; si nadie la abre esa noche, sale al día siguiente apenas alguien la abra. El correo de cada jefatura se registra en <b>Usuarios y accesos</b>.</div>
+    <div className="kv"><b>Destinatarios</b><span>{dest.length?dest.map(u=>u.nombre).join(", "):"ninguno todavía"}</span></div>
+    {sinCorreo.length>0 && <div className="kv"><b style={{color:"var(--red)"}}>Sin correo</b><span>{sinCorreo.map(u=>u.nombre).join(", ")}</span></div>}
+    <div className="kv"><b>Último resumen</b><span>{estado&&estado.ultimoDia?`${estado.ultimoDia}${estado.fin?` · enviado ${fmtDT(estado.fin)}`:" · en curso"}${estado.enviados?` · ${estado.enviados.length} correo(s)`:""}${estado.errores&&estado.errores.length?` · ${estado.errores.length} error(es)`:""}`:"—"}</span></div>
+    {estado&&estado.errores&&estado.errores.length>0 && <div className="hint" style={{color:"var(--red)"}}>{estado.errores.join(" · ")}</div>}
+    <div className="row" style={{marginTop:10,gap:8,flexWrap:"wrap"}}>
+      <button className="btn ghost" style={{flex:1}} disabled={!!busy} onClick={prueba}>{busy==="prueba"?"Enviando…":"✉️ Enviarme una prueba"}</button>
+      <button className="btn ocean" style={{flex:1}} disabled={!!busy||!dest.length} onClick={reenviar}>{busy==="reenviar"?"Enviando…":"Enviar resumen de ayer ahora"}</button>
+    </div>
+  </div>;
 }
 const Notif = {
   ildSubido(r,quien){
@@ -3427,12 +3553,6 @@ function GestionarILD({user,toast,onSave}){
         <div style={{flex:"1 1 160px"}}><div className="hint" style={{margin:"0 0 4px"}}>Aprobador</div>
           <select className="inp" value={APR[area]||""} onChange={e=>setApr(e.target.value)}><option value="">— sin asignar —</option>{nombres.map(n=><option key={n}>{n}</option>)}</select></div>
       </div>
-      <div className="row" style={{alignItems:"flex-end"}}>
-        <div style={{flex:1}}><div className="hint" style={{margin:"0 0 4px"}}>Canal de Teams (correo)</div>
-          <input className="inp" value={teamsDraft[area]||""} placeholder="(usa el canal ILD por defecto)"
-            onChange={e=>setTeamsDraft(d=>({...d,[area]:e.target.value}))} onBlur={saveTeams}/></div>
-        <button className="btn ghost" style={{padding:"9px 12px",flex:"0 0 auto"}} onClick={probarCanal}>✉️ Probar</button>
-      </div>
       <div className="row" style={{marginTop:8}}>
         <button className="btn ghost" style={{flex:1,padding:"7px"}} onClick={renombrarArea}>✏️ Renombrar</button>
         <button className="btn ghost" style={{flex:1,padding:"7px"}} onClick={toggleInactivo}>{AC[area]&&AC[area].inactivoDesde?"▶️ Reactivar":"⏸ Inactivar"}</button>
@@ -3719,8 +3839,8 @@ function UsuariosEditor({toast,onSave}){
   const colabs=USERS.filter(u=>u.rol==='colaborador');
   const jefes=USERS.filter(u=>u.rol!=='colaborador');
   function saveUser(u){
-    if(u._new){ USERS.push({id:"c"+Date.now(),nombre:u.nombre,pin:u.pin||"",rol:u.rol||"colaborador",areas:u.areas||[],hk:u.hk||{perfil:""}}); }
-    else { const t=USERS.find(x=>x.id===u.id); if(t){ t.nombre=u.nombre; t.pin=u.pin; t.areas=u.areas; if(u.rol) t.rol=u.rol; t.hk=u.hk||{perfil:""}; } }
+    if(u._new){ USERS.push({id:"c"+Date.now(),nombre:u.nombre,pin:u.pin||"",rol:u.rol||"colaborador",areas:u.areas||[],correo:u.correo||"",hk:u.hk||{perfil:""}}); }
+    else { const t=USERS.find(x=>x.id===u.id); if(t){ t.nombre=u.nombre; t.pin=u.pin; t.areas=u.areas; if(u.rol) t.rol=u.rol; t.correo=u.correo||""; t.hk=u.hk||{perfil:""}; } }
     applyGestiona(); onSave(); setEdit(null); re(); toast("Usuario guardado");
   }
   function delUser(id){ if(!confirm("¿Eliminar este colaborador?"))return; const i=USERS.findIndex(x=>x.id===id);
@@ -3732,7 +3852,8 @@ function UsuariosEditor({toast,onSave}){
     </div>
     <div className="card" style={{marginTop:14}}><h3>Jefatura y gerencia</h3>
       {jefes.map(u=><div className="kv" key={u.id}>
-        <span><b style={{color:"var(--ink)"}}>{u.nombre}</b> · {u.rol}{u.pin?` · PIN ${u.pin}`:""}</span>
+        <span><b style={{color:"var(--ink)"}}>{u.nombre}</b> · {u.rol}{u.pin?` · PIN ${u.pin}`:""}
+          {u.rol==='aprobador' && <><br/><span style={{fontSize:12,color:u.correo?"var(--muted)":"var(--red)"}}>{u.correo||"sin correo · no recibe el resumen diario de ILD"}</span></>}</span>
         <button className="btn ghost" style={{padding:"6px 10px"}} onClick={()=>setEdit({...u})}><Icon name="edit" size={16} style={{marginRight:6}}/>Editar</button></div>)}</div>
     <div className="card"><h3>Colaboradores ({colabs.length})</h3>
       {!colabs.length && <div className="hint">Aún no hay colaboradores.</div>}
@@ -3747,6 +3868,7 @@ function UsuariosEditor({toast,onSave}){
 }
 function UserModal({u,onClose,onSave}){
   const [nombre,setNombre]=useState(u.nombre||""); const [pin,setPin]=useState(u.pin||"");
+  const [correo,setCorreo]=useState(u.correo||"");
   const [rol,setRol]=useState(u.rol||"colaborador");
   const [areas,setAreas]=useState(u.areas||[]);
   const [hkPerfilesSel,setHkPerfilesSel]=useState(hkPerfiles(u));
@@ -3759,6 +3881,7 @@ function UserModal({u,onClose,onSave}){
       <option value="colaborador">Colaborador (sin PIN)</option>
       <option value="aprobador">Aprobador / Jefatura</option>
       <option value="gerencia">Gerencia</option></select></Field>
+    {!esColab && <Field label="Correo" hint="Recibe aquí el resumen diario de los ILD de sus áreas (ILD subidos y su estado de aprobación)."><input className="inp" type="email" value={correo} placeholder="nombre@playaparaiso.com.ec" onChange={e=>setCorreo(e.target.value.trim())}/></Field>}
     {!esColab && <Field label="PIN (4 dígitos)" hint="Las jefaturas y gerencia ingresan con PIN."><input className="inp" inputMode="numeric" value={pin} onChange={e=>setPin(e.target.value.replace(/\D/g,'').slice(0,4))}/></Field>}
     <Field label="ILD / áreas que realiza o aprueba">
       <div style={{maxHeight:280,overflow:"auto",border:"1px solid var(--line)",borderRadius:12,padding:"4px 10px"}}>
@@ -3773,7 +3896,7 @@ function UserModal({u,onClose,onSave}){
       {!hkPerfilesSel.length && <div className="hint" style={{marginTop:6}}>Sin ninguno marcado, esta persona no tiene acceso a Housekeeping.</div>}
     </Field>
     <div className="row end"><button className="btn ghost" onClick={onClose}>Cancelar</button>
-      <button className="btn primary" onClick={()=>{ if(!nombre.trim())return; if(rol!=="colaborador"&&pin.length!==4){alert("Las jefaturas/gerencia necesitan un PIN de 4 dígitos.");return;} onSave({...u,nombre:nombre.trim(),pin,rol,areas,hk:{perfiles:hkPerfilesSel}}); }}>Guardar</button></div>
+      <button className="btn primary" onClick={()=>{ if(!nombre.trim())return; if(rol!=="colaborador"&&pin.length!==4){alert("Las jefaturas/gerencia necesitan un PIN de 4 dígitos.");return;} onSave({...u,nombre:nombre.trim(),pin,rol,areas,correo:(correo||"").trim(),hk:{perfiles:hkPerfilesSel}}); }}>Guardar</button></div>
   </Modal>;
 }
 
@@ -4986,15 +5109,11 @@ function NotifConfig({toast}){
       <input className="inp" style={{flex:1}} value={c[k]||""} placeholder={ph||""} onChange={e=>set(k,e.target.value)}/>
       <button className="btn ghost" style={{padding:"9px 12px",flex:"0 0 auto"}} disabled={busy===c[k]} onClick={()=>probar(c[k],nombre||label)}>{busy===c[k]?"…":"✉️ Probar"}</button>
     </div></div>;
-  return <div className="card"><h3>Notificaciones (correo / Teams)</h3>
-    <div className="hint">Los avisos se envían por correo con tu cuenta Microsoft (requiere el permiso <b>Mail.Send</b> con consentimiento de administrador). Para publicar en un grupo de Teams, pega el <b>correo del canal</b> (en Teams: canal → ••• → Obtener dirección de correo). El canal de Teams de <b>cada ILD</b> se asigna en <b>Config → Gestionar ILD → Datos generales</b>.</div>
+  return <div className="card"><h3>Notificaciones (correo)</h3>
+    <div className="hint">Los avisos se envían por correo con tu cuenta Microsoft (requiere el permiso <b>Mail.Send</b> con consentimiento de administrador). El resumen diario de ILD a cada jefatura se configura abajo, en <b>Resumen diario de ILD</b>.</div>
     <label className="row" style={{gap:8,alignItems:"center",margin:"12px 0"}}>
       <input type="checkbox" checked={!!c.enabled} onChange={e=>set("enabled",e.target.checked)}/> <span style={{fontWeight:600}}>Activar notificaciones</span></label>
     <Field label="Enlace de la app (para el botón de los correos)"><input className="inp" value={c.appUrl} onChange={e=>set("appUrl",e.target.value)}/></Field>
-    <div style={{fontWeight:700,color:"var(--ocean)",margin:"6px 0 8px"}}>Canales de Teams</div>
-    {Linea({k:"teamsILD",label:"ILD — canal por defecto",ph:"canal-ild@…teams.ms",nombre:"canal ILD por defecto"})}
-    {Linea({k:"teamsFinSistemas",label:"Finalizaciones de Sistemas",ph:"canal-sistemas@…teams.ms"})}
-    {Linea({k:"teamsFinMantenimiento",label:"Finalizaciones de Mantenimiento",ph:"canal-mantenimiento@…teams.ms"})}
     <div style={{fontWeight:700,color:"var(--ocean)",margin:"12px 0 8px"}}>Correos por área</div>
     {Linea({k:"mailCompras",label:"Compras"})}
     {Linea({k:"mailGerencia",label:"Gerencia General"})}
@@ -5159,10 +5278,8 @@ function Admin({user,toast,bump}){
     <div className="card"><h3>Exportar histórico a Excel</h3>
       <div className="row">{["ILD","Compras","Sistemas","Mantenimiento"].map(t=><button key={t} className="btn green" onClick={()=>exportar(t)}><Icon name="download" size={15} style={{marginRight:6}}/>{t}</button>)}</div>
       <div className="hint" style={{marginTop:8}}>Cada jefatura también puede exportar sus ILD desde ILD → bandeja.</div></div>
-    <div className="card"><h3>Histórico de ILD</h3>
-      <div className="hint">Carga los <b>{typeof ILD_SEED!=="undefined"?ILD_SEED.length:0} ILD reales</b> (junio) en el almacenamiento, sin duplicar los ya cargados.</div>
-      <button className="btn ocean block" style={{marginTop:10}} onClick={cargarHistorico}><Icon name="inbox" size={15} style={{marginRight:6}}/>Cargar histórico de ILD</button></div>
     <NotifConfig toast={toast}/>
+    <ResumenILDConfig toast={toast}/>
     <DeleteRecords toast={toast}/>
     <RenombrarPersona toast={toast}/>
     <ReasignarResp toast={toast}/>
@@ -6751,6 +6868,7 @@ function App(){
   useEffect(()=>{ (async()=>{
     if(MODE==="graph"){ const ok=await msEnsure(); setConnected(ok);
       if(ok){ try{ applyIldConfig(await cfgRead()); }catch{}
+        setTimeout(()=>{ ildResumenDiario(); }, 8000);
         try{ if(!localStorage.getItem("pp_hist_v1")){
           const pares=[["ILD",ILD_SEED],["Compras",COMPRAS_SEED],["Sistemas",SISTEMAS_SEED],["Mantenimiento",MANT_SEED]];
           for(const [t,seed] of pares){ if(seed && seed.length){ const cur=await Store.read(t); if(!cur.length){ await Store.write(t,seed); } } }
@@ -6791,7 +6909,9 @@ function App(){
      jornada vencía y cada envío fallaba en silencio (ver refreshToken en gfetch). */
   useEffect(()=>{ if(MODE!=="graph") return;
     const t=setInterval(async()=>{ const ok=await refreshToken(); if(ok) setConnected(true); }, 20*60*1000);
-    return ()=>clearInterval(t);
+    /* Resumen diario de ILD: revisa cada 15 min si ya pasó el corte y nadie lo envió. */
+    const t2=setInterval(()=>{ ildResumenDiario(); }, 15*60*1000);
+    return ()=>{ clearInterval(t); clearInterval(t2); };
   },[]);
   const toast=m=>{ setToastMsg(m); const dur=/no se pudo|error|❌|403|falló|no encontr|presupuesto/i.test(m)?8000:2600; setTimeout(()=>setToastMsg(""),dur); };
   async function reloadCounts(u, _retry){ const who=u||user; if(!who) return;
