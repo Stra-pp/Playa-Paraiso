@@ -381,7 +381,6 @@ let CL={
     'Minibar revisado y completo',
     'Espejo limpio sin manchas',
     'Papelera limpia',
-    'Número de habitación registrado',
   ],
   'Servicio A la Carta':[
     {t:'Servicio',tipo:'comida'},
@@ -694,8 +693,8 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v6.8 · ILD inactivos + eliminados persistentes + orden Dashboard · UI 5.9 (pulido + nav inferior) · SharePoint Prueba7(Listas) · Notif+Offline · Fix conexión/exportación/fotos avance",
-  versionShort: "Playa Paraíso v6.8",
+  version: "Playa Paraíso · App unificada v6.9 · Briefing HK en ILD + cierre de pendientes antiguos + auditorías progresivas · v6.8 · ILD inactivos + eliminados persistentes + orden Dashboard · UI 5.9 (pulido + nav inferior) · SharePoint Prueba7(Listas) · Notif+Offline · Fix conexión/exportación/fotos avance",
+  versionShort: "Playa Paraíso v6.9",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -759,6 +758,13 @@ function resolverAreaHK(nombreFabrica){
 }
 const AREA_HAB = () => resolverAreaHK('Habitaciones');
 const AREA_AP = () => resolverAreaHK('Áreas Públicas');
+/* v6.9 · Checklist de limpieza/auditoría de habitaciones SIN la pregunta
+   "Número de habitación registrado" (el QR ya identifica la habitación). Se
+   filtra aquí y no en la configuración guardada, para que no dependa de que
+   alguien la borre a mano en cada área. Es el último ítem, así que los índices
+   de los checks ya guardados no se mueven. */
+const HK_ITEM_QUITADO = it => normArea(itemText(it)).normalize('NFD').replace(/[\u0300-\u036f]/g,'').indexOf('numero de habitacion registrado')>=0;
+const itemsHabHK = () => (CL[AREA_HAB()]||[]).filter(it=>!HK_ITEM_QUITADO(it));
 /* Áreas del grupo "Housekeeping" (Habitaciones, Áreas Públicas) ya tienen su
    propio módulo (Housekeeping): se generan solas al escanear el QR y se
    revisan ahí mismo (HKAuditorias / HKAreasILDs). No deben aparecer también
@@ -767,7 +773,14 @@ const AREA_AP = () => resolverAreaHK('Áreas Públicas');
    Se compara tanto por el grupo guardado en AC como por el nombre resuelto,
    porque si la cuenta en vivo nunca guardó "g" para el área renombrada, lo
    único confiable que queda es el nombre. */
-const esAreaHK = a => AC[a]?.g === 'Housekeeping' || mismaArea(a,AREA_HAB()) || mismaArea(a,AREA_AP());
+/* v6.9 · Antes se ocultaba TODO el grupo "Housekeeping" del módulo ILD, y eso
+   escondía ILD manuales de ese grupo que no tienen flujo por QR (p.ej. "Briefing
+   Ama de llaves": Liliam no lo veía en ILD › Nuevo). Ahora solo se tratan como
+   "de Housekeeping" las dos áreas que sí viven en ese módulo: Habitaciones y
+   Áreas Públicas (con o sin prefijo "ILD "). */
+const _sinIld = s => normArea(s).replace(/^ild[\s\-:]+/,'');
+const esAreaHK = a => { const n=_sinIld(a);
+  return n===_sinIld('Habitaciones') || n===_sinIld('Áreas Públicas') || mismaArea(a,AREA_HAB()) || mismaArea(a,AREA_AP()); };
 const puedeAprobarArea = (u,area) => esGD(u) || (u.rol==='aprobador' && (u.areas||[]).some(a=>mismaArea(a,area)));
 const gestionaModulo = (u,m) => esDev(u) || (u.gestiona||[]).includes(m);
 /* Housekeeping es un módulo aparte del resto (ILD/Compras/Sistemas/Mantenimiento):
@@ -1098,15 +1111,35 @@ async function spEnsureList(t){ const site=await spSite();
        es falta de permiso, nombre repetido u otra causa, sin tener que adivinar. */
     throw new Error(`No encontré ni pude crear la lista "${name}". Existentes: ${SP_LISTNAMES.join(", ")||"(ninguna)"}. Detalle: ${(e&&e.message)||e}. Pide a alguien con permisos que cree esa lista en SharePoint (columnas: Title, Data [varias líneas], Fecha, Estado) o renómbrala para que coincida.`);
   } }
+/* v6.9 · Algunos registros quedaron guardados DOS veces en la lista (dos ítems
+   de SharePoint con el mismo id interno — p.ej. ILD-2026-2342). Antes el mapa
+   id → ítem solo recordaba uno, así que al aprobar se actualizaba esa copia y
+   la otra seguía "Pendiente" para siempre: por eso esos ILD no se podían
+   "aprobar". Ahora se recuerdan todas las copias (otros) y se actualizan juntas. */
 function spMerge(t,items){ const dcol=SP_DCOL[t]||"Data"; const map=SP_MAP[t]||new Map();
   items.forEach(it=>{ const d=it.fields&&it.fields[dcol]; if(!d) return; let rec; try{rec=JSON.parse(d);}catch{return;}
-    map.set(rec.id,{spId:it.id,hash:d}); }); SP_MAP[t]=map; }
+    const prev=map.get(rec.id); const otros=new Set(prev?(prev.otros||[]):[]);
+    if(prev && String(prev.spId)!==String(it.id)) otros.add(prev.spId);
+    otros.delete(it.id);
+    map.set(rec.id,{spId:it.id,hash:d,otros:[...otros]}); }); SP_MAP[t]=map; }
+async function spPatchOtros(site,lid,m,full,basico){
+  for(const sid of (m&&m.otros)||[]){
+    try{ await gfetch(`/sites/${site}/lists/${lid}/items/${sid}/fields`,"PATCH",full); }
+    catch(e){ try{ await gfetch(`/sites/${site}/lists/${lid}/items/${sid}/fields`,"PATCH",basico); }catch(_){} } } }
 async function spPages(t,query){ const site=await spSite(); const lid=await spEnsureList(t);
   let url=`/sites/${site}/lists/${lid}/items?$expand=fields&$top=500${query?("&"+query):""}`;
   const items=[]; while(url){ const page=await gfetch(url.replace(GBASE,""),"GET",null,false,PREFER_NX);
     (page.value||[]).forEach(x=>items.push(x)); url=page["@odata.nextLink"]||null; } return items; }
+/* v6.9 · Si un registro existe en dos ítems (ver spMerge) se muestra UNA sola
+   vez — y, si una de las copias ya está resuelta, se muestra la resuelta. */
 function spParse(t,items){ const dcol=SP_DCOL[t]||"Data";
-  return items.map(it=>{ try{return JSON.parse(it.fields[dcol]);}catch{return null;} }).filter(Boolean); }
+  const out=[]; const idx=new Map();
+  const pend=x=>/^(pendiente|solicitado|nuevo)?$/i.test(recEstado(x).trim());
+  items.forEach(it=>{ let r; try{ r=JSON.parse(it.fields[dcol]); }catch{ return; } if(!r) return;
+    if(r.id==null){ out.push(r); return; }
+    if(!idx.has(r.id)){ idx.set(r.id,out.length); out.push(r); return; }
+    const i=idx.get(r.id); if(pend(out[i]) && !pend(r)) out[i]=r; });
+  return out; }
 /* Caché en memoria de la lista completa por tabla. Antes, CADA aprobación/cambio
    (ver colaAplicarCambio) volvía a descargar y parsear la lista ENTERA de SharePoint
    solo para ubicar un registro — con el histórico de meses de ILD eso significaba
@@ -1202,7 +1235,8 @@ const ListStore={
           catch(e){ cr=await gfetch(`/sites/${site}/lists/${lid}/items`,"POST",{fields:basico}); }
         map.set(rec.id,{spId:cr.id,hash:j}); }
       else if(m.hash!==j){ try{ await gfetch(`/sites/${site}/lists/${lid}/items/${m.spId}/fields`,"PATCH",full); }
-          catch(e){ await gfetch(`/sites/${site}/lists/${lid}/items/${m.spId}/fields`,"PATCH",basico); } m.hash=j; }
+          catch(e){ await gfetch(`/sites/${site}/lists/${lid}/items/${m.spId}/fields`,"PATCH",basico); } m.hash=j;
+        await spPatchOtros(site,lid,m,full,basico); }
       spCachePut(t,rec); }
     SP_MAP[t]=map; },
   /* Escribe UN solo registro (alta o cambio puntual) sin tocar el resto de la
@@ -1223,8 +1257,9 @@ const ListStore={
         catch(e){ cr=await gfetch(`/sites/${site}/lists/${lid}/items`,"POST",{fields:basico}); }
       map.set(rec.id,{spId:cr.id,hash:j}); spId=cr.id; }
     else if(m.hash!==j){ try{ await gfetch(`/sites/${site}/lists/${lid}/items/${m.spId}/fields`,"PATCH",full); }
-        catch(e){ await gfetch(`/sites/${site}/lists/${lid}/items/${m.spId}/fields`,"PATCH",basico); } m.hash=j; spId=m.spId; }
-    else spId=m.spId;
+        catch(e){ await gfetch(`/sites/${site}/lists/${lid}/items/${m.spId}/fields`,"PATCH",basico); } m.hash=j; spId=m.spId;
+      await spPatchOtros(site,lid,m,full,basico); }
+    else { spId=m.spId; if((m.otros||[]).length) await spPatchOtros(site,lid,m,full,basico); }
     spCachePut(t,rec); return spId; },
   async remove(t,id){ const site=await spSite(); const lid=await spEnsureList(t); const dcol=SP_DCOL[t]||"Data";
     const items=await spPages(t,""); let n=0;
@@ -1437,8 +1472,27 @@ function diasEsperadosPeriodo(area,year,mes){
   let n=0; for(let m=0; m<=maxM; m++) n+=diasEsperados(area,year,m, year===hoy.y && m===hoy.m);
   return n;
 }
-async function cfgRead(){ let c; try{ c=await Store.read("ILD_Config"); }catch{ c=null; }
-  if(!c || Array.isArray(c)) return null; return c; }
+/* v6.9 · Antes, si la lectura de NEXO_Config.json fallaba (red lenta, token,
+   etc.) el error se tragaba en silencio y la app seguía con la configuración
+   DE FÁBRICA: nombres de ILD viejos ("Apertura Cocina", "Chiringuito Apertura"…)
+   que ya no coinciden con los registros reales — por eso el Dashboard mostraba
+   0 subidos aunque sí había ILD subidos. Ahora: 3 intentos, respaldo de la
+   última configuración buena en el equipo y aviso visible si no se pudo. */
+let CFG_ESTADO="pendiente";
+async function cfgRead(){
+  if(MODE!=="graph"){ let c; try{ c=await Store.read("ILD_Config"); }catch{ c=null; }
+    CFG_ESTADO="ok"; if(!c || Array.isArray(c)) return null; return c; }
+  for(let i=0;i<3;i++){
+    try{ const buf=await gfetch(`/drives/${APP.ms.driveId}/root:/${GraphStore.fileName("ILD_Config")}:/content`,"GET",null,true);
+      const c=JSON.parse(new TextDecoder().decode(buf));
+      if(c && !Array.isArray(c)){ try{ localStorage.setItem("pp_cfg_respaldo",JSON.stringify(c)); }catch(e){}
+        CFG_ESTADO="ok"; return c; }
+    }catch(e){}
+    await new Promise(r=>setTimeout(r,1500*(i+1)));
+  }
+  try{ const raw=localStorage.getItem("pp_cfg_respaldo"); if(raw){ CFG_ESTADO="respaldo"; return JSON.parse(raw); } }catch(e){}
+  CFG_ESTADO="fallo"; return null;
+}
 function applyIldConfig(cfg){ if(!cfg) return;
   /* Mismo problema que ya se corrigió para el checklist (CL) más abajo, pero
      nunca se había arreglado aquí para las áreas (AC): si se borraba todo y
@@ -1504,7 +1558,11 @@ function migrarV67(){
     });
   }catch(e){}
 }
-async function cfgSave(){ await Store.write("ILD_Config",{checklist:CL,areas:AC,aprobadores:APR,usuarios:USERS,diasCfg:DIAS_CFG,accesos:ACCESOS,amodo:AMODO,agrupaComida:AGRUPA_COMIDA,notif:NOTIF,eliminados:AC_ELIM}); }
+async function cfgSave(){
+  /* Si la configuración real no se cargó en este equipo, guardar pisaría la de
+     SharePoint con la de fábrica: se bloquea. */
+  if(MODE==="graph" && CFG_ESTADO!=="ok"){ alert("No se guardó: la configuración en vivo no se pudo cargar en este equipo. Recarga la app (con internet) e intenta de nuevo."); return; }
+  await Store.write("ILD_Config",{checklist:CL,areas:AC,aprobadores:APR,usuarios:USERS,diasCfg:DIAS_CFG,accesos:ACCESOS,amodo:AMODO,agrupaComida:AGRUPA_COMIDA,notif:NOTIF,eliminados:AC_ELIM}); }
 
 /* ===== Notificaciones (correo Graph + Teams por correo de canal) ===== */
 const NOTIF_DEF = {
@@ -2611,6 +2669,7 @@ function ILDForm({user,toast,onSaved,setFoto,onDraft}){
 function ILDPanel({user,regs,enCola,reload,toast,setFoto}){
   const [filtro,setFiltro]=useState("todos"); const [per,setPer]=useState(45); const [det,setDet]=useState(null); const [fGrupo,setFGrupo]=useState("__todas");
   const [verDup,setVerDup]=useState(false);
+  const [cerrando,setCerrando]=useState(false);
   const lim=new Date(); lim.setDate(lim.getDate()-per);
   /* Los "Pendiente" nunca se ocultan por el filtro de período: la vigencia de 45
      días (ver load() en el módulo ILD) solo aplica a los ya resueltos. Si un
@@ -2631,6 +2690,31 @@ function ILDPanel({user,regs,enCola,reload,toast,setFoto}){
   if(fGrupo!=="__todas") base=base.filter(r=>grupoDe(r)===fGrupo);
   // Histórico completo de la jefatura (para exportar, sin filtro de período)
   const mios=esGD(user)?regs:regs.filter(esSuyo);
+  /* v6.9 · Cierre administrativo de pendientes antiguos (solo Gerencia /
+     Desarrollador): los deja como "Aprobado" con nota de cierre, en todas sus
+     copias, para que dejen de aparecer como pendientes. No cuentan en el
+     "Tiempo (h)" de aprobación del Dashboard. */
+  const DIAS_ANTIGUO=7; const corteAntiguo=desdeDias(DIAS_ANTIGUO);
+  const antiguos = esGD(user) ? regs.filter(r=>r.estado==='Pendiente' && !esDuplicado(r)
+    && ymdEC(r.fecha)<corteAntiguo && !espera.includes(String(r.id))) : [];
+  async function cerrarAntiguos(){
+    if(!antiguos.length || cerrando) return;
+    if(!confirm(`Se marcarán como "Aprobado" (cierre administrativo) ${antiguos.length} ILD pendientes de hace más de ${DIAS_ANTIGUO} días. No se notifica a los colaboradores. ¿Continuar?`)) return;
+    setCerrando(true);
+    try{
+      for(const r of antiguos){
+        await Cola.cambio({ tabla:"ILD", recId:r.id, recCodigo:r.Codigo||"", campoEstado:"estado", estadoPrevio:r.estado,
+          patch:{ estado:"Aprobado", notaJef:"Cierre administrativo: pendiente antiguo", aprobador:user.nombre,
+            fechaAprobacion:nowISO(), cierreAdministrativo:true },
+          nota:"Cierre administrativo",
+          resumen:{ titulo:"→ Aprobado · "+(r.Codigo||("ILD-"+r.id)), sub:"ILD · cierre administrativo" } }, user.nombre);
+      }
+      const res=await Cola.enviar(user.nombre);
+      toast(res.sinRed?"Sin señal: el cierre quedó guardado y se aplicará solo."
+        : `Cerrados ${res.ok+res.dup} ILD antiguos`+(res.fail?` · ${res.fail} se reintentarán`:""));
+    }catch(e){ toast("No se pudo completar el cierre: "+((e&&e.message)||e)); }
+    setCerrando(false); reload();
+  }
   function exportar(){ if(!mios.length){toast("No hay ILD para exportar");return;}
     const ok=exportXLSX(mios.map(ildToRow),"ILD",`ILD_${esGD(user)?"General":user.nombre.replace(/\s+/g,"_")}_${yr()}`);
     if(ok) toast("Exportando "+mios.length+" ILD…"); }
@@ -2652,6 +2736,11 @@ function ILDPanel({user,regs,enCola,reload,toast,setFoto}){
     </div>
     <div className="hint" style={{margin:"-4px 0 12px"}}>Los ILD ya resueltos (Aprobado / Con obs.) dejan de verse aquí a los 45 días —
       siguen guardados en SharePoint. Los Pendientes se ven siempre, sin importar su antigüedad.</div>
+    {antiguos.length>0 && <div className="row" style={{marginBottom:12,alignItems:"center",gap:8,flexWrap:"wrap",background:"#FBEEEF",border:"1px solid #E3C2C6",borderRadius:9,padding:"9px 11px"}}>
+      <span style={{fontSize:12.5,flex:1,minWidth:180}}><b>{antiguos.length}</b> ILD siguen pendientes desde hace más de {DIAS_ANTIGUO} días.</span>
+      <button className="btn amber" style={{padding:"8px 12px",fontSize:12.5}} disabled={cerrando} onClick={cerrarAntiguos}>
+        {cerrando?"Cerrando…":"🧹 Cerrar pendientes antiguos"}</button>
+    </div>}
     {nEspera>0 && <div style={{background:"#FFF4E0",border:"1px solid #F3D9A6",borderRadius:9,padding:"9px 11px",marginBottom:12,fontSize:12.5,color:"#7a5a12"}}>
       {nEspera} ILD ya tienen tu revisión guardada, esperando señal. No hace falta volver a aprobarlos.</div>}
     {nDupPeriodo>0 && <div className="row" style={{marginBottom:12,alignItems:"center",gap:8,flexWrap:"wrap"}}>
@@ -2952,7 +3041,7 @@ function ILDDash({user}){
     const ob=recs.filter(r=>r.estado==='Con observaciones').length;
     const pe=recs.filter(r=>r.estado==='Pendiente').length;
     const cubiertos=new Set(recs.filter(r=>r.estado!=='Pendiente' && aplicaDia(areaDia,diaDe(r))).map(diaDe)).size;
-    const aprob=recs.filter(r=>r.fechaAprobacion);
+    const aprob=recs.filter(r=>r.fechaAprobacion && !r.cierreAdministrativo);
     const horas=aprob.length?(aprob.reduce((s,r)=>s+(new Date(r.fechaAprobacion)-new Date(r.fecha)),0)/aprob.length/3600000):0;
     return {ap,ob,pe,cubiertos,horas};
   }
@@ -2960,7 +3049,7 @@ function ILDDash({user}){
   const filasDe=area=>{ const ac=AC[area]; if(!ac) return [];
     return ac.turno ? ["Apertura","Cierre"] : [ac.t||"Diurno"]; };
   function rowData(area,turno){
-    const recs=regs.filter(r=>!esDuplicado(r) && r.area===area && (AC[area]?.turno ? r.turno===turno : true) && delMes(r));
+    const recs=regs.filter(r=>!esDuplicado(r) && mismaArea(r.area,area) && (AC[area]?.turno ? r.turno===turno : true) && delMes(r));
     const {ap,ob,pe,cubiertos,horas}=metricas(recs,area);
     const dias=diasEsperados(area,year,mes,esMesActual);
     const diasMes=diasEsperados(area,year,mes,false);
@@ -2981,7 +3070,7 @@ function ILDDash({user}){
     const ob=recs.filter(r=>r.estado==='Con observaciones').length;
     const pe=recs.filter(r=>r.estado==='Pendiente').length;
     const cubiertos=new Set(recs.filter(r=>r.estado!=='Pendiente' && areas.some(a=>aplicaDia(a,diaDe(r)))).map(diaDe)).size;
-    const aprob=recs.filter(r=>r.fechaAprobacion);
+    const aprob=recs.filter(r=>r.fechaAprobacion && !r.cierreAdministrativo);
     const horas=aprob.length?(aprob.reduce((s,r)=>s+(new Date(r.fechaAprobacion)-new Date(r.fecha)),0)/aprob.length/3600000):0;
     const dias=diasEsperadosGrupo(areas,year,mes,esMesActual);
     const diasMes=diasEsperadosGrupo(areas,year,mes,false);
@@ -3997,6 +4086,15 @@ function Compras({user,toast,setFoto}){
     setTimeout(()=>toast("Guardado sin señal. Se envía solo."),60);
     return r; }
   const mias=rows.filter(r=>r.Solicitante===user.nombre);
+  /* v6.9 · Mismos botones de estado que "Mis tickets" de Mantenimiento. */
+  const [filMias,setFilMias]=useState("todas");
+  const RECH_C=["Rechazada","Rechazado","Baja por presupuesto"];
+  const miasNuevas=mias.filter(r=>bucketEstado(r.Estado)==="nuevas");
+  const miasProceso=mias.filter(r=>bucketEstado(r.Estado)==="proceso");
+  const miasConcluidas=mias.filter(r=>bucketEstado(r.Estado)==="concluidas" && !RECH_C.includes(r.Estado));
+  const miasRechazadas=mias.filter(r=>RECH_C.includes(r.Estado));
+  const miasMostrar = filMias==="nuevas"?miasNuevas : filMias==="proceso"?miasProceso
+    : filMias==="concluidas"?miasConcluidas : filMias==="rechazadas"?miasRechazadas : mias;
   const verGestion=puede(user,'compras.gestion')||canGG;
   const esChiefCompras=puede(user,'compras.gestion');
   const gestionRows=esChiefCompras?rows:rows.filter(r=>r.Estado==="En Gerencia");
@@ -4034,7 +4132,14 @@ function Compras({user,toast,setFoto}){
       <CotizField cotiz={cotiz} setCotiz={setCotiz}/>
       <Field label="Posibles proveedores" req><input className="inp" value={f.Proveedores} onChange={e=>ch("Proveedores",e.target.value)} placeholder="Ej. Super Paco"/></Field>
       <button className="btn primary block" disabled={busy} onClick={crear}>{busy?"Enviando…":"Crear solicitud"}</button></div>}
-    {tab==="mias" && <Listado items={mias} empty="Aún no tienes solicitudes"
+    {tab==="mias" && <div className="seg" style={{flexWrap:"wrap"}}>
+      <button className={filMias==="todas"?"on":""} onClick={()=>setFilMias("todas")}>Todas ({mias.length})</button>
+      <button className={filMias==="nuevas"?"on":""} onClick={()=>setFilMias("nuevas")}>🆕 Nuevas ({miasNuevas.length})</button>
+      <button className={filMias==="proceso"?"on":""} onClick={()=>setFilMias("proceso")}>🔄 En proceso ({miasProceso.length})</button>
+      <button className={filMias==="concluidas"?"on":""} onClick={()=>setFilMias("concluidas")}>✅ Concluidas ({miasConcluidas.length})</button>
+      <button className={filMias==="rechazadas"?"on":""} onClick={()=>setFilMias("rechazadas")}>❌ Rechazadas ({miasRechazadas.length})</button>
+    </div>}
+    {tab==="mias" && <Listado items={miasMostrar} empty={filMias==="todas"?"Aún no tienes solicitudes":"No hay solicitudes en este filtro"}
       render={r=><ComprasCard r={r} chief={false} canGG={false} onAction={(t)=>setModal({t,item:r})}/>}/>}
     {tab==="gestion" && <>
       <div className="seg" style={{flexWrap:"wrap"}}>
@@ -4591,7 +4696,8 @@ function TicketModal({tipo,isSis,modal,user,equipo,onClose,apply,toast,setFoto})
         {fotos:[...fotos],fotoField:"FotosCierre",fotoDir:"MTO_{COD}",fotoPrefix:"{COD}_cierre"});
       Notif.ticketFinalizado({...item,ComentarioSoporte:com,FechaConcluido:nowISO(),CierreCumplimiento:cmp},tipo); toast(cmp); }
     else if(t==="rechazar"){ if(!com.trim()){toast("El motivo es obligatorio");return;} await apply(item,{Estado:"Rechazado",ComentarioSoporte:com,Asignado:user.nombre,FechaConcluido:nowISO()}); toast("Rechazado"); }
-    else if(t==="encuesta"){ if(!cal){toast("Selecciona calificación");return;} await apply(item,{Estado:"Cerrado",EncuestaCal:cal,EncuestaComentario:com,FechaEncuesta:nowISO()}); toast("¡Gracias por calificar!"); }
+    else if(t==="encuesta"){ if(!cal){toast("Selecciona calificación");return;}
+      if(!isSis && !String(com||"").trim()){toast("El comentario es obligatorio para calificar");return;} await apply(item,{Estado:"Cerrado",EncuestaCal:cal,EncuestaComentario:com,FechaEncuesta:nowISO()}); toast("¡Gracias por calificar!"); }
     onClose();
   }
   const titles={ver:"Detalle del ticket",tomar:"Asignar fecha tentativa",asignar:"Asignar tarea al equipo",avance:"Registrar avance",concluir:"Concluir ticket",concluirTarea:"Concluir tarea",rechazar:"Rechazar",encuesta:"Calificar el servicio",reactivar:"Reactivar la tarea"};
@@ -4654,7 +4760,7 @@ function TicketModal({tipo,isSis,modal,user,equipo,onClose,apply,toast,setFoto})
         <Field label="Fecha límite de la tarea" req hint="Según esta fecha se marcará 'a tiempo' o 'con atraso'."><input type="date" className="inp" value={fecha} onChange={e=>setFecha(e.target.value)}/></Field></>}
       {t==="tomar" && <Field label="Fecha tentativa de solución" hint="Sin fecha: queda 'Sin fecha asignada' y NO se marca vencido."><input type="date" className="inp" value={fecha} onChange={e=>setFecha(e.target.value)}/></Field>}
       {t==="encuesta" && <Field label="Calificación (1-10)"><Stars value={cal} onChange={setCal}/></Field>}
-      {["rechazar","concluir","concluirTarea","encuesta","asignar","avance","reactivar"].includes(t) && <Field label={t==="rechazar"?"Motivo del rechazo":t==="avance"?"Describe el avance (no concluye la tarea)":t==="reactivar"?"¿Por qué se reactiva? (lo verán los técnicos)":t==="concluir"||t==="concluirTarea"?"Comentario de la tarea / soporte":t==="asignar"?"Indicaciones para el técnico (opcional)":"Comentario (opcional)"} req={["rechazar","concluir","concluirTarea","avance","reactivar"].includes(t)}>
+      {["rechazar","concluir","concluirTarea","encuesta","asignar","avance","reactivar"].includes(t) && <Field label={t==="rechazar"?"Motivo del rechazo":t==="avance"?"Describe el avance (no concluye la tarea)":t==="reactivar"?"¿Por qué se reactiva? (lo verán los técnicos)":t==="concluir"||t==="concluirTarea"?"Comentario de la tarea / soporte":t==="asignar"?"Indicaciones para el técnico (opcional)":(t==="encuesta"&&!isSis)?"Comentario":"Comentario (opcional)"} req={["rechazar","concluir","concluirTarea","avance","reactivar"].includes(t)||(t==="encuesta"&&!isSis)}>
         <textarea className="inp" value={com} onChange={e=>setCom(e.target.value)}/></Field>}
       {/* Las horas ya no se piden al técnico: el tiempo se mide solo, desde que
            se asigna la tarea hasta que se marca concluida. */}
@@ -5379,10 +5485,10 @@ function HKCatalogo({user,toast}){
    "Habitaciones" en ILD (CL['Habitaciones']), para no duplicar catálogo ni
    confundir a jefatura con dos listas distintas. */
 function HKFinalizar({registro,room,user,toast,setFoto,onDone}){
-  const items = CL[AREA_HAB()]||[];
+  const items = itemsHabHK();
   const [checks,setChecks]=useState({}); const [fotos,setFotos]=useState([]); const [obs,setObs]=useState("");
   const [busy,unaVez]=useEnvioUnico();
-  const reqTotal = fotosReq(AREA_HAB());
+  const reqTotal = items.filter(it=>itemTipo(it)==='foto').length;
   const done = items.filter((it,i)=>checks[i]).length;
   async function finalizar(){
     if(done<items.length && !confirm(`${items.length-done} ítem(s) sin marcar. ¿Finalizar igual?`)) return;
@@ -5546,7 +5652,7 @@ function HKMonitor({toast,user,setFoto}){
     if(!confirm(`¿Cerrar la Hab. ${l.habitacionNumero} sin fotos? Quedará registrada la nota: "${NOTA_SIN_FOTOS}"`)) return;
     try{
       const room = rooms.find(r=>r.id===l.habitacionId) || {id:l.habitacionId, numero:l.habitacionNumero};
-      const items = CL[AREA_HAB()]||[];
+      const items = itemsHabHK();
       const horaFin = nowISO();
       const tiempoMin = Math.max(0, Math.round((new Date(horaFin) - new Date(l.horaInicio))/60000));
       await Cola.cambio({ tabla:"HKLimpiezas", recId:l.id, recCodigo:l.Codigo, campoEstado:"estado",
@@ -5957,8 +6063,8 @@ async function hkAsignarAuditoriasDelDia(fecha){
     await Store.write("HKAuditorias", [...nuevas.slice(0,permitir), ...fresco]);
   }catch(e){ /* si falla, simplemente no se asignaron auditorías hoy: no rompe la pantalla */ }
 }
-function hkDiasDelMes(anio,mesIdx,modo){
-  const total = new Date(anio, mesIdx+1, 0).getDate();
+function hkDiasDelMes(anio,mesIdx,modo,hastaDia){
+  const total = Math.min(new Date(anio, mesIdx+1, 0).getDate(), hastaDia||99);
   if(modo==="laborables"){
     let n=0; for(let d=1; d<=total; d++){ const dow=new Date(anio,mesIdx,d).getDay(); if(dow!==0) n++; } return n; // excluye domingo
   }
@@ -5991,7 +6097,7 @@ function HKAuditoriaDetalle({aud,user,toast,setFoto,onClose,onSaved}){
   useEffect(()=>{ let vivo=true; (async()=>{ try{ const arr=await Store.read("HKLimpiezas");
     const l=arr.find(x=>x.id===aud.limpiezaId)||null; if(vivo) setLimpieza(l); }catch(e){} })();
     return ()=>{vivo=false;}; },[aud.limpiezaId]);
-  const itemsAud = CL[AREA_HAB()]||[];
+  const itemsAud = itemsHabHK();
   const calif = hkCalifAuditoria(checklist, itemsAud.length);
   function marcar(i,val){ if(soloLectura) return; setChecklist(c=>({...c,[i]: c[i]===val?"":val})); }
   async function comenzar(){
@@ -6074,20 +6180,27 @@ function HKAuditorias({user,toast,setFoto}){
      distintos vía hkSeleccionBalanceada) — así jefatura nunca elige a mano qué
      auditar y la muestra siempre queda pareja entre personas. */
   function cambiarModo(m){ setModo(m); try{localStorage.setItem("pp_hk_audit_denom",m);}catch(e){} }
-  const hoy = new Date();
+  const hoy = hoyDateEC(); const hoyYMD = hoyEC(); const mesYM = hoyYMD.slice(0,7);
   const ordenadas = [...auds].sort((a,b)=> (b.fecha||"").localeCompare(a.fecha||"") || (b.asignadoEn||"").localeCompare(a.asignadoEn||""));
-  const pendientesHoy = ordenadas.filter(a=>a.estado!=="Auditada" && a.fecha===hoyEC());
+  /* v6.9 · "Auditorías de hoy" muestra TODAS las que siguen sin auditar, sean de
+     hoy o de días anteriores (estas últimas marcadas como vencidas, primero las
+     más antiguas), para que ninguna quede olvidada. */
+  const pendientesHoy = ordenadas.filter(a=>a.estado!=="Auditada")
+    .sort((a,b)=>(a.fecha||"").localeCompare(b.fecha||"") || (a.asignadoEn||"").localeCompare(b.asignadoEn||""));
+  const nVencidas = pendientesHoy.filter(a=>(a.fecha||"")<hoyYMD).length;
   const historial = ordenadas.filter(a=>a.estado==="Auditada");
-  const delMes = auds.filter(a=>{ const d=new Date(a.fecha); return d.getFullYear()===hoy.getFullYear() && d.getMonth()===hoy.getMonth(); });
+  const delMes = auds.filter(a=>String(a.fecha||"").slice(0,7)===mesYM);
   /* "programados" ya no está pendiente: sale de datos reales de Horarios (ver
      hkDiasProgramadosJefatura). null = nadie tiene el perfil "Jefatura HK"
      asignado todavía; 0 = sí hay perfil pero aún no se programó ningún día
      de este mes; ambos casos se explican en vez de mostrar un % engañoso. */
-  const diasProgramados = modo==="programados" ? hkDiasProgramadosJefatura(hoy.getFullYear(),hoy.getMonth(),horarios) : null;
+  /* v6.9 · Requeridas progresivas: se cuentan solo los días del mes que ya
+     transcurrieron (día 1 = 3, día 2 = 6, …), no el mes completo. */
+  const diasProgramados = modo==="programados" ? hkDiasProgramadosJefatura(hoy.getFullYear(),hoy.getMonth(),horarios,hoyYMD) : null;
   const sinDatosProgramados = modo==="programados" && (diasProgramados==null || diasProgramados===0);
   const requeridas = modo==="programados"
     ? (diasProgramados||0)*HK_AUD_MIN_DIA
-    : HK_AUD_MIN_DIA*hkDiasDelMes(hoy.getFullYear(),hoy.getMonth(),modo);
+    : HK_AUD_MIN_DIA*hkDiasDelMes(hoy.getFullYear(),hoy.getMonth(),modo,hoy.getDate());
   const realizadas = delMes.filter(a=>a.estado==="Auditada").length;
   const pct = requeridas ? Math.round(realizadas/requeridas*100) : null;
   /* Mismo criterio que hkJefaturaDeTurno (async, usado al asignar): aquí se
@@ -6112,18 +6225,19 @@ function HKAuditorias({user,toast,setFoto}){
             ? '[PENDIENTE: ningún usuario tiene el perfil "Jefatura HK" asignado (Config › Usuarios y accesos). Usa "calendario" o "laborables" mientras tanto.]'
             : `Aún no se ha programado ningún día de jefatura este mes en Housekeeping › Horarios. Usa "calendario" o "laborables" mientras se programa, o ve a Horarios y asigna los días.`}</div>
         : <div className="row" style={{gap:24,marginTop:6}}>
-            <div><div style={{fontSize:22,fontWeight:800}}>{realizadas}/{requeridas}</div><div className="hint">Auditadas / requeridas (3 × días{modo==="programados"?" programados":" del mes"})</div></div>
+            <div><div style={{fontSize:22,fontWeight:800}}>{realizadas}/{requeridas}</div><div className="hint">Auditadas / requeridas (3 × días{modo==="programados"?" programados":modo==="laborables"?" laborables":""} transcurridos del mes, al día {hoy.getDate()})</div></div>
             <div><div style={{fontSize:22,fontWeight:800,color:pct>=100?"var(--green)":pct>=60?"var(--amber)":"var(--red)"}}>{pct}%</div><div className="hint">Cumplimiento del mes</div></div>
           </div>}
     </div>
     <div style={{display:"flex",alignItems:"center",gap:8,marginTop:18,marginBottom:2}}>
       <Icon name="clipboard" size={16} style={{color:"var(--ocean)"}}/>
-      <h3 style={{margin:0,fontSize:15}}>Auditorías de hoy</h3>
+      <h3 style={{margin:0,fontSize:15}}>Auditorías de hoy y pendientes</h3>
       <span className="pill" style={{background:"#E7F0F3",color:"var(--ocean-d)"}}>{pendientesHoy.length}</span>
     </div>
+    {nVencidas>0 && <div className="hint" style={{marginBottom:8,color:"var(--red)",fontWeight:700}}>{nVencidas} auditoría(s) de días anteriores siguen sin realizarse.</div>}
     <div className="hint" style={{marginBottom:10}}>Las {HK_AUD_MIN_DIA} habitaciones que debe auditar hoy la jefatura de Housekeeping se asignan solas: de limpiezas terminadas el mismo día, de colaboradores distintos entre sí, y solo si hay jefatura de turno según Horarios.</div>
-    {!pendientesHoy.length && <div className="empty"><div className="e">🔍</div>{hoyJefaturaDeTurno?"Aún no hay auditorías asignadas para hoy. Se asignan solas cuando haya al menos 3 limpiezas terminadas en el día.":"Hoy no hay jefatura de Housekeeping de turno: no se asignan auditorías."}</div>}
-    {pendientesHoy.map(a=><HKAuditoriaItem key={a.id} a={a} vencida={false} onClick={()=>setDetalle(a)}/>)}
+    {!pendientesHoy.length && <div className="empty"><div className="e">🔍</div>{hoyJefaturaDeTurno?"No hay auditorías pendientes. Se asignan solas cuando haya al menos 3 limpiezas terminadas en el día.":"Hoy no hay jefatura de Housekeeping de turno: no se asignan auditorías."}</div>}
+    {pendientesHoy.map(a=><HKAuditoriaItem key={a.id} a={a} vencida={(a.fecha||"")<hoyYMD} onClick={()=>setDetalle(a)}/>)}
     {!!historial.length && <>
       <div className="hint" style={{fontWeight:700,marginTop:pendientesHoy.length?14:4}}>Historial (auditadas)</div>
       {historial.map(a=><HKAuditoriaItem key={a.id} a={a} vencida={false} onClick={()=>setDetalle(a)}/>)}
@@ -6176,12 +6290,13 @@ function hkSumarSemanas(fechaYMD, delta){ const d=new Date(fechaYMD+"T00:00:00")
    una persona con perfil "jefatura_hk" programada con tipo "Trabajo".
    Devuelve null si nadie tiene ese perfil asignado (para no mostrar un 0
    engañoso: es "no configurado", no "cero días programados"). */
-function hkDiasProgramadosJefatura(anio, mesIdx, horarios){
+function hkDiasProgramadosJefatura(anio, mesIdx, horarios, hastaYMD){
   const jefas = new Set(USERS.filter(u=>hkPerfiles(u).includes('jefatura_hk')).map(u=>u.nombre));
   if(!jefas.size) return null;
   const dias = new Set();
   (horarios||[]).forEach(h=>{
     if(h.tipo!=="Trabajo" || !jefas.has(h.colaborador)) return;
+    if(hastaYMD && h.fecha>hastaYMD) return;
     const d = new Date(h.fecha+"T00:00:00");
     if(d.getFullYear()===anio && d.getMonth()===mesIdx) dias.add(h.fecha);
   });
@@ -6733,6 +6848,9 @@ function App(){
         {notifs.length>0 && <span style={{position:"absolute",top:-4,right:-4,background:"var(--coral)",color:"#fff",borderRadius:"999px",fontSize:10,fontWeight:800,minWidth:18,height:18,display:"grid",placeItems:"center",padding:"0 4px"}}>{notifs.length}</span>}</button>
       <button className="iconbtn" title="Salir" onClick={logout}><Icon name="logout" size={19}/></button></div>
     <div className="content">
+      {MODE==="graph" && (CFG_ESTADO==="fallo"||CFG_ESTADO==="respaldo") && <div className="banner"><Icon name="alert" size={15} style={{marginRight:6}}/>
+        {CFG_ESTADO==="fallo"?"No se pudo cargar la configuración de SharePoint: los ILD, usuarios y el Dashboard pueden verse incorrectos.":"Sin conexión a la configuración: se usa la última copia guardada en este equipo."}
+        <button className="btn ghost" style={{marginLeft:8,padding:"4px 10px",fontSize:12}} onClick={()=>location.reload()}>Recargar</button></div>}
       {gerr && <div className="banner"><Icon name="alert" size={15} style={{marginRight:6}}/>{gerr}</div>}
       <AvisoPendientes user={user} toast={toast} onIr={()=>setView('ild')}/>
       {view!=="home" && <div className="backrow"><button className="backbtn" onClick={()=>setView("home")}><Icon name="chevronLeft" size={16} style={{marginRight:6,marginLeft:-2}}/>Inicio</button>
