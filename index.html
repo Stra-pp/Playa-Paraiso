@@ -693,8 +693,8 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v7.0 · Resumen diario de ILD por correo · v6.9 · Briefing HK en ILD + cierre de pendientes antiguos + auditorías progresivas · v6.8 · ILD inactivos + eliminados persistentes + orden Dashboard · UI 5.9 (pulido + nav inferior) · SharePoint Prueba7(Listas) · Notif+Offline · Fix conexión/exportación/fotos avance",
-  versionShort: "Playa Paraíso v7.0",
+  version: "Playa Paraíso · App unificada v7.1 · Días por ILD + feriados por área · v7.0 · Resumen diario de ILD por correo · v6.9 · Briefing HK en ILD + cierre de pendientes antiguos + auditorías progresivas · v6.8 · ILD inactivos + eliminados persistentes + orden Dashboard · UI 5.9 (pulido + nav inferior) · SharePoint Prueba7(Listas) · Notif+Offline · Fix conexión/exportación/fotos avance",
+  versionShort: "Playa Paraíso v7.1",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -1429,6 +1429,10 @@ function aplicaDia(area, iso){
   }
   if((DIAS_CFG.feriados||[]).indexOf(iso)>=0 && DIAS_CFG.feriadosOpera===false) return false;
   const cfg = DIAS_CFG.areas[area] || {patron:'diario'};
+  /* v7.1 · "+ feriados": el ILD también se espera en los feriados (Config ›
+     Reglas generales de calendario) aunque caigan fuera de su patrón — p.ej.
+     Spa o Almeja, que operan V/S/D y feriados. */
+  if(cfg.conFeriados && (DIAS_CFG.feriados||[]).indexOf(iso)>=0) return true;
   let set = cfg.patron==='personalizado' ? (cfg.dias||[]) : patronDias(cfg.patron);
   if(!set) set=[0,1,2,3,4,5,6];
   return set.indexOf(new Date(iso+"T00:00:00").getDay())>=0;
@@ -3105,7 +3109,12 @@ function colorCumpl(p){ return p>=85?"--green":p>=50?"--amber":"--red"; }
    salió A la carta, Buffet o Buffet Plaza. La detección es estructural (checklist
    con un ítem tipo 'comida'), así que sobrevive a que se renombre el ILD. */
 const COMIDAS = ['Desayuno','Almuerzo','Cena'];
-const tieneComida = a => (CL[a]||[]).some(it=>itemTipo(it)==='comida');
+/* v7.1 · Un outlet cuyo nombre indica UNA sola comida (p.ej. "… BUFFET
+   DESAYUNO") y que no tiene pregunta de comida en su checklist, cuenta igual
+   para esa comida en el Dashboard (Desayuno/Almuerzo/Cena). */
+function comidaFija(a){ const n=_nrm(a); const hay=['desayuno','almuerzo','cena'].filter(c=>n.indexOf(c)>=0);
+  return hay.length===1 ? hay[0].charAt(0).toUpperCase()+hay[0].slice(1) : ""; }
+const tieneComida = a => (CL[a]||[]).some(it=>itemTipo(it)==='comida') || !!comidaFija(a);
 /* Tener una pregunta de comida NO basta para agrupar: los ILD de apertura y
    cierre también la tienen y deben medirse individualmente. Se agrupan solo los
    ILD de servicio de sala (a la carta y buffets), y siempre se puede corregir a
@@ -3132,7 +3141,7 @@ function cortoILD(a){
 function comidaDe(r){
   const its = (r && r.clItems && r.clItems.length) ? r.clItems : (CL[r.area]||[]);
   for(let i=0;i<its.length;i++){ if(itemTipo(its[i])==='comida') return (r.selecciones && r.selecciones[i])||""; }
-  return "";
+  return comidaFija(r && r.area);
 }
 /* Etiqueta bajo el nombre del ILD: Apertura / Cierre. "Diurno" no se muestra. */
 function subTurno(area,turno){
@@ -3415,6 +3424,7 @@ function GestionarILD({user,toast,onSave}){
   const cfgArea = DIAS_CFG.areas[area]||{patron:'diario'};
   const PATRONES=[["diario","Todos los días del mes"],["finde","Solo fines de semana"],["vsd","Viernes · Sábado · Domingo"],["personalizado","Personalizado (por día de la semana)"]];
   function setPatron(p){ DIAS_CFG.areas[area]={...(DIAS_CFG.areas[area]||{}),patron:p}; onSave(); re(); }
+  function toggleConFeriados(){ const c=DIAS_CFG.areas[area]||{patron:'diario'}; DIAS_CFG.areas[area]={...c,conFeriados:!c.conFeriados}; onSave(); re(); }
   function toggleDow(d){ const c=DIAS_CFG.areas[area]||{patron:'personalizado',dias:[]}; const dias=c.dias||[];
     DIAS_CFG.areas[area]={patron:'personalizado',dias:dias.includes(d)?dias.filter(x=>x!==d):[...dias,d]}; onSave(); re(); }
   function toggleCelda(a,iso){
@@ -3589,6 +3599,10 @@ function GestionarILD({user,toast,onSave}){
           {PATRONES.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></Field>
       {cfgArea.patron==='personalizado' && <div className="row" style={{marginBottom:12,gap:6}}>{DN.map((dn,d)=>
         <button key={d} className={"opt"+((cfgArea.dias||[]).includes(d)?" on":"")} style={{minWidth:40,padding:"8px 0"}} onClick={()=>toggleDow(d)}>{dn}</button>)}</div>}
+      <div className="row" style={{justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <span style={{fontSize:13}}>¿También se espera en feriados (aunque no estén en el patrón)?</span>
+        <button className={"btn "+(cfgArea.conFeriados?"green":"ghost")} style={{flex:"0 0 auto"}} onClick={toggleConFeriados}>{cfgArea.conFeriados?"+ feriados ✓":"No"}</button>
+      </div>
       <div className="hint" style={{marginBottom:10}}>El patrón pinta el calendario solo. Toca un día puntual para una excepción (una decisión manual gana siempre sobre el patrón); un segundo toque en el mismo día la quita y vuelve al patrón.</div>
       {renderMes(iso=>aplicaDia(area,iso), iso=>toggleCelda(area,iso), iso=>esExcepcion(area,iso))}
       <div className="hint" style={{marginTop:10}}>{diasEsteMes} día(s) esperados este mes. Los feriados son globales — se administran una sola vez, no por cada área (ver "Reglas generales de calendario" al inicio de esta pantalla).</div>
