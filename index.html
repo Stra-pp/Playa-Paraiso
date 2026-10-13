@@ -693,8 +693,8 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v7.1 · Días por ILD + feriados por área · v7.0 · Resumen diario de ILD por correo · v6.9 · Briefing HK en ILD + cierre de pendientes antiguos + auditorías progresivas · v6.8 · ILD inactivos + eliminados persistentes + orden Dashboard · UI 5.9 (pulido + nav inferior) · SharePoint Prueba7(Listas) · Notif+Offline · Fix conexión/exportación/fotos avance",
-  versionShort: "Playa Paraíso v7.1",
+  version: "Playa Paraíso · App unificada v7.2 · Comidas por Apertura/Cierre · v7.1 · Días por ILD + feriados por área · v7.0 · Resumen diario de ILD por correo · v6.9 · Briefing HK en ILD + cierre de pendientes antiguos + auditorías progresivas · v6.8 · ILD inactivos + eliminados persistentes + orden Dashboard · UI 5.9 (pulido + nav inferior) · SharePoint Prueba7(Listas) · Notif+Offline · Fix conexión/exportación/fotos avance",
+  versionShort: "Playa Paraíso v7.2",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -1649,8 +1649,8 @@ function resumenArmar(u, dia, regs){
      comida, igual que en el Dashboard — basta que Desayuno/Almuerzo/Cena se
      reporte en cualquiera de esos outlets. */
   const grupoComida = areas.filter(a=>agrupaComida(a) && aplicaDia(a,dia));
-  if(grupoComida.length) COMIDAS.forEach(c=>{
-    if(!recs.some(r=>grupoComida.some(a=>mismaArea(r.area,a)) && comidaDe(r)===c)) faltan.push(`${c} (servicio: ${grupoComida.map(cortoILD).join(" / ")})`); });
+  if(grupoComida.length) COMIDAS.forEach(c=>["Apertura","Cierre"].forEach(t=>{
+    if(!recs.some(r=>grupoComida.some(a=>mismaArea(r.area,a)) && comidaDe(r)===c && r.turno===t)) faltan.push(`${c} · ${t} (servicio: ${grupoComida.map(cortoILD).join(" / ")})`); }));
   areas.forEach(a=>{ if(!aplicaDia(a,dia) || agrupaComida(a)) return;
     const turnos = AC[a]?.turno ? ["Apertura","Cierre"] : [""];
     turnos.forEach(t=>{ if(!recs.some(r=>mismaArea(r.area,a) && (!t || r.turno===t))) faltan.push(a+(t?` · ${t}`:"")); }); });
@@ -3193,8 +3193,10 @@ function ILDDash({user}){
       subidos:recs.length,ap,ob,pe,dias,diasMes,cubiertos,cumpl,horas};
   }
   /* Una fila por comida, sumando todos los outlets de servicio visibles */
-  function rowComida(comida,areas){
-    const recs=regs.filter(r=>!esDuplicado(r) && areas.indexOf(r.area)>=0 && comidaDe(r)===comida && delMes(r));
+  /* v7.2 · Cada comida se divide en Apertura y Cierre (turno del ILD) para ver
+     cuántos se subieron de cada uno. */
+  function rowComida(comida,areas,turnoC){
+    const recs=regs.filter(r=>!esDuplicado(r) && areas.indexOf(r.area)>=0 && comidaDe(r)===comida && (!turnoC || r.turno===turnoC) && delMes(r));
     const ref=areas[0];
     /* Días esperados y días cubiertos se miden por la UNIÓN de todos los
        outlets agrupados (no solo el primero) — así, si Buffet y A la Carta se
@@ -3211,7 +3213,7 @@ function ILDDash({user}){
     const diasMes=diasEsperadosGrupo(areas,year,mes,false);
     const cumpl=dias?Math.min(100,Math.round(cubiertos/dias*100)):0;
     const mix=areas.map(a=>`${cortoILD(a)} ${recs.filter(r=>r.area===a).length}`).join(" · ");
-    return {area:ref,turno:comida,nombre:comida,sub:"",mix,esComida:true,
+    return {area:ref,turno:comida+(turnoC?" · "+turnoC:""),nombre:comida,sub:turnoC||"",mix,esComida:true,
       subidos:recs.length,ap,ob,pe,dias,diasMes,cubiertos,cumpl,horas};
   }
   /* v6.8 · Orden fijo (alfabético; Apertura antes de Cierre) en vez del orden en
@@ -3227,7 +3229,7 @@ function ILDDash({user}){
     const comidaG=areasG.filter(agrupaComida);
     const normales=areasG.filter(a=>comidaG.indexOf(a)<0);
     const rows=[]; normales.forEach(a=>filasDe(a).forEach(t=>rows.push(rowData(a,t))));
-    if(comidaG.length) COMIDAS.forEach(c=>rows.push(rowComida(c,comidaG)));
+    if(comidaG.length) COMIDAS.forEach(c=>["Apertura","Cierre"].forEach(t=>rows.push(rowComida(c,comidaG,t))));
     return {g,rows,comidaG};
   }).filter(t=>t.rows.length);
   // resumen global del mes
