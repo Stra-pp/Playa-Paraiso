@@ -2457,9 +2457,14 @@ async function colaEnviarUno(d){
 
   const arr = await Store.read(tabla);
 
-  /* ¿El intento anterior sí llegó? Entonces no se crea nada. */
+  /* ¿El intento anterior sí llegó COMPLETO? Entonces no se crea nada.
+     Si el registro existe pero SIN Código, el intento anterior se cortó a
+     medias (el ítem se creó, pero no alcanzó a guardarse el Código ni las
+     fotos). Eso NO es un duplicado: antes se daba por entregado y el ticket
+     quedaba para siempre sin código y sin fotos. Ahora se completa aquí,
+     reutilizando el mismo ítem de SharePoint (no se crea otro). */
   const ya = arr.find(x=>x.id===idReg);
-  if(ya) return { dup:true, codigo: ya.Codigo };
+  if(ya && ya.Codigo) return { dup:true, codigo: ya.Codigo };
 
   const campoFotos = pl.fotoField || "Fotos";
   const esLista = LIST_TABLES.includes(tabla);
@@ -2477,6 +2482,9 @@ async function colaEnviarUno(d){
   } else {
     baseRec = { ...pl.rec };
   }
+  /* Ticket a medias de un intento anterior: se parte de lo que ya está en
+     SharePoint, para no pisar cambios hechos mientras tanto (asignación, estado). */
+  if(ya) baseRec = { ...baseRec, ...ya };
 
   /* Código: la causa real de los códigos duplicados era calcularlo en el
      celular como "el mayor que veo + 1". Si dos tablets envían casi al mismo
@@ -2513,8 +2521,17 @@ async function colaEnviarUno(d){
   if(pl.cotizField && cotizData) nuevo[pl.cotizField] = cotizData;
 
   /* Para las listas, esto termina de grabar (PATCH) el mismo ítem creado
-     arriba, ya con Código, fotos y el resto de los campos definitivos. */
-  await Store.write(tabla, [nuevo, ...arr]);
+     arriba, ya con Código, fotos y el resto de los campos definitivos.
+     Es el paso donde se cortaba el envío, así que se reintenta unos segundos
+     antes de rendirse. La copia vieja del mismo registro (la que no tiene
+     Código) se excluye: si no, se volvería a escribir encima del definitivo. */
+  const restoDeLaLista = arr.filter(x=>x.id!==idReg);
+  let guardado = false, falloFinal = null;
+  for(let intento=0; intento<3 && !guardado; intento++){
+    try{ await Store.write(tabla, [nuevo, ...restoDeLaLista]); guardado = true; }
+    catch(e){ falloFinal = e; if(intento<2) await new Promise(r=>setTimeout(r, 1500*(intento+1))); }
+  }
+  if(!guardado) throw falloFinal;
   try{ colaNotificar(pl.notif, nuevo); }catch(e){}
   return { codigo: Codigo };
 }
