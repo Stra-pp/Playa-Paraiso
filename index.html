@@ -693,8 +693,8 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v7.3 · Habitaciones fuera del Dashboard ILD · v7.2 · Comidas por Apertura/Cierre · v7.1 · Días por ILD + feriados por área · v7.0 · Resumen diario de ILD por correo · v6.9 · Briefing HK en ILD + cierre de pendientes antiguos + auditorías progresivas · v6.8 · ILD inactivos + eliminados persistentes + orden Dashboard · UI 5.9 (pulido + nav inferior) · SharePoint Prueba7(Listas) · Notif+Offline · Fix conexión/exportación/fotos avance",
-  versionShort: "Playa Paraíso v7.3",
+  version: "Playa Paraíso · App unificada v7.4 · Resumen ILD solo desde remitente · v7.3 · Habitaciones fuera del Dashboard ILD · v7.2 · Comidas por Apertura/Cierre · v7.1 · Días por ILD + feriados por área · v7.0 · Resumen diario de ILD por correo · v6.9 · Briefing HK en ILD + cierre de pendientes antiguos + auditorías progresivas · v6.8 · ILD inactivos + eliminados persistentes + orden Dashboard · UI 5.9 (pulido + nav inferior) · SharePoint Prueba7(Listas) · Notif+Offline · Fix conexión/exportación/fotos avance",
+  versionShort: "Playa Paraíso v7.4",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -1574,6 +1574,7 @@ async function cfgSave(){
 /* ===== Notificaciones (correo Graph + Teams por correo de canal) ===== */
 const NOTIF_DEF = {
   enabled:true,
+  resumenRemitente:"estrategia@playaparaiso.com.ec", // v7.4 · única cuenta que envía el resumen diario de ILD
   appUrl:"https://stra-pp.github.io/Playa-Paraiso/",
   teamsILD:"",           // correo del canal de Teams por defecto para ILD
   teamsPorArea:{},       // { "ILD Recepción - Apertura": "canal@…teams.ms", ... } opcional por ILD
@@ -1687,6 +1688,13 @@ function resumenHTML(u, dia, d){
       <p style="margin:16px 0 0;font-size:12px;color:#8a94a0">Playa Paraíso · Resumen automático diario (corte ${RESUMEN_HORA_CORTE}:00). Por favor no responda a este correo.</p>
     </div></div>`;
 }
+/* v7.4 · El resumen diario SOLO sale desde la cuenta Microsoft definida como
+   remitente (por defecto estrategia@playaparaiso.com.ec). Antes lo enviaba el
+   primer equipo con la app abierta, con la cuenta de quien estuviera conectado
+   (p.ej. Ericka). Ahora, si la cuenta conectada no es la remitente, no se envía
+   nada desde ese equipo: queda pendiente hasta que la remitente abra la app. */
+const resumenRemitente = () => String(NOTIF.resumenRemitente||NOTIF_DEF.resumenRemitente||"").trim().toLowerCase();
+const esRemitenteResumen = () => !!graphUser && String(graphUser).trim().toLowerCase()===resumenRemitente();
 let _resumenCorriendo=false;
 async function resumenEnviar(dia, opts){
   const o=opts||{};
@@ -1704,6 +1712,7 @@ async function ildResumenDiario(){
   if(_resumenCorriendo) return; _resumenCorriendo=true;
   try{
     if(MODE!=="graph" || CFG_ESTADO!=="ok" || !NOTIF.enabled || !graphToken || !navigator.onLine) return;
+    if(!esRemitenteResumen()) return;
     if(!resumenDestinatarios().length) return;
     const dia = resumenDiaObjetivo();
     const prev = await GraphStore.read("ILD_Resumen");
@@ -1727,12 +1736,14 @@ function ResumenILDConfig({toast}){
   const cargar=async()=>{ if(MODE!=="graph") return; try{ const e=await GraphStore.read("ILD_Resumen"); setEstado(Array.isArray(e)?null:e); }catch(e){} };
   useEffect(()=>{ cargar(); },[]);
   async function prueba(){ if(!graphUser){ toast("Inicia sesión con Microsoft primero"); return; }
+    if(!esRemitenteResumen()){ toast(`El resumen solo se envía desde ${resumenRemitente()}. Estás conectado como ${graphUser}.`); return; }
     const u=dest[0]; if(!u){ toast("Ningún aprobador tiene correo todavía"); return; }
     setBusy("prueba"); const dia=sumaDiasYMD(hoyEC(),-1);
     try{ const r=await resumenEnviar(dia,{soloA:u,redirigirA:graphUser});
       toast(r.enviados.length?`Prueba (resumen de ${u.nombre}, ${dia}) enviada a ${graphUser}`:"No se pudo: "+(r.errores[0]||"")); }
     finally{ setBusy(""); } }
   async function reenviar(){ const dia=sumaDiasYMD(hoyEC(),-1);
+    if(!esRemitenteResumen()){ toast(`El resumen solo se envía desde ${resumenRemitente()}. Estás conectado como ${graphUser||"(sin sesión)"}.`); return; }
     if(!confirm(`Se enviará el resumen del ${dia} a ${dest.length} jefatura(s) ahora, aunque ya se haya enviado. ¿Continuar?`)) return;
     setBusy("reenviar");
     try{ const r=await resumenEnviar(dia);
@@ -1740,7 +1751,8 @@ function ResumenILDConfig({toast}){
       toast(`Enviado a ${r.enviados.length}`+(r.errores.length?` · ${r.errores.length} con error`:"")); cargar(); }
     finally{ setBusy(""); } }
   return <div className="card"><h3>Resumen diario de ILD</h3>
-    <div className="hint">Cada jefatura aprobadora recibe por correo los ILD de sus áreas del día (subidos, estado de aprobación y los que no se subieron). Corte: <b>{RESUMEN_HORA_CORTE}:00</b>. Lo envía el primer equipo con la app abierta después del corte; si nadie la abre esa noche, sale al día siguiente apenas alguien la abra. El correo de cada jefatura se registra en <b>Usuarios y accesos</b>.</div>
+    <div className="hint">Cada jefatura aprobadora recibe por correo los ILD de sus áreas del día (subidos, estado de aprobación y los que no se subieron). Corte: <b>{RESUMEN_HORA_CORTE}:00</b>. Sale <b>solo desde la cuenta remitente</b>: se envía cuando esa cuenta tenga la app abierta después del corte, o al día siguiente apenas la abra. El correo de cada jefatura se registra en <b>Usuarios y accesos</b>.</div>
+    <div className="kv"><b>Remitente</b><span>{resumenRemitente()}{graphUser && !esRemitenteResumen() ? <span style={{color:"var(--red)"}}> · estás conectado como {graphUser}: desde este equipo no se envía</span> : ""}</span></div>
     <div className="kv"><b>Destinatarios</b><span>{dest.length?dest.map(u=>u.nombre).join(", "):"ninguno todavía"}</span></div>
     {sinCorreo.length>0 && <div className="kv"><b style={{color:"var(--red)"}}>Sin correo</b><span>{sinCorreo.map(u=>u.nombre).join(", ")}</span></div>}
     <div className="kv"><b>Último resumen</b><span>{estado&&estado.ultimoDia?`${estado.ultimoDia}${estado.fin?` · enviado ${fmtDT(estado.fin)}`:" · en curso"}${estado.enviados?` · ${estado.enviados.length} correo(s)`:""}${estado.errores&&estado.errores.length?` · ${estado.errores.length} error(es)`:""}`:"—"}</span></div>
