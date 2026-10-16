@@ -693,8 +693,8 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v7.4 · Resumen ILD solo desde remitente · v7.3 · Habitaciones fuera del Dashboard ILD · v7.2 · Comidas por Apertura/Cierre · v7.1 · Días por ILD + feriados por área · v7.0 · Resumen diario de ILD por correo · v6.9 · Briefing HK en ILD + cierre de pendientes antiguos + auditorías progresivas · v6.8 · ILD inactivos + eliminados persistentes + orden Dashboard · UI 5.9 (pulido + nav inferior) · SharePoint Prueba7(Listas) · Notif+Offline · Fix conexión/exportación/fotos avance",
-  versionShort: "Playa Paraíso v7.4",
+  version: "Playa Paraíso · App unificada v7.5 · Compras con entregas parciales · v7.4 · Resumen ILD solo desde remitente · v7.3 · Habitaciones fuera del Dashboard ILD · v7.2 · Comidas por Apertura/Cierre · v7.1 · Días por ILD + feriados por área · v7.0 · Resumen diario de ILD por correo · v6.9 · Briefing HK en ILD + cierre de pendientes antiguos + auditorías progresivas · v6.8 · ILD inactivos + eliminados persistentes + orden Dashboard · UI 5.9 (pulido + nav inferior) · SharePoint Prueba7(Listas) · Notif+Offline · Fix conexión/exportación/fotos avance",
+  versionShort: "Playa Paraíso v7.5",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -2584,6 +2584,16 @@ async function colaAplicarCambio(d){
 
   const nuevo = { ...rec, ...(pl.patch||{}), ...extra };
   (pl.appends||[]).forEach(a=>{ const prev = Array.isArray(rec[a.campo]) ? rec[a.campo] : []; nuevo[a.campo] = [...prev, a.item]; });
+  /* v7.5 · Transformaciones calculadas sobre el registro FRESCO de SharePoint
+     (no sobre la copia de la pantalla): p.ej. confirmar una entrega parcial de
+     Compras sin pisar otra entrega registrada mientras tanto. */
+  if(pl.transform && COLA_TRANSFORMS[pl.transform]){
+    Object.assign(nuevo, COLA_TRANSFORMS[pl.transform](nuevo, pl.transformArgs||{}) || {});
+    if(nuevo.Estado && nuevo.Estado!==rec.Estado && !(pl.patch && pl.patch.Estado)){
+      const h = Array.isArray(rec.historial) ? rec.historial : [];
+      nuevo.historial = [...h, { estado:nuevo.Estado, fecha:pl.creado||nowISO(), quien:d.quien||"", nota:(pl.nota||"").slice(0,300) }];
+    }
+  }
 
   if(pl.patch && pl.patch.Estado && pl.patch.Estado!==rec.Estado){
     const h = Array.isArray(rec.historial) ? rec.historial : [];
@@ -4350,6 +4360,10 @@ function actaCompra(item){
   <p>El colaborador manifiesta que se entregó el requerimiento en perfectas condiciones, y será utilizada dentro de la jornada laboral establecidos por la empresa.</p>
   <p>En caso de daño o pérdida o falta de devolución del equipo, el colaborador autoriza el descuento de valores de reposición en sus haberes pendientes.</p>
   ${item.ComentarioActa?`<p class="meta"><b>Observaciones:</b> ${esc(item.ComentarioActa)}</p>`:''}
+  ${compraEntregas(item).length?`<p><b>Entregas parciales</b></p><table style="width:100%;border-collapse:collapse;font-size:13px">
+    <tr style="background:#f1ede4"><th style="text-align:left;padding:5px">#</th><th style="text-align:left;padding:5px">Cantidad</th><th style="text-align:left;padding:5px">Entregó</th><th style="text-align:left;padding:5px">Recibió</th><th style="text-align:left;padding:5px">Resultado</th></tr>
+    ${compraEntregas(item).map((e,i)=>`<tr><td style="padding:5px;border-bottom:1px solid #ddd">${i+1}</td><td style="padding:5px;border-bottom:1px solid #ddd">${esc(e.cantidad)} ${esc(item.Unidad)}</td><td style="padding:5px;border-bottom:1px solid #ddd">${esc(e.registro)}<br><span class="meta">${f(e.fecha)}</span></td><td style="padding:5px;border-bottom:1px solid #ddd">${esc(e.receptor||'—')}<br><span class="meta">${e.fechaRecibido?f(e.fechaRecibido):''}</span></td><td style="padding:5px;border-bottom:1px solid #ddd">${esc(e.estado==='Recibido'?(e.acta||'Recibido'):'Pendiente')}</td></tr>`).join('')}
+  </table>`:''}
   <div class="firmas"><b>Estado final: ${esc(conf)}</b>
     <div class="firma"><b>Recibido por (área solicitante):</b> ${esc(item.Receptor||item.Solicitante)}<br><span class="meta">${f(item.FechaCierre)}</span></div>
     ${item.Aprobador?`<div class="firma"><b>Aprobó / entregó:</b> ${esc(item.Aprobador)}<br><span class="meta">${f(item.FechaAprob)}</span></div>`:''}
@@ -4361,6 +4375,71 @@ function actaCompra(item){
   w.document.write(html); w.document.close(); w.focus();
   setTimeout(function(){ try{ w.print(); }catch(e){} },350);
 }
+/* ===== v7.5 · Compras: entregas parciales =====
+   Compras registra cada entrega parcial (cantidad, comentario, foto opcional) y
+   el SOLICITANTE confirma cada una. La orden sigue "En compra" hasta que lo
+   recibido completa la cantidad pedida; ahí pasa sola a "Entregado" y sigue el
+   flujo de siempre (Calificar → Cerrada). Las órdenes sin entregas parciales
+   funcionan exactamente igual que antes. */
+const numCant = v => { const n=Number(String(v==null?"":v).replace(",",".")); return isFinite(n)&&n>0?n:0; };
+function compraEntregas(r){ return Array.isArray(r&&r.Entregas)?r.Entregas:[]; }
+function compraAvance(r){
+  const total=numCant(r&&r.Cantidad), ent=compraEntregas(r);
+  const registrado=ent.reduce((s,e)=>s+numCant(e.cantidad),0);
+  const recibido=ent.filter(e=>e.estado==="Recibido").reduce((s,e)=>s+numCant(e.cantidad),0);
+  const porConfirmar=ent.filter(e=>e.estado!=="Recibido");
+  return {total,registrado,recibido,porConfirmar,pendienteRegistrar:Math.max(0,total-registrado),pendienteRecibir:Math.max(0,total-recibido),hay:ent.length>0};
+}
+const COLA_TRANSFORMS = {
+  /* El solicitante confirma una entrega parcial. Si con eso se completa la
+     cantidad pedida, la orden pasa a "Entregado" (acta) como antes. */
+  compraRecibirParcial(rec, a){
+    const Entregas = compraEntregas(rec).map(e=> e.id===a.eid && e.estado!=="Recibido"
+      ? {...e, estado:"Recibido", receptor:a.quien, fechaRecibido:a.fecha, acta:a.acta, comentarioActa:a.com||""} : e);
+    const out={Entregas};
+    const av=compraAvance({...rec,Entregas});
+    if(av.total && av.recibido>=av.total && !["Entregado","Cerrada"].includes(rec.Estado)){
+      const conObs=Entregas.some(e=>e.acta==="Recibido con observaciones");
+      Object.assign(out,{Estado:"Entregado", ActaEntrega:conObs?"Recibido con observaciones":"Recibido conforme",
+        ComentarioActa:Entregas.map(e=>e.comentarioActa).filter(Boolean).join(" · "), Receptor:a.quien, FechaCierre:a.fecha});
+    }
+    return out;
+  },
+  /* "Confirmar recibido" total de una orden que ya tenía parciales: se dan por
+     recibidas las parciales pendientes y se registra el saldo como última entrega. */
+  compraRecibirTodo(rec, a){
+    let Entregas = compraEntregas(rec).map(e=> e.estado!=="Recibido"
+      ? {...e, estado:"Recibido", receptor:a.quien, fechaRecibido:a.fecha, acta:a.acta, comentarioActa:a.com||""} : e);
+    const av=compraAvance({...rec,Entregas});
+    if(av.pendienteRegistrar>0) Entregas=[...Entregas,{id:"e"+Date.now(), cantidad:av.pendienteRegistrar, fecha:rec.FechaEntrega||a.fecha,
+      registro:"Compras (saldo final)", comentario:"Saldo de la orden", estado:"Recibido", receptor:a.quien, fechaRecibido:a.fecha, acta:a.acta, comentarioActa:a.com||""}];
+    return {Entregas};
+  }
+};
+function CompraAvanceBox({r}){
+  const av=compraAvance(r); if(!av.hay) return null;
+  const pct=av.total?Math.min(100,Math.round(av.recibido/av.total*100)):0;
+  const pctReg=av.total?Math.min(100,Math.round(av.registrado/av.total*100)):0;
+  return <div style={{marginTop:8,background:"#F2F7F8",border:"1px solid #D6E6E9",borderRadius:8,padding:"8px 11px"}}>
+    <div style={{fontSize:12.5,fontWeight:700,color:"var(--ocean-d)"}}>📦 Entrega parcial · {av.recibido} / {av.total} recibidas{av.pendienteRecibir?` · faltan ${av.pendienteRecibir}`:""}</div>
+    <div style={{position:"relative",height:6,background:"#DCE7E9",borderRadius:4,marginTop:6,overflow:"hidden"}}>
+      <span style={{position:"absolute",left:0,top:0,bottom:0,width:pctReg+"%",background:"#9CC7CE"}}/>
+      <span style={{position:"absolute",left:0,top:0,bottom:0,width:pct+"%",background:"var(--ocean)"}}/></div>
+    {av.porConfirmar.length>0 && <div className="meta" style={{marginTop:5,color:"#7a5a12",fontWeight:700}}>{av.porConfirmar.reduce((s,e)=>s+numCant(e.cantidad),0)} entregadas por Compras, pendientes de confirmar por el solicitante</div>}
+  </div>;
+}
+function CompraEntregasTabla({r,setFoto}){
+  const ent=compraEntregas(r); if(!ent.length) return null;
+  return <><h3 style={{margin:"14px 0 6px"}}>📦 Entregas parciales ({ent.length})</h3>
+    {ent.map((e,i)=><div key={e.id||i} style={{border:"1px solid var(--line)",borderRadius:10,padding:"8px 10px",marginBottom:8,fontSize:13}}>
+      <div className="row" style={{justifyContent:"space-between"}}><b>#{i+1} · {e.cantidad} {r.Unidad}</b>
+        <span style={{fontWeight:700,color:e.estado==="Recibido"?"var(--green)":"#B7791F"}}>{e.estado==="Recibido"?(e.acta||"Recibido"):"Pendiente de confirmar"}</span></div>
+      <div className="meta">Entregó: {e.registro||"—"} · {fmtDT(e.fecha)}</div>
+      {e.comentario && <div className="meta">Comentario: {e.comentario}</div>}
+      {e.estado==="Recibido" && <div className="meta">Recibió: {e.receptor||"—"} · {fmtDT(e.fechaRecibido)}{e.comentarioActa?` · ${e.comentarioActa}`:""}</div>}
+      {(r["FotosEntrega_"+e.id]||[]).length>0 && <div className="fgrid" style={{marginTop:6}}>{r["FotosEntrega_"+e.id].map((f,k)=><SpImg key={k} foto={f} idx={k+1} onClick={setFoto}/>)}</div>}
+    </div>)}</>;
+}
 const NOTA_PRESUP="La compra se encuentra aprobada, pero está sujeta a disponibilidad de presupuesto.";
 function notaPresupBox(mt=8){ return <div style={{marginTop:mt,background:"#FBEEEF",border:"1px solid #E3C9CC",borderLeft:"4px solid #A52A3A",borderRadius:8,padding:"9px 11px",fontSize:12.5,color:"#7a2530",fontWeight:600}}>⚠️ {NOTA_PRESUP}</div>; }
 function ComprasCard({r,chief,canGG,onAction,dias}){
@@ -4371,6 +4450,7 @@ function ComprasCard({r,chief,canGG,onAction,dias}){
     {r._pendiente && <div className="meta" style={{marginTop:4,color:"#7a5a12",fontWeight:700}}>📥 Cambio pendiente de enviar</div>}
     <div className="meta" style={{marginTop:6}}><Icon name="calendar" size={15} style={{marginRight:6}}/>Necesaria: {fmtDate(r.FechaNecesidad)}{r.FechaTentativa?` · 📅 Tentativa: ${fmtDate(r.FechaTentativa)}`:""}</div>
     {r.Estado==="En compra" && notaPresupBox()}
+    <CompraAvanceBox r={r}/>
     <div className="acts">
       <button className="btn ghost" onClick={()=>onAction("ver")}>Ver</button>
       {chief && r.Estado==="Solicitado" && <>
@@ -4381,6 +4461,8 @@ function ComprasCard({r,chief,canGG,onAction,dias}){
         <button className="btn green" onClick={()=>onAction("aprobarGG")}>Aprobar (GG)</button>
         <button className="btn red" onClick={()=>onAction("rechazarGG")}>Rechazar (GG)</button></>}
       {chief && r.Estado==="En compra" && <button className="btn ocean" onClick={()=>onAction("listo")}>Marcar listo</button>}
+      {chief && r.Estado==="En compra" && compraAvance(r).pendienteRegistrar>0 && <button className="btn ghost" onClick={()=>onAction("parcial")}>📦 Registrar entrega parcial</button>}
+      {!chief && ["En compra","Listo para entregar"].includes(r.Estado) && compraAvance(r).porConfirmar.length>0 && <button className="btn primary" onClick={()=>onAction("recibirParcial")}>Confirmar recibido parcial</button>}
       {!chief && r.Estado==="Listo para entregar" && <button className="btn primary" onClick={()=>onAction("recibir")}>Confirmar recibido</button>}
       {chief && ["En compra","Listo para entregar"].includes(r.Estado) && <>
         <button className="btn amber" onClick={()=>onAction("reprogramar")}>Reprogramar fecha</button>
@@ -4395,6 +4477,9 @@ function ComprasModal({modal,user,onClose,apply,toast,setFoto}){
   const [calT,setCalT]=useState(0); const [calC,setCalC]=useState(0);
   const [acta,setActa]=useState("Recibido conforme");
   const MSG_PRESU=NOTA_PRESUP;
+  const av=compraAvance(item);
+  const [cantP,setCantP]=useState(""); const [fotosP,setFotosP]=useState([]);
+  const [eidSel,setEidSel]=useState(()=>(av.porConfirmar[0]||{}).id||"");
   async function go(){
     if(t==="aprobar"){ await apply(item,{Estado:"En compra",Aprobador:user.nombre,FechaAprob:nowISO(),Comentario:com,FechaTentativa:fecha}); toast(MSG_PRESU); }
     else if(t==="enviarGG"){ await apply(item,{Estado:"En Gerencia",EnviadoGG:"Si",Aprobador:user.nombre,FechaAprob:nowISO(),Comentario:com}); Notif.comprasGerencia(item,user.nombre); toast("Enviada a Gerencia"); }
@@ -4404,12 +4489,30 @@ function ComprasModal({modal,user,onClose,apply,toast,setFoto}){
     else if(t==="reprogramar"){ if(!fecha){toast("Indica la nueva fecha de entrega");return;} await apply(item,{FechaTentativa:fecha,Comentario:com?("Reprogramada — "+com):item.Comentario,Reprogramada:"Si"}); toast("Fecha reprogramada"); }
     else if(t==="baja"){ if(!com.trim()){toast("Indica el motivo de la baja");return;} await apply(item,{Estado:"Baja por presupuesto",Comentario:com,FechaCierre:nowISO()}); toast("Solicitud dada de baja"); }
     else if(t==="listo"){ await apply(item,{Estado:"Listo para entregar",FechaEntrega:nowISO()}); toast("Listo para entregar"); }
-    else if(t==="recibir"){ await apply(item,{Estado:"Entregado",ActaEntrega:acta,ComentarioActa:com,Receptor:user.nombre,FechaCierre:nowISO()}); toast("Recibido registrado · acta generada"); }
+    else if(t==="recibir"){
+      if(!av.hay){ await apply(item,{Estado:"Entregado",ActaEntrega:acta,ComentarioActa:com,Receptor:user.nombre,FechaCierre:nowISO()}); }
+      else { const fecha=nowISO(); await apply(item,{Estado:"Entregado",ActaEntrega:acta,ComentarioActa:com,Receptor:user.nombre,FechaCierre:fecha},"",
+        {transform:"compraRecibirTodo",transformArgs:{quien:user.nombre,fecha,acta,com}}); }
+      toast("Recibido registrado · acta generada"); }
+    else if(t==="parcial"){
+      const n=numCant(cantP);
+      if(!n){ toast("Indica la cantidad entregada"); return; }
+      if(av.total && n>av.pendienteRegistrar){ toast(`Solo faltan ${av.pendienteRegistrar} ${item.Unidad} por entregar`); return; }
+      const eid="e"+Date.now().toString(36);
+      const entrega={id:eid,cantidad:n,fecha:nowISO(),registro:user.nombre,comentario:com||"",estado:"Pendiente"};
+      await apply(item,{},"Entrega parcial: "+n+" "+(item.Unidad||""),{appends:[{campo:"Entregas",item:entrega}],
+        ...(fotosP.length?{fotos:[...fotosP],fotoField:"FotosEntrega_"+eid,fotoDir:"COM_{COD}",fotoPrefix:"{COD}_"+eid}:{})});
+      toast(`Entrega parcial registrada: ${n} ${item.Unidad||""}. El solicitante debe confirmarla.`); }
+    else if(t==="recibirParcial"){
+      const e=av.porConfirmar.find(x=>x.id===eidSel); if(!e){ toast("Elige la entrega a confirmar"); return; }
+      const fecha=nowISO();
+      await apply(item,{},"Recibido parcial: "+e.cantidad+" "+(item.Unidad||""),{transform:"compraRecibirParcial",transformArgs:{eid:e.id,quien:user.nombre,fecha,acta,com}});
+      toast(av.recibido+numCant(e.cantidad)>=av.total?"Recibido · la orden quedó completa (Entregado)":"Entrega parcial confirmada"); }
     else if(t==="encuesta"){ if(!calT||!calC){toast("Califica el tiempo de entrega y la calidad");return;}
       await apply(item,{Estado:"Cerrada",EncuestaTiempo:calT,EncuestaCalidad:calC,EncuestaCal:Math.round((calT+calC)/2),EncuestaComentario:com,FechaEncuesta:nowISO()}); toast("¡Gracias por calificar!"); }
     onClose();
   }
-  const titles={ver:"Detalle de la solicitud",aprobar:"Aprobar (Compras)",enviarGG:"Enviar a Gerencia General",aprobarGG:"Aprobar (Gerencia)",rechazar:"Rechazar",rechazarGG:"Rechazar (Gerencia)",reprogramar:"Reprogramar fecha de entrega",baja:"Dar de baja por presupuesto",listo:"Marcar listo",recibir:"Confirmar recibido · Acta de entrega",encuesta:"Calificar el servicio"};
+  const titles={ver:"Detalle de la solicitud",aprobar:"Aprobar (Compras)",enviarGG:"Enviar a Gerencia General",aprobarGG:"Aprobar (Gerencia)",rechazar:"Rechazar",rechazarGG:"Rechazar (Gerencia)",reprogramar:"Reprogramar fecha de entrega",baja:"Dar de baja por presupuesto",listo:"Marcar listo",recibir:"Confirmar recibido · Acta de entrega",encuesta:"Calificar el servicio",parcial:"Registrar entrega parcial",recibirParcial:"Confirmar recibido parcial"};
   const needCom = t.startsWith("rechazar")||t==="baja";
   return <Modal title={titles[t]} onClose={onClose}>
     {t==="ver" ? <div>
@@ -4427,10 +4530,21 @@ function ComprasModal({modal,user,onClose,apply,toast,setFoto}){
         {item.Cotizacion.tipo==="pdf"
           ? <button className="btn ocean block" onClick={()=>abrirCotiz(item.Cotizacion)}>📄 Ver cotización (PDF)</button>
           : <div className="fgrid"><SpImg foto={item.Cotizacion} idx="C" onClick={setFoto}/></div>}</>}
+      <CompraAvanceBox r={item}/>
+      <CompraEntregasTabla r={item} setFoto={setFoto}/>
       {["Entregado","Cerrada"].includes(item.Estado) && <button className="btn ocean block" style={{marginTop:12}} onClick={()=>actaCompra(item)}><Icon name="filetext" size={15} style={{marginRight:6}}/>Exportar Acta de Entrega (PDF)</button>}
       {item.Estado==="En compra" && notaPresupBox(12)}
     </div> : <div>
       {(t==="aprobar"||t==="reprogramar") && <Field label="Fecha tentativa de entrega" req={t==="reprogramar"} hint="La asigna el Coordinador de Compras. Vacía = no se marca como vencida."><input type="date" className="inp" value={fecha} onChange={e=>setFecha(e.target.value)}/></Field>}
+      {t==="parcial" && <>
+        <div className="hint" style={{marginBottom:8}}>Pedido: <b>{av.total} {item.Unidad}</b> · ya entregado: <b>{av.registrado}</b> · falta: <b>{av.pendienteRegistrar}</b>. La orden sigue abierta hasta que el solicitante confirme todo lo pedido.</div>
+        <Field label={`Cantidad entregada ahora (${item.Unidad||""})`} req><input className="inp" inputMode="decimal" value={cantP} onChange={e=>setCantP(e.target.value)} placeholder={"máx. "+av.pendienteRegistrar}/></Field>
+        <PhotoField fotos={fotosP} setFotos={setFotosP} setFoto={setFoto} label={`Soporte: foto / factura (${fotosP.length})`} hint="Opcional."/></>}
+      {t==="recibirParcial" && <>
+        <Field label="Entrega a confirmar"><select className="inp" value={eidSel} onChange={e=>setEidSel(e.target.value)}>
+          {av.porConfirmar.map(e=><option key={e.id} value={e.id}>{e.cantidad} {item.Unidad} · {fmtDT(e.fecha)} · {e.registro}</option>)}</select></Field>
+        <Field label="Resultado de la entrega"><select className="inp" value={acta} onChange={e=>setActa(e.target.value)}><option>Recibido conforme</option><option>Recibido con observaciones</option></select></Field>
+        <div className="hint">Recibido hasta ahora: {av.recibido} de {av.total}. Cuando se complete lo pedido, la orden pasa a <b>Entregado</b> y se genera el Acta.</div></>}
       {t==="recibir" && <><Field label="Resultado de la entrega"><select className="inp" value={acta} onChange={e=>setActa(e.target.value)}><option>Recibido conforme</option><option>Recibido con observaciones</option></select></Field>
         <div className="hint">Al confirmar, el ítem queda como <b>Entregado</b> y podrás exportar el Acta en PDF.</div></>}
       {t==="encuesta" && <><Field label="Califica el tiempo de entrega (1-10)"><Stars value={calT} onChange={setCalT}/></Field>
