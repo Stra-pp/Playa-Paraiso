@@ -693,8 +693,8 @@ applyGestiona();
 
 /* ===== CONFIG ===== */
 const APP = {
-  version: "Playa Paraíso · App unificada v7.5 · Compras con entregas parciales · v7.4 · Resumen ILD solo desde remitente · v7.3 · Habitaciones fuera del Dashboard ILD · v7.2 · Comidas por Apertura/Cierre · v7.1 · Días por ILD + feriados por área · v7.0 · Resumen diario de ILD por correo · v6.9 · Briefing HK en ILD + cierre de pendientes antiguos + auditorías progresivas · v6.8 · ILD inactivos + eliminados persistentes + orden Dashboard · UI 5.9 (pulido + nav inferior) · SharePoint Prueba7(Listas) · Notif+Offline · Fix conexión/exportación/fotos avance",
-  versionShort: "Playa Paraíso v7.5",
+  version: "Playa Paraíso · App unificada v7.6 · Comidas sin operación por día · v7.5 · Compras con entregas parciales · v7.4 · Resumen ILD solo desde remitente · v7.3 · Habitaciones fuera del Dashboard ILD · v7.2 · Comidas por Apertura/Cierre · v7.1 · Días por ILD + feriados por área · v7.0 · Resumen diario de ILD por correo · v6.9 · Briefing HK en ILD + cierre de pendientes antiguos + auditorías progresivas · v6.8 · ILD inactivos + eliminados persistentes + orden Dashboard · UI 5.9 (pulido + nav inferior) · SharePoint Prueba7(Listas) · Notif+Offline · Fix conexión/exportación/fotos avance",
+  versionShort: "Playa Paraíso v7.6",
   useGraph: true,    // true = guarda en SharePoint (Prueba7). Cambia a false para modo demo local.
   ms: {
     clientId: "3f28a168-96e0-4b84-9845-caad8d358beb",
@@ -1399,7 +1399,8 @@ const DIAS_CFG = {
   areas: {},               // areas[area] = {patron:'diario'|'finde'|'vsd'|'personalizado', dias:[0..6]}
   excepciones: {},         // excepciones["YYYY-MM-DD"] = { todas:0|1, areas:{ [area]:0|1 }, motivo:"" }
   ocupacion: {},           // ocupacion["YYYY-MM-DD"] = porcentaje
-  reglaOcup: { activa:false, umbral:40, areas:[] }  // bajo ese umbral, estas áreas no aplican
+  reglaOcup: { activa:false, umbral:40, areas:[] },  // bajo ese umbral, estas áreas no aplican
+  sinComida: {}            // v7.6 · sinComida["YYYY-MM-DD"] = ["Cena", …] comidas sin operación ese día
 };
 function patronDias(p){ return p==='finde'?[0,6]:p==='vsd'?[0,5,6]:p==='diario'?[0,1,2,3,4,5,6]:null; }
 /* Un ILD marcado como duplicado sigue existiendo con sus fotos y su revisión,
@@ -1461,10 +1462,14 @@ function diasEsperados(area,year,month,hastaHoy){
    los días esperados solo del primer área del grupo, lo cual daba un
    porcentaje equivocado en cuanto dos outlets agrupados tuvieran patrones
    distintos/complementarios. */
-function diasEsperadosGrupo(areasArr,year,month,hastaHoy){
+/* v7.6 · Comidas sin operación en un día puntual (p.ej. 25-oct sin cena,
+   26-oct sin desayuno ni almuerzo): ese día esa comida no se espera, ni en
+   Apertura ni en Cierre. Se administra en Gestionar ILD › Reglas generales. */
+function comidaNoAplica(iso, comida){ const l=(DIAS_CFG.sinComida||{})[iso]; return !!(comida && Array.isArray(l) && l.indexOf(comida)>=0); }
+function diasEsperadosGrupo(areasArr,year,month,hastaHoy,comida){
   const hoy=hoyPartesEC(); const lastDay=new Date(year,month+1,0).getDate();
   const limit = (hastaHoy && hoy.y===year && hoy.m===month) ? hoy.d : lastDay;
-  let n=0; for(let d=1; d<=limit; d++){ const iso=isoYMD(year,month,d); if(areasArr.some(a=>aplicaDia(a,iso))) n++; }
+  let n=0; for(let d=1; d<=limit; d++){ const iso=isoYMD(year,month,d); if(comidaNoAplica(iso,comida)) continue; if(areasArr.some(a=>aplicaDia(a,iso))) n++; }
   return n;
 }
 /* Igual que diasEsperados, pero para un mes puntual (mes 0–11) o para el año
@@ -1531,7 +1536,8 @@ function applyIldConfig(cfg){ if(!cfg) return;
     DIAS_CFG.feriados=d.feriados||[]; DIAS_CFG.areas=d.areas||{};
     DIAS_CFG.feriadosOpera = d.feriadosOpera!==false;
     DIAS_CFG.excepciones=d.excepciones||{}; DIAS_CFG.ocupacion=d.ocupacion||{};
-    DIAS_CFG.reglaOcup=d.reglaOcup||{activa:false,umbral:40,areas:[]}; }
+    DIAS_CFG.reglaOcup=d.reglaOcup||{activa:false,umbral:40,areas:[]};
+    DIAS_CFG.sinComida=d.sinComida||{}; }
   if(Array.isArray(cfg.usuarios) && cfg.usuarios.length){ USERS.length=0; cfg.usuarios.forEach(u=>USERS.push(u)); applyGestiona(); }
   if(cfg.accesos) ACCESOS=cfg.accesos;
   if(cfg.amodo) AMODO=cfg.amodo;
@@ -1653,7 +1659,7 @@ function resumenArmar(u, dia, regs){
      comida, igual que en el Dashboard — basta que Desayuno/Almuerzo/Cena se
      reporte en cualquiera de esos outlets. */
   const grupoComida = areas.filter(a=>agrupaComida(a) && aplicaDia(a,dia));
-  if(grupoComida.length) COMIDAS.forEach(c=>["Apertura","Cierre"].forEach(t=>{
+  if(grupoComida.length) COMIDAS.filter(c=>!comidaNoAplica(dia,c)).forEach(c=>["Apertura","Cierre"].forEach(t=>{
     if(!recs.some(r=>grupoComida.some(a=>mismaArea(r.area,a)) && comidaDe(r)===c && r.turno===t)) faltan.push(`${c} · ${t} (servicio: ${grupoComida.map(cortoILD).join(" / ")})`); }));
   areas.forEach(a=>{ if(!aplicaDia(a,dia) || agrupaComida(a)) return;
     const turnos = AC[a]?.turno ? ["Apertura","Cierre"] : [""];
@@ -3248,11 +3254,11 @@ function ILDDash({user}){
     const ap=recs.filter(r=>r.estado==='Aprobado').length;
     const ob=recs.filter(r=>r.estado==='Con observaciones').length;
     const pe=recs.filter(r=>r.estado==='Pendiente').length;
-    const cubiertos=new Set(recs.filter(r=>r.estado!=='Pendiente' && areas.some(a=>aplicaDia(a,diaDe(r)))).map(diaDe)).size;
+    const cubiertos=new Set(recs.filter(r=>r.estado!=='Pendiente' && !comidaNoAplica(diaDe(r),comida) && areas.some(a=>aplicaDia(a,diaDe(r)))).map(diaDe)).size;
     const aprob=recs.filter(r=>r.fechaAprobacion && !r.cierreAdministrativo);
     const horas=aprob.length?(aprob.reduce((s,r)=>s+(new Date(r.fechaAprobacion)-new Date(r.fecha)),0)/aprob.length/3600000):0;
-    const dias=diasEsperadosGrupo(areas,year,mes,esMesActual);
-    const diasMes=diasEsperadosGrupo(areas,year,mes,false);
+    const dias=diasEsperadosGrupo(areas,year,mes,esMesActual,comida);
+    const diasMes=diasEsperadosGrupo(areas,year,mes,false,comida);
     const cumpl=dias?Math.min(100,Math.round(cubiertos/dias*100)):0;
     const mix=areas.map(a=>`${cortoILD(a)} ${recs.filter(r=>r.area===a).length}`).join(" · ");
     return {area:ref,turno:comida+(turnoC?" · "+turnoC:""),nombre:comida,sub:turnoC||"",mix,esComida:true,
@@ -3509,6 +3515,10 @@ function GestionarILD({user,toast,onSave}){
 
   /* ---------- reglas generales de calendario (feriados, ocupación) — globales, no por área ---------- */
   const [fer,setFer]=useState(""); const [ocF,setOcF]=useState(""); const [ocV,setOcV]=useState("");
+  const [scF,setScF]=useState(""); const [scC,setScC]=useState([]);
+  const addSinComida=()=>{ if(!scF||!scC.length) return; const m={...(DIAS_CFG.sinComida||{})};
+    m[scF]=[...new Set([...(m[scF]||[]),...scC])]; DIAS_CFG.sinComida=m; setScF(""); setScC([]); onSave(); re(); };
+  const delSinComida=f=>{ const m={...(DIAS_CFG.sinComida||{})}; delete m[f]; DIAS_CFG.sinComida=m; onSave(); re(); };
   const addFer=()=>{ if(fer && !DIAS_CFG.feriados.includes(fer)){ DIAS_CFG.feriados=[...DIAS_CFG.feriados,fer].sort(); setFer(""); onSave(); re(); } };
   const delFer=f=>{ DIAS_CFG.feriados=DIAS_CFG.feriados.filter(x=>x!==f); onSave(); re(); };
   function guardarOcup(){
@@ -3551,6 +3561,18 @@ function GestionarILD({user,toast,onSave}){
           {DIAS_CFG.feriadosOpera!==false?"Sí ✓":"No"}</button>
       </div>
       <div className="hint" style={{marginTop:6,marginBottom:14}}>Si respondes "No", los feriados dejan de contar como días esperados en todas las áreas.</div>
+
+      <div style={{borderTop:"1px solid var(--line)",paddingTop:14,marginBottom:14}}>
+        <h3 style={{margin:"0 0 6px",fontSize:14}}>Comidas sin operación</h3>
+        <div className="hint">Días puntuales en que una comida no tuvo servicio (p.ej. sin cena por cierre). Esa comida deja de esperarse ese día, en Apertura y Cierre, en el Dashboard y en el resumen diario.</div>
+        <div className="row" style={{gap:8,marginTop:8,flexWrap:"wrap",alignItems:"center"}}>
+          <input type="date" className="inp" style={{maxWidth:190}} value={scF} onChange={e=>setScF(e.target.value)}/>
+          {COMIDAS.map(c=><button key={c} className={"opt"+(scC.includes(c)?" on":"")} onClick={()=>setScC(l=>l.includes(c)?l.filter(x=>x!==c):[...l,c])}>{c}</button>)}
+          <button className="btn ocean" disabled={!scF||!scC.length} onClick={addSinComida}>Agregar</button></div>
+        <div style={{marginTop:10,display:"flex",flexWrap:"wrap",gap:8}}>{Object.keys(DIAS_CFG.sinComida||{}).sort().map(f=>
+          <span key={f} className="pill" style={{background:"#E7F0F3",color:"var(--ocean-d)"}}>{f}: sin {(DIAS_CFG.sinComida[f]||[]).join(", ").toLowerCase()}<b style={{cursor:"pointer",marginLeft:6}} onClick={()=>delSinComida(f)}>×</b></span>)}
+          {!Object.keys(DIAS_CFG.sinComida||{}).length && <div className="hint">Ninguna registrada.</div>}</div>
+      </div>
 
       <div style={{borderTop:"1px solid var(--line)",paddingTop:14}}>
         <h3 style={{margin:"0 0 6px",fontSize:14}}>Ocupación del día</h3>
